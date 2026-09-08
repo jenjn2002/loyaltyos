@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { render } from "../renderer.js";
+import { render, toPlainText } from "../renderer.js";
 
 describe("renderer — defense in depth", () => {
   it("blocks constructor access via template variable", () => {
@@ -33,5 +33,11 @@ describe("renderer — defense in depth", () => {
   it("renders each loops over arrays", () => {
     const result = render("{{#each items}}{{this}},{{/each}}", { items: ["a", "b"] });
     expect(result).toBe("a,b,");
+  });
+
+  it("creates a readable plaintext fallback from HTML", () => {
+    expect(toPlainText('<h1>Sign in</h1><p>Hi Hung,</p><p><a href="https://example.com?a=1">Open</a></p>')).toBe(
+      "Sign in\n\nHi Hung,\n\nOpen",
+    );
   });
 });

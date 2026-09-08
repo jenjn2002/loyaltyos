@@ -7,6 +7,29 @@ This implementation maps the Credit Program Rule Book's generic â€œCredit/Starâ€
 
 The legacy `PointAccount` and `PointTransaction` models remain available for backwards compatibility. New Credit flows use `CreditWallet` and the append-only `CreditTransaction` ledger.
 
+## Extensible point types
+
+Programs can define additional myCred-style wallets without changing the P/R ledger. A custom point type has a stable code, display name, unit label, expiry mode, negative-balance policy, transfer/redeem/exchange flags, and optional metadata.
+
+P-credit and R-credit are intentionally not editable or adjustable through this extension. They are the built-in rule-book credit types and use `CreditWallet`, `CreditLot`, `CreditTransaction`, the Credit Bank, Give, Redeem and Exchange flows. This boundary prevents the same balance from being issued once through Credits and again through Point types.
+
+```text
+GET   /point-types
+GET   /members/me/point-wallets
+GET   /admin/point-types
+POST  /admin/point-types
+PATCH /admin/point-types/:id
+POST  /admin/point-types/:id/adjust
+```
+
+`GET /point-types` and `GET /members/me/point-wallets` return only custom point types. The admin registry may show the read-only P/R definitions as a reference, but all P/R balance changes must go through `/admin/credits/*` or the member Credit APIs.
+
+Custom wallet grants and deductions use an append-only ledger, idempotency keys, expiry lots, and the daily credit expiry worker.
+
+## Governance permissions
+
+Every governed setting has two explicit permissions: `canView` controls whether the setting and its current value are returned to a role; `canEdit` controls whether the role may save it. The API rejects `canEdit: true` when `canView: false`, and the admin UI shows a definition tooltip beside each setting and permission column.
+
 ## Member APIs
 
 All endpoints are under `/api/v1` and require the member session cookie (or an appropriately scoped API key for server integrations).

@@ -24,6 +24,24 @@ export interface CreditBalance {
   totalSpent: number;
 }
 
+export interface CustomPointWallet {
+  pointTypeId: string;
+  code: string;
+  name: string;
+  unitLabel: string;
+  description: string | null;
+  color: string | null;
+  expiryMode: "NEVER" | "AFTER_DAYS";
+  expiryDays: number | null;
+  transferable: boolean;
+  redeemable: boolean;
+  exchangeable: boolean;
+  cashEligible: boolean;
+  balance: number;
+  totalEarned: number;
+  totalSpent: number;
+}
+
 export interface CreditExchangeRate {
   id: string;
   creditType: CreditType;

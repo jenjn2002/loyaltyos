@@ -45,12 +45,12 @@ describe("Portal", () => {
     expect(elements.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("has 6 nav links when authenticated", () => {
+  it("has 7 nav links when authenticated", () => {
     login();
     renderApp();
     const nav = screen.getByRole("navigation");
     const links = nav.querySelectorAll("a");
-    expect(links.length).toBe(6);
+    expect(links.length).toBe(7);
   });
 
   it("profile page renders login form when not authenticated", () => {
@@ -90,6 +90,11 @@ describe("Portal", () => {
 
   it("transactions page redirects to profile when not authenticated", () => {
     renderApp("/transactions");
+    expect(screen.getByRole("heading", { name: "Profile" })).toBeDefined();
+  });
+
+  it("notifications page redirects to profile when not authenticated", () => {
+    renderApp("/notifications");
     expect(screen.getByRole("heading", { name: "Profile" })).toBeDefined();
   });
 

@@ -37,6 +37,10 @@ model Program {
   creditExchangeRequests CreditExchangeRequest[]
   creditSettings      CreditSetting[]
   creditSettingPermissions CreditSettingPermission[]
+  pointTypeDefinitions PointTypeDefinition[]
+  pointWallets         CustomPointWallet[]
+  pointTransactions    CustomPointTransaction[]
+  pointLots            CustomPointLot[]
   creditCategories   CreditCategory[]
   creditBankCycles   CreditBankCycle[]
   creditBulkBatches  CreditBulkBatch[]
@@ -103,6 +107,9 @@ model Member {
   magicLinkTokens    MagicLinkToken[]
   giftCardTransactions GiftCardTransaction[]
   exchangeRequests CreditExchangeRequest[]
+  pointWallets     CustomPointWallet[]
+  pointTransactions CustomPointTransaction[]
+  pointLots        CustomPointLot[]
 
   @@unique([programId, externalId])
   @@index([programId])
@@ -127,6 +134,109 @@ model PointAccount {
 
   @@index([memberId, programId])
   @@index([programId])
+}
+
+/// Extensible point-type registry. P/R remain in the rule-book credit ledger;
+/// these definitions allow programs to add independent myCred-style wallets.
+model PointTypeDefinition {
+  id                    String   @id @default(cuid())
+  programId             String
+  code                  String
+  name                  String
+  unitLabel             String   @default("points")
+  description           String?
+  color                 String?
+  expiryMode            String   @default("NEVER")
+  expiryDays            Int?
+  allowNegativeBalance  Boolean  @default(false)
+  allowManualAdjustment Boolean  @default(true)
+  transferable          Boolean  @default(false)
+  redeemable            Boolean  @default(false)
+  exchangeable          Boolean  @default(false)
+  cashEligible          Boolean  @default(false)
+  isActive              Boolean  @default(true)
+  metadata              Json?    @default("{}")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  program      Program                 @relation(fields: [programId], references: [id], onDelete: Cascade)
+  wallets      CustomPointWallet[]
+  transactions CustomPointTransaction[]
+  lots         CustomPointLot[]
+
+  @@unique([programId, code])
+  @@index([programId, isActive])
+}
+
+model CustomPointWallet {
+  id          String   @id @default(cuid())
+  memberId    String
+  programId   String
+  pointTypeId String
+  balance     Int      @default(0)
+  totalEarned Int      @default(0)
+  totalSpent  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  member      Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program     Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType   PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  transactions CustomPointTransaction[]
+  lots        CustomPointLot[]
+
+  @@unique([memberId, pointTypeId])
+  @@index([programId, pointTypeId])
+}
+
+model CustomPointTransaction {
+  id          String   @id @default(cuid())
+  walletId    String
+  memberId    String
+  programId   String
+  pointTypeId String
+  action      String
+  amount      Int
+  balanceAfter Int
+  reason      String?
+  actorType   String?
+  actorId     String?
+  idempotencyKey String @unique
+  expiresAt   DateTime?
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now())
+
+  wallet    CustomPointWallet  @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member    Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program   Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  grantLot  CustomPointLot?
+
+  @@index([memberId, pointTypeId, createdAt])
+  @@index([programId, pointTypeId, createdAt])
+  @@index([expiresAt])
+}
+
+model CustomPointLot {
+  id                String   @id @default(cuid())
+  walletId          String
+  memberId          String
+  programId         String
+  pointTypeId       String
+  grantTransactionId String
+  originalAmount    Int
+  remainingAmount   Int
+  expiresAt         DateTime?
+  createdAt         DateTime @default(now())
+
+  wallet          CustomPointWallet   @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member          Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program         Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType       PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  grantTransaction CustomPointTransaction @relation(fields: [grantTransactionId], references: [id], onDelete: Restrict)
+
+  @@unique([grantTransactionId])
+  @@index([memberId, pointTypeId, remainingAmount, expiresAt])
 }
 
 enum TransactionType {

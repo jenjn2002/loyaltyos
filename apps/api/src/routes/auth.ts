@@ -39,6 +39,7 @@ async function triggerMagicLinkEmail(
       include: {
         pointAccount: true,
         memberTiers: { include: { tier: true } },
+        program: { select: { name: true } },
       },
     });
 
@@ -54,6 +55,9 @@ async function triggerMagicLinkEmail(
         firstName: member?.firstName,
         lastName: member?.lastName,
         currentTier,
+      },
+      program: {
+        name: member?.program.name,
       },
     });
   } catch (err) {
@@ -75,7 +79,7 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
 
       const member = await prisma.member.findFirst({
         where: { email, deletedAt: null, status: "ACTIVE" },
-        include: { program: { select: { defaultLocale: true, supportedLocales: true } } },
+        include: { program: { select: { name: true, defaultLocale: true, supportedLocales: true } } },
       });
 
       if (member) {

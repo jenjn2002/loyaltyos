@@ -37,6 +37,7 @@ import { eventsRoutes } from "./routes/events.js";
 import { giftCardsRoutes } from "./routes/giftcards.js";
 import { healthRoutes } from "./routes/health.js";
 import { membersRoutes } from "./routes/members.js";
+import { pointTypesRoutes } from "./routes/point-types.js";
 import { rewardsRoutes } from "./routes/rewards.js";
 import { statsRoutes } from "./routes/stats.js";
 
@@ -173,6 +174,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   // Protected routes (after auth plugin)
   await app.register(healthRoutes, { prefix: "/" });
   await app.register(membersRoutes, { prefix: "/api/v1" });
+  await app.register(pointTypesRoutes, { prefix: "/api/v1" });
   await app.register(eventsRoutes, { prefix: "/api/v1" });
   await app.register(adminCampaignsRoutes, { prefix: "/api/v1" });
   await app.register(statsRoutes, { prefix: "/api/v1" });

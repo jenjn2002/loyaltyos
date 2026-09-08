@@ -7,7 +7,7 @@ export { createSmtpProvider, SmtpProvider } from "./providers/smtp.js";
 export type { TwilioConfig } from "./providers/twilio.js";
 export { createTwilioProvider, TwilioSmsProvider } from "./providers/twilio.js";
 export { createWebhookProvider, WebhookProvider } from "./providers/webhook.js";
-export { render } from "./renderer.js";
+export { render, toPlainText } from "./renderer.js";
 export type { Repository } from "./repository.js";
 export { createRepository } from "./repository.js";
 export { notificationCreateSchema, templateCreateSchema, templateUpdateSchema } from "./schemas.js";

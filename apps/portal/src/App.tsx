@@ -5,6 +5,7 @@ import { isAuthenticated } from "./lib/auth";
 import Badges from "./pages/badges";
 import Credits from "./pages/credits";
 import Home from "./pages/home";
+import Notifications from "./pages/notifications";
 import Profile from "./pages/profile";
 import RewardDetail from "./pages/reward-detail";
 import Rewards from "./pages/rewards";
@@ -37,6 +38,14 @@ export default function App() {
           element={
             <AuthGuard>
               <Credits />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <AuthGuard>
+              <Notifications />
             </AuthGuard>
           }
         />

@@ -23,6 +23,7 @@ import { TermsListPage } from "@/pages/giftcards/terms-list";
 import { LoginPage } from "@/pages/login";
 import { MemberDetailPage } from "@/pages/member-detail";
 import { MembersListPage } from "@/pages/members-list";
+import { PointTypesPage } from "@/pages/point-types";
 import { RewardsEditorPage } from "@/pages/rewards/rewards-editor";
 import { RewardsListPage } from "@/pages/rewards/rewards-list";
 import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
@@ -63,6 +64,7 @@ export function App(): JSX.Element {
         <Route path="/members" element={<MembersListPage />} />
         <Route path="/members/:id" element={<MemberDetailPage />} />
         <Route path="/credits" element={<CreditsManagementPage />} />
+        <Route path="/point-types" element={<PointTypesPage />} />
         <Route path="/campaigns" element={<CampaignsListPage />} />
         <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
         <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />

@@ -1,4 +1,4 @@
-import { Award, Gift, Home, Star, User, WalletCards } from "lucide-react";
+import { Award, Bell, Gift, Home, Star, User, WalletCards } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 
@@ -19,6 +19,7 @@ export default function BottomNav() {
     { to: "/", label: t("home"), icon: Home, authRequired: false },
     { to: "/transactions", label: t("transactions"), icon: Star, authRequired: true },
     { to: "/credits", label: "Credits", icon: WalletCards, authRequired: true },
+    { to: "/notifications", label: "Notifications", icon: Bell, authRequired: true },
     { to: "/rewards", label: t("rewards"), icon: Gift, authRequired: true },
     { to: "/badges", label: t("badges"), icon: Award, authRequired: true },
     { to: "/profile", label: t("profile"), icon: User, authRequired: false },

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Employee Credits screen** — added wallet balances, multi-recipient recognition, exchange preview, and idempotent submissions to the customer portal.
 - **Credit governance settings** — added editable P/R values, exchange limits, payout and reconciliation settings, approved budget, issuance/approval policies, employee fulfillment visibility, and per-setting permissions for `SUPER_ADMIN`, `OPERATOR`, and `ANALYST`.
 - **Fulfillment visibility** — added an employee read-only redemption status view when enabled by governance settings.
+- **Notifications tab** — moved customer notifications into a dedicated paginated portal tab with safe HTML-to-text rendering and actionable links.
+- **Extensible point types** — added a program-scoped point-type registry, custom member wallets, expiry lots, audited manual adjustments, and configurable behavior flags while preserving P/R compatibility.
 
 ### Changed
 

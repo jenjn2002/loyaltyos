@@ -3,7 +3,7 @@ import { ArrowRightLeft, History, Plus, Send, WalletCards } from "lucide-react";
 import { useState } from "react";
 
 import { fetchApi, postApi } from "../lib/api-client";
-import type { CreditBalance, CreditCategory, CreditExchangeRate, CreditHistory, CreditType, MemberProfile, MemberRewardRedemption, RecognitionFeedItem } from "../types";
+import type { CreditBalance, CreditCategory, CreditExchangeRate, CreditHistory, CreditType, CustomPointWallet, MemberProfile, MemberRewardRedemption, RecognitionFeedItem } from "../types";
 
 interface RecipientRow {
   memberId: string;
@@ -35,6 +35,10 @@ export default function Credits() {
     queryKey: ["credits", "balances"],
     queryFn: () => fetchApi<CreditBalance[]>("/members/me/credits"),
   });
+  const customPointWallets = useQuery({
+    queryKey: ["point-wallets", "me"],
+    queryFn: () => fetchApi<CustomPointWallet[]>("/members/me/point-wallets"),
+  });
   const rates = useQuery({
     queryKey: ["credits", "rates"],
     queryFn: () => fetchApi<CreditExchangeRate[]>("/credits/exchange/rates"),
@@ -54,10 +58,6 @@ export default function Credits() {
   const recognitionFeed = useQuery({
     queryKey: ["credits", "recognition-feed", feedPage, feedKind],
     queryFn: () => fetchApi<{ items: RecognitionFeedItem[]; page: number; totalPages: number }>(`/members/me/recognition-feed?page=${String(feedPage)}&pageSize=10&kind=${feedKind}`),
-  });
-  const notifications = useQuery({
-    queryKey: ["notifications", "me"],
-    queryFn: () => fetchApi<{ items: Array<{ id: string; subject: string | null; body: string | null; status: string; createdAt: string }> }>("/members/me/notifications?page=1&pageSize=10"),
   });
   const redemptions = useQuery({
     queryKey: ["reward-redemptions", "me"],
@@ -101,7 +101,7 @@ export default function Credits() {
   const exchangePreview = activeRate ? Number(exchangeAmount || 0) * activeRate.valueMinorPerCredit : 0;
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="mx-auto w-full max-w-lg space-y-6 px-4 py-6 pb-20">
       <header>
         <p className="text-sm font-medium text-[var(--color-text-secondary)]">Credit wallet</p>
         <h1 className="mt-1 text-2xl font-bold">Stars & recognition</h1>
@@ -120,6 +120,13 @@ export default function Credits() {
           </div>
         ))}
       </section>
+
+      {(customPointWallets.data ?? []).filter((wallet) => !["P", "R"].includes(wallet.code)).length > 0 && <section className="space-y-3" aria-label="Custom point balances">
+        <div><p className="text-sm font-medium text-[var(--color-text-secondary)]">Configured point wallets</p><h2 className="text-lg font-semibold">Other points</h2></div>
+        <div className="grid grid-cols-2 gap-3">
+          {(customPointWallets.data ?? []).filter((wallet) => !["P", "R"].includes(wallet.code)).map((wallet) => <div key={wallet.pointTypeId} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"><div className="text-sm font-semibold">{wallet.name}</div><p className="mt-2 text-3xl font-bold">{wallet.balance.toLocaleString()}</p><p className="mt-1 text-xs text-[var(--color-text-secondary)]">{wallet.unitLabel} · {wallet.expiryMode === "NEVER" ? "no expiry" : `expires after ${String(wallet.expiryDays)} days`}</p></div>)}
+        </div>
+      </section>}
 
       <section className="rounded-2xl border border-[var(--color-border)] p-4">
         <div className="flex items-center gap-2">
@@ -149,11 +156,6 @@ export default function Credits() {
           <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"><option value="">Category (optional)</option>{(categories.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
           <button type="button" disabled={give.isPending || !message.trim() || recipients.some((row) => !row.memberId)} onClick={() => { if (!window.confirm(`Confirm recognition to ${String(recipients.length)} colleague(s)?`)) return; setNotice(null); give.mutate(); }} className="w-full rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{give.isPending ? "Sending…" : "Confirm & send recognition"}</button>
         </div>
-      </section>
-
-      <section className="rounded-2xl border border-[var(--color-border)] p-4">
-        <h2 className="text-lg font-semibold">Notifications</h2>
-        <div className="mt-3 space-y-2">{(notifications.data?.items ?? []).map((item) => <div key={item.id} className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm"><p className="font-medium">{item.subject ?? "LoyaltyOS update"}</p>{item.body && <p className="mt-1">{item.body}</p>}<p className="mt-1 text-xs text-[var(--color-text-secondary)]">{new Date(item.createdAt).toLocaleString()} · {item.status}</p></div>)}{(notifications.data?.items ?? []).length === 0 && <p className="text-sm text-[var(--color-text-secondary)]">No notifications.</p>}</div>
       </section>
 
       {!redemptions.isError && redemptions.data && <section className="rounded-2xl border border-[var(--color-border)] p-4">

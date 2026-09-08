@@ -2,6 +2,7 @@ import type { Transporter } from "nodemailer";
 import { createTransport } from "nodemailer";
 
 import type { NotificationProvider, NotificationRow } from "../types.js";
+import { toPlainText } from "../renderer.js";
 
 export interface SmtpConfig {
   host: string;
@@ -34,6 +35,7 @@ export class SmtpProvider implements NotificationProvider {
         to: meta?.email ?? "",
         subject: notification.subject ?? "",
         html: notification.body ?? undefined,
+        text: notification.body ? toPlainText(notification.body) : undefined,
       });
       return { success: true };
     } catch (err) {
