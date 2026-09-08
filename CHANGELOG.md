@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Dual Credit wallets** — added separate P-credit and R-credit wallets with an immutable, idempotent transaction ledger, wallet-level balances, spend totals, and program-scoped isolation.
+- **Recognition Give flow** — added single and multi-recipient Give, mandatory recognition messages, optional categories, self-give protection, configurable period and giver/receiver limits, and one-way P-credit-to-R-credit conversion on receipt.
+- **Credit Exchange** — added versioned exchange rates, credit-type eligibility rules, minimum/maximum limits, payout mechanism metadata, and rate snapshots on exchange ledger entries.
+- **Credit Bank** — added admin issuance/allocation workflow, bank balances by credit type, allocation history, and balance-safe positive/negative admin adjustments with audit records.
+- **Employee Credits screen** — added wallet balances, multi-recipient recognition, exchange preview, and idempotent submissions to the customer portal.
+- **Credit governance settings** — added editable P/R values, exchange limits, payout and reconciliation settings, approved budget, issuance/approval policies, employee fulfillment visibility, and per-setting permissions for `SUPER_ADMIN`, `OPERATOR`, and `ANALYST`.
+- **Fulfillment visibility** — added an employee read-only redemption status view when enabled by governance settings.
+
+### Changed
+
+- Existing points accounts and ledgers remain intact for backwards compatibility while the new Credit model is adopted incrementally.
+- Admin and employee API contracts now expose credit wallet balances, transaction history, exchange rates, bank oversight, adjustments, and expiration processing.
+
 ## [1.0.0] - 2026-05-21 — Initial Public Release
 
 ### Core Platform

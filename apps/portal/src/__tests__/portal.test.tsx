@@ -45,12 +45,12 @@ describe("Portal", () => {
     expect(elements.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("has 5 nav links when authenticated", () => {
+  it("has 6 nav links when authenticated", () => {
     login();
     renderApp();
     const nav = screen.getByRole("navigation");
     const links = nav.querySelectorAll("a");
-    expect(links.length).toBe(5);
+    expect(links.length).toBe(6);
   });
 
   it("profile page renders login form when not authenticated", () => {

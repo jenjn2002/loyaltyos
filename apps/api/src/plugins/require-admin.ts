@@ -2,7 +2,7 @@ import type { preHandlerHookHandler } from "fastify";
 
 import { LoyaltyError } from "../lib/errors.js";
 
-export const requireAdmin: preHandlerHookHandler = (request) => {
+export const requireAdmin: preHandlerHookHandler = async (request) => {
   const hasAdminSession = request.adminId != null;
   const hasServerScope = request.apiKeyScope === "SERVER";
 

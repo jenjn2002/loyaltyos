@@ -1,0 +1,69 @@
+{
+  email admin@trunglocxoay.store
+}
+
+loyalty.trunglocxoay.store {
+  encode gzip
+
+  @api path /api/*
+  handle @api {
+    reverse_proxy api:3002
+  }
+
+  handle /healthz {
+    reverse_proxy api:3002
+  }
+
+  handle {
+    reverse_proxy portal:80
+  }
+}
+
+adminloyalty.trunglocxoay.store {
+  encode gzip
+
+  @api path /api/*
+  handle @api {
+    reverse_proxy api:3002
+  }
+
+  handle /healthz {
+    reverse_proxy api:3002
+  }
+
+  handle {
+    reverse_proxy admin:80
+  }
+}
+
+openloyalty.trunglocxoay.store {
+  encode gzip
+
+  @api path /app_dev.php/api/*
+  handle @api {
+    reverse_proxy open_loyalty_trial_backend:80
+  }
+
+  @customerRoot path /customer
+  redir @customerRoot /customer/ permanent
+
+  @customer path /customer/*
+  handle @customer {
+    uri strip_prefix /customer
+    reverse_proxy open_loyalty_trial_frontend:3001
+  }
+
+  @posRoot path /pos
+  redir @posRoot /pos/ permanent
+
+  @pos path /pos/*
+  header @pos Cache-Control "no-store"
+  handle @pos {
+    uri strip_prefix /pos
+    reverse_proxy open_loyalty_trial_frontend:3002
+  }
+
+  handle {
+    reverse_proxy open_loyalty_trial_frontend:3000
+  }
+}

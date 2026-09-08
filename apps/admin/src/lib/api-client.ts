@@ -12,6 +12,21 @@ export function isAdminAuthenticated(): boolean {
   return adminCredentialMode;
 }
 
+/** Restore the admin session after a full-page refresh. */
+export async function restoreAdminSession(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/admin/me`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    adminCredentialMode = response.ok;
+    return response.ok;
+  } catch {
+    adminCredentialMode = false;
+    return false;
+  }
+}
+
 export async function adminLogin(
   email: string,
   password: string,
@@ -63,7 +78,10 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
     credentials: adminCredentialMode ? "include" : "omit",
   });
 
-  const body = (await response.json()) as { error?: { message: string }; data: T };
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json")
+    ? ((await response.json()) as { error?: { message: string }; data?: T })
+    : ({} as { error?: { message: string }; data?: T });
 
   if (!response.ok) {
     // If admin session expired, redirect to login
@@ -74,5 +92,5 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
     throw new Error(body.error?.message ?? `Request failed with status ${String(response.status)}`);
   }
 
-  return body.data;
+  return body.data as T;
 }

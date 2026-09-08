@@ -85,7 +85,7 @@ RUN find node_modules -name '*.d.ts' -not -path '*@prisma/client*' -delete && \
 
 # Stage 3: Runtime
 FROM node:20-alpine AS runtime
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache curl openssl && \
     addgroup -S loyaltyos && adduser -S loyaltyos -G loyaltyos
 
 USER loyaltyos
@@ -117,6 +117,35 @@ COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/rewards/dist ./pac
 COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/rewards/package.json ./packages/rewards/
 COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/coalition/dist ./packages/coalition/dist
 COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/coalition/package.json ./packages/coalition/
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/giftcards/dist ./packages/giftcards/dist
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/giftcards/package.json ./packages/giftcards/
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/i18n/dist ./packages/i18n/dist
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/i18n/package.json ./packages/i18n/
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/telemetry/dist ./packages/telemetry/dist
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/telemetry/package.json ./packages/telemetry/
+
+# pnpm keeps each workspace package's dependency links in its own
+# node_modules directory; copy those links for runtime module resolution.
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/campaigns/node_modules ./packages/campaigns/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/coupons/node_modules ./packages/coupons/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/segments/node_modules ./packages/segments/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/notifications/node_modules ./packages/notifications/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/badges/node_modules ./packages/badges/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/rewards/node_modules ./packages/rewards/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/coalition/node_modules ./packages/coalition/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/giftcards/node_modules ./packages/giftcards/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/i18n/node_modules ./packages/i18n/node_modules
+COPY --from=builder --chown=loyaltyos:loyaltyos /app/packages/telemetry/node_modules ./packages/telemetry/node_modules
+
+# Workspace packages point at TypeScript sources for local development.
+# Production images contain their compiled dist/ output instead.
+RUN for package in core campaigns coupons segments notifications badges rewards coalition giftcards i18n telemetry; do \
+      sed -i 's#"main": "\./src/index\.ts"#"main": "./dist/index.js"#; s#"types": "\./src/index\.ts"#"types": "./dist/index.d.ts"#' \
+        "/app/packages/${package}/package.json"; \
+    done && \
+    sed -i 's#"main": "\./dist/index\.js"#"main": "./dist/src/index.js"#; s#"types": "\./dist/index\.d\.ts"#"types": "./dist/src/index.d.ts"#' \
+      /app/packages/telemetry/package.json
 
 COPY apps/api/entrypoint.sh /entrypoint.sh
 USER root

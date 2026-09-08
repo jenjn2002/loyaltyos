@@ -12,6 +12,11 @@ beforeAll(async () => {
   app = await buildApp({ logger: false });
   await app.ready();
   prisma = (await import("../db.js")).prisma;
+  await prisma.program.upsert({
+    where: { id: "prog_dev" },
+    update: {},
+    create: { id: "prog_dev", name: "Test Program" },
+  });
 });
 
 afterAll(async () => {

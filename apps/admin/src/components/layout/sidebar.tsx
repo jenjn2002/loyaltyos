@@ -9,6 +9,7 @@ import {
   PieChart,
   Ticket,
   Users,
+  WalletCards,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
@@ -32,6 +33,7 @@ export function Sidebar(): JSX.Element {
   const links = [
     { to: "/", label: t("navigation.dashboard"), icon: LayoutDashboard, end: true },
     { to: "/members", label: t("navigation.members"), icon: Users },
+    { to: "/credits", label: "Credits", icon: WalletCards },
     { to: "/campaigns", label: t("navigation.campaigns"), icon: Megaphone },
     { to: "/coupons", label: t("navigation.coupons"), icon: Ticket },
     { to: "/segments", label: t("navigation.segments"), icon: PieChart },

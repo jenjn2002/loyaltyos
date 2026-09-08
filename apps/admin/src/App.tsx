@@ -1,5 +1,6 @@
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { BadgeEditorPage } from "@/pages/badge-editor";
@@ -11,6 +12,7 @@ import { CoalitionLinkedMembersPage } from "@/pages/coalition/linked-members";
 import { CoalitionTransactionsPage } from "@/pages/coalition/transactions";
 import { CouponBulkGeneratePage } from "@/pages/coupon-bulk-generate";
 import { CouponsListPage } from "@/pages/coupons-list";
+import { CreditsManagementPage } from "@/pages/credits-management";
 import { DashboardPage } from "@/pages/dashboard";
 import { BatchDetailPage } from "@/pages/giftcards/batch-detail";
 import { BatchWizardPage } from "@/pages/giftcards/batch-wizard";
@@ -27,15 +29,40 @@ import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
 import { SegmentBuilderPage } from "@/pages/segment-builder";
 import { SegmentsListPage } from "@/pages/segments-list";
 import { TiersListPage } from "@/pages/tiers-list";
+import { restoreAdminSession } from "@/lib/api-client";
+
+function AdminGuard({ children }: { children: ReactNode }): JSX.Element {
+  const location = useLocation();
+  const [state, setState] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
+
+  useEffect(() => {
+    let active = true;
+    void restoreAdminSession().then((authenticated) => {
+      if (active) setState(authenticated ? "authenticated" : "unauthenticated");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (state === "loading") {
+    return <div className="flex min-h-screen items-center justify-center">Loading…</div>;
+  }
+  if (state === "unauthenticated") {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return <>{children}</>;
+}
 
 export function App(): JSX.Element {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route element={<AppLayout />}>
+      <Route element={<AdminGuard><AppLayout /></AdminGuard>}>
         <Route index element={<DashboardPage />} />
         <Route path="/members" element={<MembersListPage />} />
         <Route path="/members/:id" element={<MemberDetailPage />} />
+        <Route path="/credits" element={<CreditsManagementPage />} />
         <Route path="/campaigns" element={<CampaignsListPage />} />
         <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
         <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />

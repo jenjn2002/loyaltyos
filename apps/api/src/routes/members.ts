@@ -19,6 +19,8 @@ const createMemberSchema = z.object({
   phone: z.string().optional(),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  department: z.string().max(120).optional(),
+  photoUrl: z.string().url().optional(),
   metadata: z.record(z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
 });
@@ -47,12 +49,15 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         page: z.coerce.number().int().min(1).optional().default(1),
         pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
         search: z.string().optional(),
+        department: z.string().optional(),
+        status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
       })
       .parse(request.query);
 
     const where: Prisma.MemberWhereInput = {
       programId: request.programId,
-      deletedAt: null,
+      ...(query.status ? { status: query.status } : { deletedAt: null, status: "ACTIVE" }),
+      ...(query.department ? { department: { contains: query.department, mode: "insensitive" } } : {}),
     };
 
     if (query.search) {
@@ -67,7 +72,10 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     const [items, total] = await Promise.all([
       prisma.member.findMany({
         where,
-        include: { pointAccount: { select: { balance: true } } },
+        include: {
+          pointAccount: { select: { balance: true } },
+          creditWallets: { select: { creditType: true, balance: true } },
+        },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
         orderBy: { createdAt: "desc" },
@@ -104,7 +112,11 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   });
 
   const patchMeSchema = z.object({
-    locale: z.enum(["es-MX", "en-US"]),
+    locale: z.enum(["es-MX", "en-US"]).optional(),
+    firstName: z.string().max(120).optional(),
+    lastName: z.string().max(120).optional(),
+    department: z.string().max(120).optional(),
+    photoUrl: z.string().url().nullable().optional(),
   });
 
   /** PATCH /members/me — update authenticated member's locale */
@@ -128,13 +140,13 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       }
 
       const programLocales = member.program.supportedLocales;
-      if (!programLocales.includes(body.locale)) {
+      if (body.locale && !programLocales.includes(body.locale)) {
         throw new LoyaltyError("INVALID_INPUT", 400);
       }
 
       const updated = await prisma.member.update({
         where: { id: memberId },
-        data: { locale: body.locale },
+        data: body,
       });
 
       return reply.send({ data: updated });
@@ -146,6 +158,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
     const member = await prisma.member.findFirst({
       where: { id, programId: request.programId },
+      include: { creditWallets: { select: { creditType: true, balance: true } } },
     });
     if (!member) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Member not found" } });
@@ -157,6 +170,8 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     locale: z.enum(["es-MX", "en-US"]).nullable().optional(),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    department: z.string().max(120).optional(),
+    photoUrl: z.string().url().nullable().optional(),
     metadata: z.record(z.unknown()).optional(),
     tags: z.array(z.string()).optional(),
   });
@@ -170,6 +185,8 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     if (body.locale !== undefined) data.locale = body.locale;
     if (body.firstName !== undefined) data.firstName = body.firstName;
     if (body.lastName !== undefined) data.lastName = body.lastName;
+    if (body.department !== undefined) data.department = body.department;
+    if (body.photoUrl !== undefined) data.photoUrl = body.photoUrl;
     if (body.tags !== undefined) data.tags = body.tags;
     if (body.metadata !== undefined) data.metadata = body.metadata;
 
@@ -349,6 +366,13 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   });
 
   // ═══ Notification Preferences ═══
+
+  app.get("/members/me/notifications", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const query = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).parse(request.query);
+    const result = await notificationsService.getMemberNotifications(request.memberId, query);
+    return reply.send({ data: result });
+  });
 
   const preferenceUpdateSchema = z.object({
     channel: z.enum(["EMAIL", "SMS", "PUSH", "IN_APP"]),

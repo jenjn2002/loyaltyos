@@ -10,33 +10,44 @@ const prisma = new PrismaClient({
 async function main(): Promise<void> {
   console.log("Seeding LoyaltyOS demo data...\n");
 
-  // Clean existing data in reverse dependency order
-  await prisma.pointTransaction.deleteMany();
-  await prisma.coalitionTransaction.deleteMany();
-  await prisma.coalitionAccount.deleteMany();
-  await prisma.memberTier.deleteMany();
-  await prisma.memberBadge.deleteMany();
-  await prisma.couponRedemption.deleteMany();
-  await prisma.rewardRedemption.deleteMany();
-  await prisma.notification.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.pointAccount.deleteMany();
-  await prisma.member.deleteMany();
-  await prisma.adminUser.deleteMany();
-  await prisma.campaignVariant.deleteMany();
-  await prisma.campaign.deleteMany();
-  await prisma.coupon.deleteMany();
-  await prisma.reward.deleteMany();
-  await prisma.badge.deleteMany();
-  await prisma.segment.deleteMany();
-  await prisma.pointRule.deleteMany();
-  await prisma.notificationTemplate.deleteMany();
-  await prisma.webhookSubscription.deleteMany();
-  await prisma.apiKey.deleteMany();
-  await prisma.tier.deleteMany();
-  await prisma.event.deleteMany();
-  await prisma.program.deleteMany();
-  console.log("Cleaned existing data.\n");
+  const existingProgram = await prisma.program.findUnique({ where: { id: "prog_dev" } });
+  if (existingProgram) {
+    console.log(`Program ${existingProgram.id} already exists; skipping seed to preserve data.`);
+    return;
+  }
+
+  // The original demo seed deleted all records. Production deployment uses a
+  // non-destructive first-run seed so existing customer data is never removed.
+  if (process.env.SEED_CLEAN === "true") {
+    await prisma.pointTransaction.deleteMany();
+    await prisma.coalitionTransaction.deleteMany();
+    await prisma.coalitionAccount.deleteMany();
+    await prisma.memberTier.deleteMany();
+    await prisma.memberBadge.deleteMany();
+    await prisma.couponRedemption.deleteMany();
+    await prisma.rewardRedemption.deleteMany();
+    await prisma.notification.deleteMany();
+    await prisma.auditLog.deleteMany();
+    await prisma.pointAccount.deleteMany();
+    await prisma.member.deleteMany();
+    await prisma.adminUser.deleteMany();
+    await prisma.campaignVariant.deleteMany();
+    await prisma.campaign.deleteMany();
+    await prisma.coupon.deleteMany();
+    await prisma.reward.deleteMany();
+    await prisma.badge.deleteMany();
+    await prisma.segment.deleteMany();
+    await prisma.pointRule.deleteMany();
+    await prisma.notificationTemplate.deleteMany();
+    await prisma.webhookSubscription.deleteMany();
+    await prisma.apiKey.deleteMany();
+    await prisma.tier.deleteMany();
+    await prisma.event.deleteMany();
+    await prisma.program.deleteMany();
+    console.log("Cleaned existing data.\n");
+  } else {
+    console.log("Existing data cleanup disabled.\n");
+  }
 
   // === Program ===
   const program = await prisma.program.create({
@@ -645,7 +656,7 @@ async function main(): Promise<void> {
   console.log(`Program Name:         ${program.name}`);
   console.log(`API Key (X-API-Key):  ${apiKey.key}`);
   console.log(`Admin Email:          ${admin.email}`);
-  console.log(`Admin Password:       demo1234   (dev only)`);
+  console.log(`Admin Password:       ${adminPassword}   (change in production!)`);
   console.log(`Demo Member ID:       ${members[0]!.id}`);
   console.log(`Demo Member Email:    ${members[0]!.email ?? ""}`);
   console.log(`Notification Templates:  ${String(await prisma.notificationTemplate.count())}`);

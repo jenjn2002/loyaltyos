@@ -64,6 +64,12 @@
   "members": {
     "title": "Members",
     "addMember": "Add Member",
+    "createTitle": "Add a member",
+    "createDescription": "Create a member who can sign in to the portal with a magic link.",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "externalIdOptional": "External ID (optional)",
+    "createFailed": "Failed to create member",
     "tier": "Tier",
     "balance": "Balance",
     "joinedAt": "Joined",

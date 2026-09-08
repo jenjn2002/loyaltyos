@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/layout/app-layout";
 import { isAuthenticated } from "./lib/auth";
 import Badges from "./pages/badges";
+import Credits from "./pages/credits";
 import Home from "./pages/home";
 import Profile from "./pages/profile";
 import RewardDetail from "./pages/reward-detail";
@@ -28,6 +29,14 @@ export default function App() {
           element={
             <AuthGuard>
               <Transactions />
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/credits"
+          element={
+            <AuthGuard>
+              <Credits />
             </AuthGuard>
           }
         />

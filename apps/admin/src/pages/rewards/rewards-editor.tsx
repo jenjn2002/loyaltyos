@@ -34,7 +34,7 @@ const rewardSchema = z.object({
 type RewardFormData = z.infer<typeof rewardSchema>;
 
 const CATEGORIES = [
-  { value: "", label: "None" },
+  { value: "__none__", label: "None" },
   { value: "DISCOUNT_FUTURE", label: "Discount" },
   { value: "PHYSICAL_PRODUCT", label: "Physical Product" },
   { value: "GIFT_CARD", label: "Gift Card" },
@@ -61,6 +61,7 @@ export function RewardsEditorPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [previewMemberId, setPreviewMemberId] = useState("");
   const [previewResult, setPreviewResult] = useState<EligibilityPreview | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const form = useForm<RewardFormData>({
     resolver: zodResolver(rewardSchema),
@@ -118,23 +119,29 @@ export function RewardsEditorPage(): JSX.Element {
         description: data.description,
         pointsCost: data.pointsCost,
         stock: data.stock ?? null,
-        category: data.category !== "" ? data.category : null,
-        tierRequired: data.tierRequired !== "" ? data.tierRequired : null,
+        imageUrl: data.imageUrl === "" ? null : data.imageUrl,
+        category: data.category && data.category !== "__none__" ? data.category : null,
+        tierRequired:
+          data.tierRequired && data.tierRequired !== "__none__" ? data.tierRequired : null,
         isActive: data.isActive,
       };
       return isEdit
-        ? fetchApi(`/rewards/${id ?? ""}`, {
+        ? fetchApi(`/admin/rewards/${id ?? ""}`, {
             method: "PATCH",
             body: JSON.stringify(body),
           })
-        : fetchApi("/rewards", {
+        : fetchApi("/admin/rewards", {
             method: "POST",
             body: JSON.stringify(body),
           });
     },
     onSuccess: () => {
+      setSubmitError(null);
       void queryClient.invalidateQueries({ queryKey: ["rewards"] });
       navigate("/rewards");
+    },
+    onError: (error: Error) => {
+      setSubmitError(error.message);
     },
   });
 
@@ -296,7 +303,7 @@ export function RewardsEditorPage(): JSX.Element {
                     <SelectValue placeholder="All tiers" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All tiers</SelectItem>
+                    <SelectItem value="__none__">All tiers</SelectItem>
                     {(tiers ?? []).map((t) => (
                       <SelectItem key={t.id} value={t.name}>
                         {t.name}
@@ -350,6 +357,7 @@ export function RewardsEditorPage(): JSX.Element {
             <Link to="/rewards">Cancel</Link>
           </Button>
         </div>
+        {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       </form>
     </div>
   );

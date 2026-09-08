@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { fetchApi, postApi } from "../lib/api-client";
-import type { RedeemResult, RewardDetail as RewardDetailType } from "../types";
+import type { CreditBalance, CreditType, RedeemResult, RewardDetail as RewardDetailType } from "../types";
 
 export default function RewardDetail() {
   const { t } = useTranslation();
@@ -14,18 +14,29 @@ export default function RewardDetail() {
   const queryClient = useQueryClient();
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [creditType, setCreditType] = useState<CreditType>("R");
 
   const { data, isLoading } = useQuery({
     queryKey: ["reward", id ?? ""],
     queryFn: () => fetchApi<RewardDetailType>(`/rewards/${id ?? ""}`),
   });
+  const credits = useQuery({
+    queryKey: ["credits", "balances"],
+    queryFn: () => fetchApi<CreditBalance[]>("/members/me/credits"),
+  });
 
   const redeemMutation = useMutation({
-    mutationFn: () => postApi<RedeemResult>(`/rewards/${id ?? ""}/redeem`, {}),
+    mutationFn: () =>
+      postApi<RedeemResult>(
+        `/rewards/${id ?? ""}/redeem`,
+        { creditType },
+        { "Idempotency-Key": `${crypto.randomUUID()}-${Date.now().toString(36)}` },
+      ),
     onSuccess: () => {
       setResult({ success: true, message: t("redeemSuccess") });
       void queryClient.invalidateQueries({ queryKey: ["balance"] });
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      void queryClient.invalidateQueries({ queryKey: ["credits"] });
       window.dispatchEvent(new CustomEvent("loyaltyos:balance-updated"));
     },
     onError: () => {
@@ -50,6 +61,8 @@ export default function RewardDetail() {
   }
 
   const canRedeem = data.eligible !== false && (data.stock === null || data.stock > 0);
+  const selectedBalance = credits.data?.find((wallet) => wallet.creditType === creditType)?.balance ?? 0;
+  const hasCreditBalance = selectedBalance >= data.pointsCost;
 
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
@@ -84,6 +97,23 @@ export default function RewardDetail() {
           {data.description}
         </p>
       )}
+
+      <label className="block text-sm font-medium">
+        Pay with wallet
+        <select
+          value={creditType}
+          onChange={(event) => {
+            setCreditType(event.target.value as CreditType);
+          }}
+          className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
+        >
+          <option value="R">R-credit (recognition)</option>
+          <option value="P">P-credit (project)</option>
+        </select>
+        <span className="mt-1 block text-xs text-[var(--color-text-secondary)]">
+          Available: {selectedBalance.toLocaleString()}
+        </span>
+      </label>
 
       {data.stock !== null && (
         <p className="text-sm text-[var(--color-text-secondary)]">
@@ -121,11 +151,11 @@ export default function RewardDetail() {
           onClick={() => {
             setShowConfirm(true);
           }}
-          disabled={!canRedeem}
+          disabled={!canRedeem || !hasCreditBalance}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-primary)] px-6 py-3.5 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
         >
           <ShoppingCart className="h-5 w-5" />
-          {canRedeem ? t("redeem") : t("locked")}
+          {canRedeem && hasCreditBalance ? t("redeem") : t("locked")}
         </button>
       ) : (
         <div className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">

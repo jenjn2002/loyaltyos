@@ -1,28 +1,19 @@
-# Stage 1: Build static assets
+# Stage 1: Build static assets from the complete pnpm workspace.
+# The portal app imports workspace packages, so copying only apps/portal
+# (as the original Dockerfile did) makes pnpm fail with WORKSPACE_PKG_NOT_FOUND.
 FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 
-# Copy root tsconfig (portal tsconfig extends ../../tsconfig.base.json)
-COPY tsconfig.base.json /tsconfig.base.json
-
-# Copy full source
-COPY apps/portal/ .
-
-# Remove workspace-only dependencies
-RUN sed -i '/@loyaltyos\/core/d' package.json && \
-    sed -i '/@loyaltyos\/config-eslint/d' package.json && \
-    sed -i '/@loyaltyos\/config-prettier/d' package.json
-
-RUN pnpm install --no-frozen-lockfile
-RUN pnpm add -D @types/node
-RUN pnpm build
+COPY . .
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm --filter @loyaltyos/portal build
 
 # Stage 2: Serve with nginx + brotli
 FROM fholzer/nginx-brotli:latest AS runtime
 RUN rm -rf /usr/share/nginx/html/*
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/apps/portal/dist /usr/share/nginx/html
 COPY apps/portal/nginx.conf /etc/nginx/conf.d/default.conf
 
 # curl needed for HEALTHCHECK

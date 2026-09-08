@@ -5,12 +5,17 @@ export interface Member {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  department?: string | null;
+  photoUrl?: string | null;
   metadata: unknown;
   tags: string[];
   joinedAt: string;
   createdAt: string;
   updatedAt: string;
+  status?: "ACTIVE" | "INACTIVE";
+  deactivatedAt?: string | null;
   pointAccount?: { balance: number } | null;
+  creditWallets?: { creditType: "P" | "R"; balance: number }[];
 }
 
 export interface DashboardStats {
@@ -19,6 +24,14 @@ export interface DashboardStats {
   totalPointsRedeemed: number;
   redemptionRatio: number;
   recentTransactions: number;
+  creditIssued?: number;
+  creditRedeemed?: number;
+  creditExchanged?: number;
+  recognitionVolume?: number;
+  creditBank?: { P: number; R: number };
+  creditBankMetrics?: { P: { used: number; unused: number; issued: number }; R: { used: number; unused: number; issued: number } };
+  topRewards?: { name: string; redemptions: number }[];
+  recognitionOverTime?: { date: string; count: number }[];
 }
 
 export interface PointTransaction {
@@ -219,6 +232,6 @@ export interface TermsTemplate {
 
 export interface GiftCardMetrics {
   outstandingBalances: { programId: string; currency: string; total: number }[];
-  activeCards: number;
-  redeemedLast30d: number;
+  active: number;
+  outstandingBalance: number;
 }

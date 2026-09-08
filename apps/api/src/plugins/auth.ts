@@ -33,7 +33,9 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     if (
       request.url.startsWith("/api/v1/auth/") ||
       request.url.startsWith("/api/v1/admin/login") ||
-      request.url.startsWith("/api/v1/admin/logout")
+      request.url.startsWith("/api/v1/admin/logout") ||
+      request.url.startsWith("/healthz") ||
+      request.url.startsWith("/readyz")
     ) {
       return;
     }
@@ -60,10 +62,15 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       if (sessionId) {
         const { session: _session, user } = await lucia.validateSession(sessionId);
         if (user) {
+          // Treat an omitted status as legacy ACTIVE; migrated records always
+          // have an explicit status with ACTIVE as the database default.
+          if (user.status && user.status !== "ACTIVE") {
+            throw Object.assign(new Error("Member account is inactive"), { statusCode: 403 });
+          }
           request.memberId = user.id;
           request.programId = user.programId;
           request.apiKeyScope = "MEMBER";
-          request.actor = { type: "ADMIN_USER", id: user.id };
+          request.actor = { type: "MEMBER", id: user.id };
           return;
         }
       }

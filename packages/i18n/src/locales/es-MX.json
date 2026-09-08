@@ -64,6 +64,12 @@
   "members": {
     "title": "Miembros",
     "addMember": "Agregar miembro",
+    "createTitle": "Agregar un miembro",
+    "createDescription": "Crea un miembro que pueda iniciar sesión en el portal con un enlace mágico.",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "externalIdOptional": "ID externo (opcional)",
+    "createFailed": "No se pudo crear el miembro",
     "tier": "Nivel",
     "balance": "Saldo",
     "joinedAt": "Inscripción",

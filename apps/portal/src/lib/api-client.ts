@@ -38,10 +38,15 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
   return body.data as T;
 }
 
-export async function postApi<T>(path: string, data: unknown): Promise<T> {
+export async function postApi<T>(
+  path: string,
+  data: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
   return fetchApi<T>(path, {
     method: "POST",
     body: JSON.stringify(data),
+    headers,
   });
 }
 

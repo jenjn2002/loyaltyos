@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, TrendingUp, Users } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
@@ -21,6 +21,8 @@ interface Redemption {
   memberId: string;
   pointsSpent: number;
   createdAt: string;
+  redeemedAt?: string;
+  fulfillmentStatus: "PENDING" | "FULFILLED" | "CANCELLED";
   member?: { email: string | null; firstName: string | null; lastName: string | null };
 }
 
@@ -39,10 +41,15 @@ export function RewardsRedemptionsPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
 
   const rewardId = id ?? "";
+  const queryClient = useQueryClient();
+  const statusMutation = useMutation({
+    mutationFn: ({ redemptionId, status }: { redemptionId: string; status: Redemption["fulfillmentStatus"] }) => fetchApi(`/admin/rewards/redemptions/${redemptionId}/status`, { method: "PATCH", body: JSON.stringify({ status, reason: `Fulfillment marked ${status.toLowerCase()} from reward operations` }) }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["reward-redemptions", id] }); },
+  });
 
   const { data: redemptions, isLoading } = useQuery<RedemptionsResponse>({
     queryKey: ["reward-redemptions", id],
-    queryFn: async () => fetchApi<RedemptionsResponse>(`/rewards/${rewardId}/redemptions`),
+    queryFn: async () => fetchApi<RedemptionsResponse>(`/admin/rewards/${rewardId}/redemptions`),
     enabled: Boolean(id),
   });
 
@@ -130,6 +137,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
                   <TableHead>Date</TableHead>
                   <TableHead>Member</TableHead>
                   <TableHead>Points Spent</TableHead>
+                  <TableHead>Fulfillment</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -153,6 +161,9 @@ export function RewardsRedemptionsPage(): JSX.Element {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{r.pointsSpent.toLocaleString()} pts</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2"><Badge variant={r.fulfillmentStatus === "FULFILLED" ? "default" : r.fulfillmentStatus === "CANCELLED" ? "destructive" : "outline"}>{r.fulfillmentStatus}</Badge>{r.fulfillmentStatus === "PENDING" && <><Button size="sm" onClick={() => statusMutation.mutate({ redemptionId: r.id, status: "FULFILLED" })}>Fulfill</Button><Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ redemptionId: r.id, status: "CANCELLED" })}>Cancel</Button></>}</div>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -21,6 +21,8 @@ export const lucia = new Lucia(adapter, {
     firstName: dbUser.firstName,
     lastName: dbUser.lastName,
     programId: dbUser.programId,
+    status: dbUser.status,
+    deactivatedAt: dbUser.deactivatedAt,
   }),
 });
 
@@ -36,6 +38,8 @@ declare module "lucia" {
       name: string | null;
       role: string | null;
       programId: string;
+      status: "ACTIVE" | "INACTIVE";
+      deactivatedAt: Date | null;
     };
   }
 }

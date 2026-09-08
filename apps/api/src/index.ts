@@ -9,6 +9,7 @@ import {
   scheduleGiftCardExpiration,
   scheduleOutstandingBalanceRefresh,
 } from "./lib/giftcard-setup.js";
+import { ensureCreditNotificationTemplates, scheduleCreditExpiry } from "./lib/credit-setup.js";
 import { createQueue } from "./lib/queue.js";
 import {
   startGiftCardExpireWorker,
@@ -16,6 +17,7 @@ import {
   startOutstandingBalanceWorker,
 } from "./workers/giftcards.js";
 import { startNotificationsWorker } from "./workers/notifications.js";
+import { startCreditExpiryWorker } from "./workers/credits.js";
 
 const app = await buildApp();
 
@@ -28,12 +30,15 @@ try {
   app.log.info(`Server running on http://${host}:${String(port)}`);
 
   // Start workers after HTTP server is listening
+  await ensureCreditNotificationTemplates();
   startNotificationsWorker();
   startGiftCardGenerateWorker();
   startGiftCardExpireWorker();
   startOutstandingBalanceWorker();
+  startCreditExpiryWorker();
   await scheduleGiftCardExpiration();
   await scheduleOutstandingBalanceRefresh();
+  await scheduleCreditExpiry();
 
   // Collect BullMQ queue depth metrics periodically
   const bullmqMetrics = getBullMQMetrics();
@@ -44,6 +49,7 @@ try {
       "giftcards.batch.generate",
       "giftcards.expire",
       "giftcards.outstanding-balance.refresh",
+      "credits.expire",
     ];
     const queues = queueNames.map((name) => createQueue(name));
 

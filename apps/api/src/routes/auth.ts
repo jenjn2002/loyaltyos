@@ -74,7 +74,7 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
       const { email, locale: requestLocale } = magicLinkSchema.parse(request.body);
 
       const member = await prisma.member.findFirst({
-        where: { email, deletedAt: null },
+        where: { email, deletedAt: null, status: "ACTIVE" },
         include: { program: { select: { defaultLocale: true, supportedLocales: true } } },
       });
 
@@ -135,6 +135,11 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
 
     if (!record) {
       throw new LoyaltyError("INVALID_TOKEN", 401);
+    }
+    // Older test fixtures and pre-migration records may not expose status;
+    // real migrated members default to ACTIVE in the database.
+    if ((record.member.status && record.member.status !== "ACTIVE") || record.member.deletedAt) {
+      throw new LoyaltyError("MEMBER_INACTIVE", 403);
     }
 
     // Atomic: mark as consumed

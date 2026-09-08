@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ArrowLeft, ArrowRight, Check, CreditCard } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -78,6 +78,7 @@ export function BatchWizardPage(): JSX.Element {
   const [newTermsLocale, setNewTermsLocale] = useState("es-MX");
   const [newTermsBody, setNewTermsBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const form = useForm<WizardData>({
     resolver: zodResolver(wizardSchema),
@@ -98,6 +99,28 @@ export function BatchWizardPage(): JSX.Element {
   });
 
   const filteredTemplates = (templates ?? []).filter((t) => t.locale === locale && t.isActive);
+
+  // Keep the wizard usable when the program only has templates in another locale.
+  useEffect(() => {
+    if (filteredTemplates.length === 0) {
+      const firstActiveLocale = templates?.find((template) => template.isActive)?.locale;
+      if (firstActiveLocale && firstActiveLocale !== locale) {
+        setLocale(firstActiveLocale);
+      }
+    }
+  }, [filteredTemplates.length, locale, templates]);
+
+  // If there is only one applicable template, select it automatically so the
+  // final step cannot be blocked by an invisible empty form value.
+  useEffect(() => {
+    const onlyTemplate = filteredTemplates[0];
+    if (filteredTemplates.length === 1 && onlyTemplate && !form.getValues("termsTemplateId")) {
+      form.setValue("termsTemplateId", onlyTemplate.id, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [filteredTemplates, form]);
 
   const next = () => {
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
@@ -121,27 +144,51 @@ export function BatchWizardPage(): JSX.Element {
   };
 
   const handleCreateTerms = async () => {
-    const created = await fetchApi<TermsTemplate>("/admin/giftcards/terms", {
-      method: "POST",
-      body: JSON.stringify({
-        name: newTermsName,
-        locale: newTermsLocale,
-        body: newTermsBody,
-      }),
-    });
-    form.setValue("termsTemplateId", created.id);
-    void queryClient.invalidateQueries({ queryKey: ["giftcard-terms"] });
-    setNewTermsOpen(false);
-    setNewTermsName("");
-    setNewTermsBody("");
+    setSubmitError(null);
+    try {
+      const created = await fetchApi<TermsTemplate>("/admin/giftcards/terms", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newTermsName.trim(),
+          locale: newTermsLocale,
+          body: newTermsBody.trim(),
+        }),
+      });
+      setLocale(newTermsLocale);
+      form.setValue("termsTemplateId", created.id, { shouldValidate: true });
+      void queryClient.invalidateQueries({ queryKey: ["giftcard-terms"] });
+      setNewTermsOpen(false);
+      setNewTermsName("");
+      setNewTermsBody("");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not create terms template");
+    }
   };
 
   const handleSubmit = async () => {
     const valid = await form.trigger();
-    if (!valid) return;
+    if (!valid) {
+      const values = form.getValues();
+      const parsed = wizardSchema.safeParse(values);
+      const firstIssue = parsed.success ? undefined : parsed.error.issues[0];
+      if (form.getFieldState("name").invalid || form.getFieldState("quantity").invalid) {
+        setStep(0);
+      } else if (form.getFieldState("initialAmount").invalid) {
+        setStep(1);
+      } else if (form.getFieldState("termsTemplateId").invalid) {
+        setStep(2);
+      }
+      setSubmitError(
+        firstIssue
+          ? `Please complete ${String(firstIssue.path[0] ?? "the required fields")}: ${firstIssue.message}`
+          : "Please complete the required fields before creating the batch.",
+      );
+      return;
+    }
 
     const values = form.getValues();
     setSubmitting(true);
+    setSubmitError(null);
     try {
       const batch = await fetchApi<GiftCardBatch>("/admin/giftcards/batches", {
         method: "POST",
@@ -158,6 +205,8 @@ export function BatchWizardPage(): JSX.Element {
       });
       void queryClient.invalidateQueries({ queryKey: ["giftcard-batches"] });
       navigate(`/giftcards/batches/${batch.id}`);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not create gift card batch");
     } finally {
       setSubmitting(false);
     }
@@ -352,6 +401,11 @@ export function BatchWizardPage(): JSX.Element {
                   {form.formState.errors.termsTemplateId.message}
                 </p>
               )}
+              {templates?.length === 0 && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No terms template exists yet. Create one below before continuing.
+                </p>
+              )}
             </div>
             <Separator />
             <Button
@@ -422,6 +476,7 @@ export function BatchWizardPage(): JSX.Element {
       )}
 
       {/* Navigation */}
+      {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       <div className="flex justify-between">
         <Button variant="outline" onClick={prev} disabled={step === 0}>
           <ArrowLeft className="mr-2 h-4 w-4" />

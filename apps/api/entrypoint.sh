@@ -6,4 +6,4 @@ cd /app/apps/api
 npx prisma migrate deploy
 
 echo "Starting API server..."
-exec node /app/apps/api/dist/index.js
+exec node /app/apps/api/dist/src/index.js

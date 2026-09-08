@@ -4,6 +4,8 @@ export interface MemberProfile {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  department?: string | null;
+  photoUrl?: string | null;
   joinedAt: string;
 }
 
@@ -11,6 +13,63 @@ export interface Balance {
   confirmed: number;
   pending: number;
   total: number;
+}
+
+export type CreditType = "P" | "R";
+
+export interface CreditBalance {
+  creditType: CreditType;
+  balance: number;
+  totalGranted: number;
+  totalSpent: number;
+}
+
+export interface CreditExchangeRate {
+  id: string;
+  creditType: CreditType;
+  version: number;
+  valueMinorPerCredit: number;
+  currency: string;
+  payoutMechanism: string;
+  cashEligible: boolean;
+  minCredits: number;
+  maxCredits: number | null;
+  isActive: boolean;
+}
+
+export interface CreditTransaction {
+  id: string;
+  creditType: CreditType;
+  type: string;
+  amount: number;
+  balanceAfter: number;
+  source: string;
+  reason: string | null;
+  message: string | null;
+  category: string | null;
+  counterpartyMemberId: string | null;
+  counterparty?: { id: string; firstName: string | null; lastName: string | null; email: string | null } | null;
+  categoryRef?: { name: string } | null;
+  createdAt: string;
+}
+
+export interface CreditHistory {
+  items: CreditTransaction[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface CreditCategory {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export interface RecognitionFeedItem extends CreditTransaction {
+  member?: { id: string; firstName: string | null; lastName: string | null; email: string | null };
+  counterparty?: { id: string; firstName: string | null; lastName: string | null; email: string | null } | null;
 }
 
 export interface PointTransaction {
@@ -96,4 +155,15 @@ export interface RedeemResult {
     amount: number;
     balanceAfter: number;
   };
+}
+
+export interface MemberRewardRedemption {
+  id: string;
+  rewardId: string;
+  pointsSpent: number;
+  fulfillmentStatus: "PENDING" | "FULFILLED" | "CANCELLED";
+  redeemedAt: string;
+  fulfilledAt: string | null;
+  cancelledAt: string | null;
+  reward: { name: string; description: string | null };
 }

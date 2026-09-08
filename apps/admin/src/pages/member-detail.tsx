@@ -59,6 +59,9 @@ export function MemberDetailPage(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState(false);
+  const [statusReason, setStatusReason] = useState("");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   const {
     register,
@@ -118,6 +121,23 @@ export function MemberDetailPage(): JSX.Element {
       setAdjustError(err instanceof Error ? err.message : "Adjustment failed");
     } finally {
       setAdjusting(false);
+    }
+  };
+
+  const updateMemberStatus = async (status: "ACTIVE" | "INACTIVE"): Promise<void> => {
+    if (!statusReason.trim()) { setStatusMessage("A reason is required."); return; }
+    setStatusUpdating(true);
+    setStatusMessage(null);
+    try {
+      await fetchApi(`/admin/members/${memberId}/status`, { method: "POST", body: JSON.stringify({ status, reason: statusReason }) });
+      setStatusReason("");
+      setStatusMessage(status === "INACTIVE" ? "Member offboarded; P/R balances cleared and retained in history." : "Member reactivated; balances remain zero until a new grant.");
+      void queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+      void queryClient.invalidateQueries({ queryKey: ["member-balance", memberId] });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Status update failed");
+    } finally {
+      setStatusUpdating(false);
     }
   };
 
@@ -187,6 +207,14 @@ export function MemberDetailPage(): JSX.Element {
                 <dt className="text-sm text-muted-foreground">Joined</dt>
                 <dd>{member ? new Date(member.joinedAt).toLocaleDateString() : "--"}</dd>
               </div>
+              <div>
+                <dt className="text-sm text-muted-foreground">Status</dt>
+                <dd>{member?.status ?? "ACTIVE"}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-sm text-muted-foreground">Credit wallets</dt>
+                <dd className="mt-1 flex gap-3 text-sm"><span className="rounded bg-muted px-2 py-1">P: {(member?.creditWallets?.find((wallet) => wallet.creditType === "P")?.balance ?? 0).toLocaleString()}</span><span className="rounded bg-muted px-2 py-1">R: {(member?.creditWallets?.find((wallet) => wallet.creditType === "R")?.balance ?? 0).toLocaleString()}</span></dd>
+              </div>
               {member?.tags && member.tags.length > 0 && (
                 <div className="sm:col-span-2">
                   <dt className="mb-1 text-sm text-muted-foreground">Tags</dt>
@@ -201,6 +229,11 @@ export function MemberDetailPage(): JSX.Element {
               )}
             </dl>
           )}
+          <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
+            <div className="min-w-64 flex-1"><Label htmlFor="status-reason">Status / offboarding reason</Label><Input id="status-reason" value={statusReason} onChange={(event) => setStatusReason(event.target.value)} placeholder="Reason is required" /></div>
+            {member?.status === "INACTIVE" ? <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>Reactivate</Button> : <Button variant="destructive" disabled={statusUpdating} onClick={() => void updateMemberStatus("INACTIVE")}>Offboard & clear wallets</Button>}
+            {statusMessage && <p className="w-full text-sm text-muted-foreground">{statusMessage}</p>}
+          </div>
         </CardContent>
       </Card>
 

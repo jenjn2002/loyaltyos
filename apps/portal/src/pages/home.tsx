@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Award, ChevronRight, Gift, Star, TrendingUp } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
 import { fetchApi } from "../lib/api-client";
-import { isAuthenticated } from "../lib/auth";
-import type { BadgeProgress, Balance, Reward, TierStatus } from "../types";
+import { isAuthenticated, sendMagicLink } from "../lib/auth";
+import type { BadgeProgress, Balance, CreditBalance, Reward, TierStatus } from "../types";
 
 function BalanceCard({ balance }: { balance: Balance }) {
   const { t } = useTranslation();
@@ -22,6 +23,32 @@ function BalanceCard({ balance }: { balance: Balance }) {
         </span>
       </div>
     </div>
+  );
+}
+
+function CreditWalletCard({ wallets }: { wallets: CreditBalance[] }) {
+  return (
+    <Link
+      to="/credits"
+      className="block rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-[var(--color-text-secondary)]">Credit wallets</p>
+        <span className="text-xs font-semibold text-[var(--color-primary)]">Manage</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {(["P", "R"] as const).map((creditType) => {
+          const wallet = wallets.find((item) => item.creditType === creditType);
+          return (
+            <div key={creditType}>
+              <p className="text-xs text-[var(--color-text-secondary)]">{creditType}-credit</p>
+              <p className="text-2xl font-bold">{(wallet?.balance ?? 0).toLocaleString()}</p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-[var(--color-text-secondary)]">P-credit expires · R-credit does not</p>
+    </Link>
   );
 }
 
@@ -150,10 +177,22 @@ function BadgePreview({ badges }: { badges: BadgeProgress[] }) {
 export default function Home() {
   const { t } = useTranslation();
   const authed = isAuthenticated();
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+
+  const magicLinkMutation = useMutation({
+    mutationFn: () => sendMagicLink(email),
+    onSuccess: () => setSent(true),
+  });
 
   const balance = useQuery({
     queryKey: ["balance"],
     queryFn: () => fetchApi<Balance>("/members/me/balance"),
+    enabled: authed,
+  });
+  const credits = useQuery({
+    queryKey: ["credits", "balances"],
+    queryFn: () => fetchApi<CreditBalance[]>("/members/me/credits"),
     enabled: authed,
   });
 
@@ -188,16 +227,42 @@ export default function Home() {
           />
           <p className="mt-4 text-lg font-medium">{t("login")}</p>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("checkEmail")}</p>
-          <Link
-            to="/profile"
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white"
+          <form
+            className="mt-6 space-y-3 text-left"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (email) magicLinkMutation.mutate();
+            }}
           >
-            <TrendingUp className="h-4 w-4" />
-            {t("login")}
-          </Link>
+            <label className="block">
+              <span className="text-sm font-medium">{t("email")}</span>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={magicLinkMutation.isPending || !email}
+              className="w-full rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <TrendingUp className="mr-2 inline h-4 w-4" />
+              {t("sendLink")}
+            </button>
+          </form>
+          {sent && <p className="mt-3 text-sm text-green-700">{t("checkEmail")}</p>}
         </div>
       ) : (
         <>
+          {(balance.isError || tier.isError || rewards.isError || badges.isError) && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              Session expired or account data could not be loaded. Please sign in again from Profile.
+            </div>
+          )}
+          {credits.data && <CreditWalletCard wallets={credits.data} />}
           {balance.data && <BalanceCard balance={balance.data} />}
           {tier.data ? <TierCard tier={tier.data} /> : null}
           {rewards.data && rewards.data.length > 0 && <TopRewards rewards={rewards.data} />}

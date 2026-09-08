@@ -14,6 +14,7 @@ export async function audit(
   entityType: string,
   entityId: string | null,
   diff: Record<string, unknown> = {},
+  reason?: string,
 ): Promise<void> {
   await prisma.auditLog.create({
     data: {
@@ -25,6 +26,7 @@ export async function audit(
       entityType,
       entityId,
       diff: diff as never,
+      reason,
     },
   });
 }

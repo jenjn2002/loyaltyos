@@ -1,12 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Eye, Plus } from "lucide-react";
+import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -19,12 +29,31 @@ import {
 import { fetchApi } from "@/lib/api-client";
 import type { Member, PaginatedResponse } from "@/types";
 
+interface NewMemberForm {
+  email: string;
+  firstName: string;
+  lastName: string;
+  externalId: string;
+}
+
+const emptyMemberForm: NewMemberForm = {
+  email: "",
+  firstName: "",
+  lastName: "",
+  externalId: "",
+};
+
 export function MembersListPage(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE" | "">("ACTIVE");
+  const [department, setDepartment] = useState("");
   const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newMember, setNewMember] = useState<NewMemberForm>(emptyMemberForm);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -43,7 +72,7 @@ export function MembersListPage(): JSX.Element {
   }, [search]);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["members", page, debouncedSearch],
+    queryKey: ["members", page, debouncedSearch, status, department],
     queryFn: () => {
       const params = new URLSearchParams();
       params.set("page", String(page));
@@ -51,14 +80,48 @@ export function MembersListPage(): JSX.Element {
       if (debouncedSearch) {
         params.set("search", debouncedSearch);
       }
+      if (status) params.set("status", status);
+      if (department) params.set("department", department);
       return fetchApi<PaginatedResponse<Member>>(`/members?${params.toString()}`);
     },
   });
+
+  const createMutation = useMutation({
+    mutationFn: (form: NewMemberForm) =>
+      fetchApi<Member>("/members", {
+        method: "POST",
+        body: JSON.stringify({
+          email: form.email,
+          ...(form.firstName ? { firstName: form.firstName } : {}),
+          ...(form.lastName ? { lastName: form.lastName } : {}),
+          ...(form.externalId ? { externalId: form.externalId } : {}),
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["members"] });
+      setNewMember(emptyMemberForm);
+      setCreateOpen(false);
+    },
+  });
+
+  function handleCreate(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    createMutation.mutate(newMember);
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("members.title")}</h1>
+        <Button
+          onClick={() => {
+            createMutation.reset();
+            setCreateOpen(true);
+          }}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          {t("members.addMember")}
+        </Button>
       </div>
 
       <Card>
@@ -72,6 +135,12 @@ export function MembersListPage(): JSX.Element {
               }}
               className="max-w-sm"
             />
+            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={status} onChange={(event) => { setStatus(event.target.value as "ACTIVE" | "INACTIVE" | ""); setPage(1); }}>
+              <option value="ACTIVE">Active members</option>
+              <option value="INACTIVE">Inactive members</option>
+              <option value="">All status</option>
+            </select>
+            <Input placeholder="Department" value={department} onChange={(event) => { setDepartment(event.target.value); setPage(1); }} className="max-w-xs" />
           </div>
         </CardHeader>
         <CardContent>
@@ -132,6 +201,7 @@ export function MembersListPage(): JSX.Element {
                     <TableHead>{t("members.externalId")}</TableHead>
                     <TableHead>{t("members.balance")}</TableHead>
                     <TableHead>{t("members.joinedAt")}</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -146,9 +216,14 @@ export function MembersListPage(): JSX.Element {
                       <TableCell>{member.email ?? t("members.na")}</TableCell>
                       <TableCell>{member.externalId ?? "--"}</TableCell>
                       <TableCell>
-                        {(member.pointAccount?.balance ?? 0).toLocaleString()} {t("members.points")}
+                        <div className="text-xs">
+                          <div>P: {(member.creditWallets?.find((wallet) => wallet.creditType === "P")?.balance ?? 0).toLocaleString()}</div>
+                          <div>R: {(member.creditWallets?.find((wallet) => wallet.creditType === "R")?.balance ?? 0).toLocaleString()}</div>
+                          <div className="text-muted-foreground">Legacy: {(member.pointAccount?.balance ?? 0).toLocaleString()} {t("members.points")}</div>
+                        </div>
                       </TableCell>
                       <TableCell>{new Date(member.joinedAt).toLocaleDateString()}</TableCell>
+                      <TableCell>{member.status ?? "ACTIVE"}</TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
@@ -200,6 +275,82 @@ export function MembersListPage(): JSX.Element {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("members.createTitle")}</DialogTitle>
+            <DialogDescription>{t("members.createDescription")}</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleCreate}>
+            <div className="space-y-2">
+              <Label htmlFor="member-email">{t("common.email")}</Label>
+              <Input
+                id="member-email"
+                type="email"
+                required
+                value={newMember.email}
+                onChange={(event) => {
+                  setNewMember((current) => ({ ...current, email: event.target.value }));
+                }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="member-first-name">{t("members.firstName")}</Label>
+                <Input
+                  id="member-first-name"
+                  value={newMember.firstName}
+                  onChange={(event) => {
+                    setNewMember((current) => ({ ...current, firstName: event.target.value }));
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="member-last-name">{t("members.lastName")}</Label>
+                <Input
+                  id="member-last-name"
+                  value={newMember.lastName}
+                  onChange={(event) => {
+                    setNewMember((current) => ({ ...current, lastName: event.target.value }));
+                  }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="member-external-id">{t("members.externalIdOptional")}</Label>
+              <Input
+                id="member-external-id"
+                value={newMember.externalId}
+                onChange={(event) => {
+                  setNewMember((current) => ({ ...current, externalId: event.target.value }));
+                }}
+              />
+            </div>
+            {createMutation.isError && (
+              <p className="text-sm text-destructive">
+                {createMutation.error instanceof Error
+                  ? createMutation.error.message
+                  : t("members.createFailed")}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCreateOpen(false);
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? t("common.loading") : t("common.create")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
