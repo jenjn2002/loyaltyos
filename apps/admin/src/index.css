@@ -28,9 +28,17 @@
 }
 
 @layer components {
+  .auto-field-help-wrapper {
+    @apply relative block;
+  }
+
   .auto-field-help {
     @apply relative ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-muted-foreground/50 text-[10px] font-bold leading-none text-muted-foreground outline-none;
     vertical-align: middle;
+  }
+
+  .auto-field-help-wrapper > .auto-field-help {
+    @apply absolute right-0 top-0.5 ml-0;
   }
 
   .auto-field-help:hover,

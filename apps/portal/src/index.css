@@ -30,6 +30,11 @@
 }
 
 @layer components {
+  .auto-field-help-wrapper {
+    position: relative;
+    display: block;
+  }
+
   .auto-field-help {
     position: relative;
     margin-left: 0.25rem;
@@ -46,6 +51,13 @@
     font-weight: 700;
     line-height: 1;
     vertical-align: middle;
+  }
+
+  .auto-field-help-wrapper > .auto-field-help {
+    position: absolute;
+    right: 0;
+    top: 0.125rem;
+    margin-left: 0;
   }
 
   .auto-field-help:focus-visible {

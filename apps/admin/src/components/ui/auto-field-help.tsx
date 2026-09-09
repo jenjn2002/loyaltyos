@@ -148,7 +148,15 @@ function attachHelp(control: HTMLElement): void {
     event.preventDefault();
     event.stopPropagation();
   });
-  (label ?? control.parentElement)?.insertBefore(marker, label ? null : control);
+  if (label?.parentElement) {
+    const wrapper = document.createElement("span");
+    wrapper.className = "auto-field-help-wrapper";
+    wrapper.dataset.autoFieldHelpWrapper = "true";
+    label.parentElement.insertBefore(wrapper, label);
+    wrapper.append(label, marker);
+  } else {
+    control.parentElement?.insertBefore(marker, control);
+  }
 }
 
 function scanFields(): void {
@@ -177,6 +185,12 @@ export function AutoFieldHelp(): null {
     return () => {
       observer.disconnect();
       document.querySelectorAll("[data-auto-field-help]").forEach((node) => {
+        node.remove();
+      });
+      document.querySelectorAll("[data-auto-field-help-wrapper]").forEach((node) => {
+        const parent = node.parentNode;
+        if (!parent) return;
+        while (node.firstChild) parent.insertBefore(node.firstChild, node);
         node.remove();
       });
       document.querySelectorAll<HTMLElement>("[data-field-help-attached]").forEach((node) => {

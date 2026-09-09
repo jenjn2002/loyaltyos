@@ -784,6 +784,7 @@ describe("SmtpProvider", () => {
       to: "user@example.com",
       subject: "Welcome!",
       html: "<p>Hello</p>",
+      text: "Hello",
     });
   });
 

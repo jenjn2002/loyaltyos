@@ -57,6 +57,7 @@ const memberFixture = {
   firstName: "Carlos",
   lastName: "Mendoza",
   programId: "prog_dev",
+  status: "ACTIVE",
   locale: null,
   joinedAt: new Date("2024-01-15"),
   deletedAt: null,
