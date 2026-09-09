@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { AutoFieldHelp } from "./components/auto-field-help";
 import AppLayout from "./components/layout/app-layout";
 import { isAuthenticated } from "./lib/auth";
 import Badges from "./pages/badges";
@@ -21,61 +22,64 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/verify" element={<Verify />} />
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<Home />} />
-        <Route
-          path="/transactions"
-          element={
-            <AuthGuard>
-              <Transactions />
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/credits"
-          element={
-            <AuthGuard>
-              <Credits />
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <AuthGuard>
-              <Notifications />
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/rewards"
-          element={
-            <AuthGuard>
-              <Rewards />
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/rewards/:id"
-          element={
-            <AuthGuard>
-              <RewardDetail />
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/badges"
-          element={
-            <AuthGuard>
-              <Badges />
-            </AuthGuard>
-          }
-        />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <>
+      <AutoFieldHelp />
+      <Routes>
+        <Route path="/verify" element={<Verify />} />
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Home />} />
+          <Route
+            path="/transactions"
+            element={
+              <AuthGuard>
+                <Transactions />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/credits"
+            element={
+              <AuthGuard>
+                <Credits />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <AuthGuard>
+                <Notifications />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rewards"
+            element={
+              <AuthGuard>
+                <Rewards />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rewards/:id"
+            element={
+              <AuthGuard>
+                <RewardDetail />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/badges"
+            element={
+              <AuthGuard>
+                <Badges />
+              </AuthGuard>
+            }
+          />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </>
   );
 }

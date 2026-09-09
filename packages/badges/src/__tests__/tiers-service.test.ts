@@ -40,6 +40,7 @@ function tierRow(overrides = {}) {
   return {
     id: "tier-1",
     programId: "prog-1",
+    pointTypeId: "pt-1",
     name: "Silver",
     rank: 1,
     minPoints: 0,
@@ -50,6 +51,18 @@ function tierRow(overrides = {}) {
     updatedAt: new Date("2024-01-01"),
     ...overrides,
   };
+}
+
+function pointWallet(totalEarned: number) {
+  return [
+    {
+      pointTypeId: "pt-1",
+      totalEarned,
+      totalSpent: 0,
+      balance: totalEarned,
+      pointType: { isPrimary: true },
+    },
+  ];
 }
 
 function service() {
@@ -101,7 +114,7 @@ describe("TiersService.evaluateMember", () => {
       tags: [],
       joinedAt: new Date(),
       deletedAt: null,
-      pointAccount: { totalEarned: 10000, totalRedeemed: 0, balance: 10000, pendingBalance: 0 },
+      pointWallets: pointWallet(10000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -139,7 +152,7 @@ describe("TiersService.evaluateMember", () => {
       tags: [],
       joinedAt: new Date(),
       deletedAt: null,
-      pointAccount: { totalEarned: 3000, totalRedeemed: 0, balance: 3000, pendingBalance: 0 },
+      pointWallets: pointWallet(3000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -174,7 +187,7 @@ describe("TiersService.evaluateMember", () => {
       tags: [],
       joinedAt: new Date(),
       deletedAt: null,
-      pointAccount: { totalEarned: 12000, totalRedeemed: 0, balance: 12000, pendingBalance: 0 },
+      pointWallets: pointWallet(12000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -218,7 +231,7 @@ describe("TiersService.evaluateMember", () => {
       tags: [],
       joinedAt: new Date(),
       deletedAt: null,
-      pointAccount: { totalEarned: 2500, totalRedeemed: 0, balance: 2500, pendingBalance: 0 },
+      pointWallets: pointWallet(2500),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);

@@ -1,1515 +1,1264 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, RefreshCw, Settings2, Upload, WalletCards } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowRightLeft, Banknote, History, RefreshCw, Upload, WalletCards } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { HelpTooltip, HelpTooltipProvider } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
-import { PointTypesPanel } from "@/pages/point-types";
 
-type CreditType = "P" | "R";
-type Bank = { creditType: CreditType; balance: number };
-type Config = {
+interface PointType {
   id: string;
-  creditGivingLimit: number | null;
-  creditGivingPeriodDays: number;
-  creditGivingPairLimit: number | null;
-  creditBankCycleDays: number;
-  creditExpiryWarningDays: number[];
-};
-type Category = { id: string; name: string; description: string | null; isActive: boolean };
-type Rate = {
+  code: string;
+  name: string;
+  unitLabel: string;
+  color: string | null;
+  isActive: boolean;
+  archivedAt: string | null;
+  bankEnabled: boolean;
+  exchangeable: boolean;
+  cashEligible: boolean;
+  expiryMode: string;
+}
+interface Bank {
+  pointTypeId: string;
+  code: string;
+  name: string;
+  color: string | null;
+  balance: number;
+}
+interface LedgerItem {
   id: string;
-  creditType: CreditType;
+  memberId: string;
+  pointTypeId: string;
+  action: string;
+  amount: number;
+  balanceAfter: number;
+  reason: string | null;
+  message: string | null;
+  createdAt: string;
+  pointType: { code: string; name: string; unitLabel: string };
+  member?: { email: string | null; firstName: string | null; lastName: string | null };
+}
+interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+interface Rate {
+  id: string;
+  pointTypeId: string;
   version: number;
-  valueMinorPerCredit: number;
+  valueMinorPerPoint: number;
   currency: string;
   payoutMechanism: string;
-  cashEligible: boolean;
-  minCredits: number;
-  maxCredits: number | null;
-};
-type ExchangeRequest = {
+  payoutType: "CASH" | "NON_CASH";
+  minPoints: number;
+  maxPoints: number | null;
+  periodLimitPoints: number | null;
+  periodDays: number;
+  isActive: boolean;
+  pointType: { code: string; name: string; unitLabel: string };
+}
+interface ExchangeRequest {
   id: string;
   member: { id: string; email: string | null; firstName: string | null; lastName: string | null };
-  creditType: CreditType;
+  pointType: { code: string; name: string; unitLabel: string };
   amount: number;
   valueMinor: number;
   currency: string;
   payoutType: string;
   status: string;
   requestedAt: string;
-};
-type Cycle = {
+}
+interface Category {
   id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+}
+interface Cycle {
+  id: string;
+  pointTypeId: string;
   startsAt: string;
   endsAt: string;
   status: string;
-  openingP: number;
-  openingR: number;
-  closingP: number;
-  closingR: number;
-};
-type LedgerItem = {
-  id: string;
-  memberId: string;
-  creditType: CreditType;
-  type: string;
-  amount: number;
-  balanceAfter: number;
-  reason: string | null;
-  createdAt: string;
-  member?: {
-    email: string | null;
-    firstName: string | null;
-    lastName: string | null;
-    department: string | null;
-  };
-  counterparty?: { email: string | null; firstName: string | null; lastName: string | null } | null;
-  categoryRef?: { name: string } | null;
-};
-type BulkBatch = {
+  opening: number;
+  allocated: number;
+  closing: number;
+  pointType: { code: string; name: string };
+}
+interface BulkBatch {
   id: string;
   totalRows: number;
   successRows: number;
   failedRows: number;
   status: string;
-  report?: Array<{ row: number; status: string; error?: string }>;
-};
-type SettingDefinition = { key: string; label: string; type: string; description: string };
-type SettingPermission = {
-  id: string;
-  settingKey: string;
-  role: "SUPER_ADMIN" | "OPERATOR" | "ANALYST";
-  canView: boolean;
-  canEdit: boolean;
-};
-type GovernanceSettings = {
-  values: Record<string, unknown>;
-  definitions: SettingDefinition[];
-  permissions: SettingPermission[];
-  currentAdminRole: "SUPER_ADMIN" | "OPERATOR" | "ANALYST" | "SERVER" | null;
-};
+  report?: { row: number; status: string; error?: string }[];
+}
 
-const fieldClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
+const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-sm";
+
+function requestKey(): string {
+  return `${crypto.randomUUID()}-${Date.now().toString(36)}`;
+}
+
+function Field({
+  id,
+  label,
+  help,
+  children,
+}: {
+  id: string;
+  label: string;
+  help: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div>
+      <Label htmlFor={id} data-help={help} className="mb-1.5 block">
+        {label}
+      </Label>
+      {children}
+    </div>
+  );
+}
+
+function displayName(member: ExchangeRequest["member"] | LedgerItem["member"]): string {
+  if (!member) return "Unknown member";
+  const fullName = [member.firstName, member.lastName].filter(Boolean).join(" ");
+  if (fullName) return fullName;
+  return member.email ?? "Unknown member";
+}
 
 export function CreditsManagementPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
-  const [bankType, setBankType] = useState<CreditType>("P");
+  const [bankTypeId, setBankTypeId] = useState("");
   const [bankAmount, setBankAmount] = useState("1000");
-  const [bankReason, setBankReason] = useState("Initial approved credit budget");
-  const [memberId, setMemberId] = useState("");
-  const [adjustType, setAdjustType] = useState<CreditType>("P");
+  const [bankReason, setBankReason] = useState("");
+  const [adjustMemberId, setAdjustMemberId] = useState("");
+  const [adjustTypeId, setAdjustTypeId] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("100");
   const [adjustReason, setAdjustReason] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [categoryName, setCategoryName] = useState("");
-  const [categoryDescription, setCategoryDescription] = useState("");
-  const [bulkCsv, setBulkCsv] = useState("email,firstName,lastName,pCredit,rCredit,pExpiresAt\n");
-  const [bulkFormat, setBulkFormat] = useState<"csv" | "xlsx">("csv");
-  const [bulkResult, setBulkResult] = useState<BulkBatch | null>(null);
-  const [rateType, setRateType] = useState<CreditType>("P");
-  const [rateValue, setRateValue] = useState("0");
+  const [adjustExpiry, setAdjustExpiry] = useState("");
+  const [ledgerTypeId, setLedgerTypeId] = useState("");
+  const [ledgerMemberId, setLedgerMemberId] = useState("");
+  const [ledgerAction, setLedgerAction] = useState("");
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [rateTypeId, setRateTypeId] = useState("");
+  const [ratePayout, setRatePayout] = useState<"CASH" | "NON_CASH">("NON_CASH");
+  const [rateValue, setRateValue] = useState("100");
   const [rateCurrency, setRateCurrency] = useState("USD");
-  const [rateMechanism, setRateMechanism] = useState("manual_bank_transfer");
-  const [rateCash, setRateCash] = useState(false);
+  const [rateMechanism, setRateMechanism] = useState("Gift card");
   const [rateMin, setRateMin] = useState("1");
   const [rateMax, setRateMax] = useState("");
-  const [ledgerType, setLedgerType] = useState("");
-  const [ledgerCreditType, setLedgerCreditType] = useState("");
-  const [ledgerCategory, setLedgerCategory] = useState("");
-  const [ledgerDateFrom, setLedgerDateFrom] = useState("");
-  const [ledgerDateTo, setLedgerDateTo] = useState("");
-  const [ledgerMin, setLedgerMin] = useState("");
-  const [ledgerMax, setLedgerMax] = useState("");
-  const [settingDraft, setSettingDraft] = useState<Record<string, string | boolean>>({});
-  const [permissionDraft, setPermissionDraft] = useState<
-    Record<string, { canView: boolean; canEdit: boolean }>
-  >({});
+  const [ratePeriodLimit, setRatePeriodLimit] = useState("");
+  const [ratePeriodDays, setRatePeriodDays] = useState("30");
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryDescription, setCategoryDescription] = useState("");
+  const [cycleTypeId, setCycleTypeId] = useState("");
+  const [cycleStart, setCycleStart] = useState("");
+  const [cycleEnd, setCycleEnd] = useState("");
+  const [cycleNote, setCycleNote] = useState("");
+  const [bulkFormat, setBulkFormat] = useState<"csv" | "xlsx">("csv");
+  const [bulkContent, setBulkContent] = useState("email,firstName,lastName,status\n");
+  const [bulkSourceName, setBulkSourceName] = useState("members.csv");
+  const [bulkResult, setBulkResult] = useState<BulkBatch | null>(null);
 
-  const bank = useQuery({
-    queryKey: ["credit-bank"],
+  const pointTypes = useQuery({
+    queryKey: ["point-types", "admin"],
+    queryFn: () => fetchApi<PointType[]>("/admin/point-types"),
+  });
+  const activeTypes = useMemo(
+    () => (pointTypes.data ?? []).filter((type) => type.isActive && !type.archivedAt),
+    [pointTypes.data],
+  );
+  const banks = useQuery({
+    queryKey: ["credits", "banks"],
     queryFn: () => fetchApi<Bank[]>("/admin/credits/bank"),
   });
-  const config = useQuery({
-    queryKey: ["credit-config"],
-    queryFn: () => fetchApi<Config>("/admin/credits/config"),
-  });
-  const categories = useQuery({
-    queryKey: ["credit-categories"],
-    queryFn: () => fetchApi<Category[]>("/admin/credits/categories"),
-  });
   const rates = useQuery({
-    queryKey: ["credit-rates"],
-    queryFn: () => fetchApi<Rate[]>("/credits/exchange/rates"),
+    queryKey: ["credits", "admin-rates"],
+    queryFn: () => fetchApi<Rate[]>("/admin/credits/exchange-rates"),
   });
   const requests = useQuery({
-    queryKey: ["credit-exchange-requests"],
+    queryKey: ["credits", "exchange-requests"],
     queryFn: () =>
-      fetchApi<{ items: ExchangeRequest[] }>(
-        "/admin/credits/exchange-requests?status=PENDING&pageSize=50",
-      ),
+      fetchApi<Page<ExchangeRequest>>("/admin/credits/exchange-requests?page=1&pageSize=50"),
+  });
+  const categories = useQuery({
+    queryKey: ["credits", "admin-categories"],
+    queryFn: () => fetchApi<Category[]>("/admin/credits/categories"),
   });
   const cycles = useQuery({
-    queryKey: ["credit-bank-cycles"],
+    queryKey: ["credits", "bank-cycles"],
     queryFn: () => fetchApi<Cycle[]>("/admin/credits/bank/cycles"),
   });
-  const governance = useQuery({
-    queryKey: ["credit-governance-settings"],
-    queryFn: () => fetchApi<GovernanceSettings>("/admin/credits/settings"),
-  });
   const ledger = useQuery({
-    queryKey: [
-      "credit-ledger",
-      ledgerType,
-      ledgerCreditType,
-      ledgerCategory,
-      ledgerDateFrom,
-      ledgerDateTo,
-      ledgerMin,
-      ledgerMax,
-    ],
+    queryKey: ["credits", "ledger", ledgerPage, ledgerTypeId, ledgerMemberId, ledgerAction],
     queryFn: () => {
-      const params = new URLSearchParams({ page: "1", pageSize: "50" });
-      if (ledgerType) params.set("type", ledgerType);
-      if (ledgerCreditType) params.set("creditType", ledgerCreditType);
-      if (ledgerCategory) params.set("categoryId", ledgerCategory);
-      if (ledgerDateFrom) params.set("dateFrom", `${ledgerDateFrom}T00:00:00.000Z`);
-      if (ledgerDateTo) params.set("dateTo", `${ledgerDateTo}T23:59:59.999Z`);
-      if (ledgerMin) params.set("minAmount", ledgerMin);
-      if (ledgerMax) params.set("maxAmount", ledgerMax);
-      return fetchApi<{ items: LedgerItem[] }>(`/admin/credits/transactions?${params.toString()}`);
+      const params = new URLSearchParams({ page: String(ledgerPage), pageSize: "25" });
+      if (ledgerTypeId) params.set("pointTypeId", ledgerTypeId);
+      if (ledgerMemberId) params.set("memberId", ledgerMemberId);
+      if (ledgerAction) params.set("action", ledgerAction);
+      return fetchApi<Page<LedgerItem>>(`/admin/credits/transactions?${params.toString()}`);
     },
   });
 
-  const refresh = (): void => {
-    void queryClient.invalidateQueries({ queryKey: ["credit-bank"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-config"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-categories"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-rates"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-exchange-requests"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-bank-cycles"] });
-    void queryClient.invalidateQueries({ queryKey: ["credit-governance-settings"] });
+  useEffect(() => {
+    const first = activeTypes[0]?.id ?? "";
+    const firstBank = activeTypes.find((type) => type.bankEnabled)?.id ?? "";
+    const firstExchange = activeTypes.find((type) => type.exchangeable)?.id ?? "";
+    if (!bankTypeId) setBankTypeId(firstBank);
+    if (!adjustTypeId) setAdjustTypeId(first);
+    if (!rateTypeId) setRateTypeId(firstExchange);
+    if (!cycleTypeId) setCycleTypeId(firstBank);
+  }, [activeTypes, adjustTypeId, bankTypeId, cycleTypeId, rateTypeId]);
+
+  useEffect(() => {
+    if (bulkContent !== "email,firstName,lastName,status\n" || activeTypes.length === 0) return;
+    setBulkContent(
+      `email,firstName,lastName,status,${activeTypes.map((type) => `point_${type.code},expiry_${type.code}`).join(",")}\n`,
+    );
+  }, [activeTypes, bulkContent]);
+
+  const refresh = async (): Promise<void> => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["credits"] }),
+      queryClient.invalidateQueries({ queryKey: ["members"] }),
+    ]);
   };
 
-  const mutate = useMutation({
-    mutationFn: async ({
-      path,
-      method = "POST",
-      body,
-    }: {
-      path: string;
-      method?: "POST" | "PATCH";
-      body: unknown;
-    }) =>
-      fetchApi(path, {
-        method,
-        body: JSON.stringify(body),
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+  const issueBank = useMutation({
+    mutationFn: () =>
+      fetchApi("/admin/credits/bank/issue", {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+        body: JSON.stringify({
+          pointTypeId: bankTypeId,
+          amount: Number(bankAmount),
+          reason: bankReason,
+        }),
       }),
-    onSuccess: () => {
-      setNotice("Saved successfully.");
-      refresh();
+    onSuccess: async () => {
+      setNotice("Bank funded.");
+      setBankReason("");
+      await refresh();
     },
-    onError: (error: Error) => setNotice(error.message),
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
   });
-
-  const importBulk = useMutation({
+  const adjust = useMutation({
+    mutationFn: () =>
+      fetchApi("/admin/credits/adjust", {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+        body: JSON.stringify({
+          memberId: adjustMemberId,
+          pointTypeId: adjustTypeId,
+          amount: Number(adjustAmount),
+          reason: adjustReason,
+          ...(adjustExpiry
+            ? { expiresAt: new Date(`${adjustExpiry}T23:59:59.999Z`).toISOString() }
+            : {}),
+        }),
+      }),
+    onSuccess: async () => {
+      setNotice("Member wallet adjusted.");
+      setAdjustReason("");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const expire = useMutation({
+    mutationFn: () => fetchApi<{ expired: number }>("/admin/credits/expire", { method: "POST" }),
+    onSuccess: async (result) => {
+      setNotice(`${String(result.expired)} expired lot(s) processed.`);
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const createRate = useMutation({
+    mutationFn: () =>
+      fetchApi("/admin/credits/exchange-rates", {
+        method: "POST",
+        body: JSON.stringify({
+          pointTypeId: rateTypeId,
+          valueMinorPerPoint: Number(rateValue),
+          currency: rateCurrency,
+          payoutMechanism: rateMechanism,
+          payoutType: ratePayout,
+          minPoints: Number(rateMin),
+          ...(rateMax ? { maxPoints: Number(rateMax) } : {}),
+          ...(ratePeriodLimit ? { periodLimitPoints: Number(ratePeriodLimit) } : {}),
+          periodDays: Number(ratePeriodDays),
+        }),
+      }),
+    onSuccess: async () => {
+      setNotice("New exchange-rate version activated.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const transitionExchange = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "approve" | "fulfill" | "cancel" }) => {
+      const reason = action === "cancel" ? window.prompt("Cancellation or rejection reason") : null;
+      if (action === "cancel" && !reason) throw new Error("A cancellation reason is required.");
+      return fetchApi(`/admin/credits/exchange-requests/${id}/${action}`, {
+        method: "POST",
+        ...(reason ? { body: JSON.stringify({ status: "CANCELLED", reason }) } : {}),
+      });
+    },
+    onSuccess: async () => {
+      setNotice("Exchange request updated.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const createCategory = useMutation({
+    mutationFn: () =>
+      fetchApi("/admin/credits/categories", {
+        method: "POST",
+        body: JSON.stringify({ name: categoryName, description: categoryDescription || undefined }),
+      }),
+    onSuccess: async () => {
+      setCategoryName("");
+      setCategoryDescription("");
+      setNotice("Category created.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const updateCategory = useMutation({
+    mutationFn: ({ category, remove }: { category: Category; remove?: boolean }) =>
+      fetchApi(`/admin/credits/categories/${category.id}`, {
+        method: remove ? "DELETE" : "PATCH",
+        ...(remove ? {} : { body: JSON.stringify({ isActive: !category.isActive }) }),
+      }),
+    onSuccess: async () => {
+      setNotice("Category updated.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const openCycle = useMutation({
+    mutationFn: () =>
+      fetchApi("/admin/credits/bank/cycles/open", {
+        method: "POST",
+        body: JSON.stringify({
+          pointTypeId: cycleTypeId,
+          ...(cycleStart
+            ? { startsAt: new Date(`${cycleStart}T00:00:00.000Z`).toISOString() }
+            : {}),
+          ...(cycleEnd ? { endsAt: new Date(`${cycleEnd}T23:59:59.999Z`).toISOString() } : {}),
+          ...(cycleNote ? { note: cycleNote } : {}),
+        }),
+      }),
+    onSuccess: async () => {
+      setNotice("Bank cycle opened.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const clearCycle = useMutation({
+    mutationFn: (id: string) => {
+      const reason = window.prompt("Reason for closing this bank cycle");
+      if (!reason) throw new Error("A reason is required.");
+      return fetchApi(`/admin/credits/bank/cycles/${id}/clear`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+    onSuccess: async () => {
+      setNotice("Cycle closed; unused bank value was retained.");
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const bulkImport = useMutation({
     mutationFn: () =>
       fetchApi<BulkBatch>("/admin/members/bulk", {
         method: "POST",
         body: JSON.stringify({
           format: bulkFormat,
-          content: bulkCsv,
-          sourceName:
-            bulkFormat === "xlsx" ? "admin-credit-import.xlsx" : "admin-credit-import.csv",
+          content: bulkContent,
+          sourceName: bulkSourceName,
         }),
       }),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setBulkResult(result);
       setNotice(
-        `Imported ${String(result.successRows)}/${String(result.totalRows)} rows (${result.status}).`,
+        `Bulk import ${result.status.toLowerCase()}: ${String(result.successRows)} succeeded, ${String(result.failedRows)} failed.`,
       );
+      await refresh();
     },
-    onError: (error: Error) => setNotice(error.message),
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
   });
 
-  useEffect(() => {
-    if (!governance.data) return;
-    setSettingDraft(
-      Object.fromEntries(
-        governance.data.definitions.map((definition) => [
-          definition.key,
-          typeof governance.data.values[definition.key] === "boolean"
-            ? (governance.data.values[definition.key] as boolean)
-            : String(governance.data.values[definition.key] ?? ""),
-        ]),
-      ),
-    );
-    setPermissionDraft(
-      Object.fromEntries(
-        governance.data.permissions.map((permission) => [
-          `${permission.role}:${permission.settingKey}`,
-          { canView: permission.canView, canEdit: permission.canEdit },
-        ]),
-      ),
-    );
-  }, [governance.data]);
-
-  const canViewSetting = (definition: SettingDefinition): boolean => {
-    const role = governance.data?.currentAdminRole;
-    if (role === "SERVER" || role === "SUPER_ADMIN") return true;
-    return (
-      governance.data?.permissions.some(
-        (permission) =>
-          permission.settingKey === definition.key &&
-          permission.role === role &&
-          permission.canView,
-      ) ?? false
-    );
+  const readBulkFile = (file: File): void => {
+    setBulkSourceName(file.name);
+    const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
+    setBulkFormat(isXlsx ? "xlsx" : "csv");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      setBulkContent(isXlsx ? (result.split(",")[1] ?? "") : result);
+    };
+    if (isXlsx) reader.readAsDataURL(file);
+    else reader.readAsText(file);
   };
-
-  const visibleDefinitions = (governance.data?.definitions ?? []).filter(canViewSetting);
-
-  const settingControl = (
-    definition: SettingDefinition,
-    value: string | boolean | undefined,
-    canEdit: boolean,
-  ): JSX.Element => {
-    if (["format", "issuance_policy", "approval_policy", "visibility"].includes(definition.type)) {
-      const options =
-        definition.type === "format"
-          ? [
-              ["csv", "CSV"],
-              ["json", "JSON"],
-            ]
-          : definition.type === "issuance_policy"
-            ? [
-                ["ADMIN_ONLY", "Admin only"],
-                ["BANK_CYCLE", "Bank cycle"],
-              ]
-            : definition.type === "approval_policy"
-              ? [
-                  ["REASON_REQUIRED", "Reason required"],
-                  ["APPROVAL_REQUIRED", "Approval required"],
-                ]
-              : [
-                  ["ADMIN_ONLY", "Admin only"],
-                  ["MEMBER_READ_ONLY", "Employee read-only"],
-                ];
-      return (
-        <select
-          disabled={!canEdit}
-          className={fieldClass}
-          value={String(value ?? "")}
-          onChange={(event) =>
-            setSettingDraft((draft) => ({ ...draft, [definition.key]: event.target.value }))
-          }
-        >
-          {options.map(([optionValue, optionLabel]) => (
-            <option key={optionValue} value={optionValue}>
-              {optionLabel}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    return (
-      <Input
-        disabled={!canEdit}
-        type={
-          definition.type === "integer" || definition.type === "nullable_integer"
-            ? "number"
-            : definition.type === "boolean"
-              ? "checkbox"
-              : "text"
-        }
-        value={definition.type === "boolean" ? undefined : String(value ?? "")}
-        checked={definition.type === "boolean" ? Boolean(value) : undefined}
-        onChange={(event) =>
-          setSettingDraft((draft) => ({
-            ...draft,
-            [definition.key]:
-              definition.type === "boolean" ? event.target.checked : event.target.value,
-          }))
-        }
-        placeholder={definition.description}
-      />
-    );
-  };
-
-  const saveGovernanceSettings = useMutation({
-    mutationFn: () => {
-      const values = Object.fromEntries(
-        governance.data?.definitions
-          .filter((definition) => {
-            const permission = governance.data?.permissions.find(
-              (item) =>
-                item.settingKey === definition.key &&
-                (governance.data?.currentAdminRole === "SERVER" ||
-                  item.role === governance.data?.currentAdminRole),
-            );
-            return governance.data?.currentAdminRole === "SERVER" || permission?.canEdit;
-          })
-          .map((definition) => {
-            const value = settingDraft[definition.key];
-            if (definition.type === "integer") return [definition.key, Number(value)];
-            if (definition.type === "nullable_integer")
-              return [definition.key, value === "" ? null : Number(value)];
-            if (definition.type === "boolean") return [definition.key, Boolean(value)];
-            return [definition.key, String(value ?? "")];
-          }) ?? [],
-      );
-      return fetchApi<GovernanceSettings>("/admin/credits/settings", {
-        method: "PATCH",
-        body: JSON.stringify({ values }),
-      });
-    },
-    onSuccess: () => {
-      setNotice("Governance settings saved.");
-      void queryClient.invalidateQueries({ queryKey: ["credit-governance-settings"] });
-      void queryClient.invalidateQueries({ queryKey: ["credit-rates"] });
-    },
-    onError: (error: Error) => setNotice(error.message),
-  });
-
-  const savePermissions = useMutation({
-    mutationFn: ({ role }: { role: "SUPER_ADMIN" | "OPERATOR" | "ANALYST" }) =>
-      fetchApi<GovernanceSettings>("/admin/credits/settings/permissions", {
-        method: "PATCH",
-        body: JSON.stringify({
-          role,
-          permissions:
-            governance.data?.definitions.map((definition) => ({
-              key: definition.key,
-              ...(permissionDraft[`${role}:${definition.key}`] ?? {
-                canView: true,
-                canEdit: false,
-              }),
-            })) ?? [],
-        }),
-      }),
-    onSuccess: () => {
-      setNotice("Setting permissions saved.");
-      void queryClient.invalidateQueries({ queryKey: ["credit-governance-settings"] });
-    },
-    onError: (error: Error) => setNotice(error.message),
-  });
 
   return (
-    <HelpTooltipProvider>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Credits & Recognition</h1>
-            <p className="text-muted-foreground">
-              Operate P-credit, R-credit, the bank, exchanges and the immutable audit trail.
-            </p>
-          </div>
-          <Button variant="outline" onClick={refresh}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+    <div className="space-y-6 pb-10">
+      <div>
+        <h1 className="flex items-center gap-2 text-3xl font-bold">
+          <WalletCards /> Wallet operations
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Operate every configured point type through one ledger. Point behavior itself is
+          configured under Point Types.
+        </p>
+      </div>
+      {notice && (
+        <div role="status" className="rounded-md border bg-muted p-3 text-sm">
+          {notice}
         </div>
-        {notice && (
-          <p role="status" className="rounded-md border bg-muted px-4 py-3 text-sm">
-            {notice}
-          </p>
-        )}
+      )}
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <WalletCards className="h-5 w-5" />
-                Credit Bank{" "}
-                <HelpTooltip label="Credit Bank definition">
-                  The central pool of unallocated P-credit and R-credit. Admin allocates from it to
-                  members, project leaders or campaigns; it must be reconciled each cycle.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>
-                Issue only through the bank, then allocate to members with a reason.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                {(["P", "R"] as CreditType[]).map((type) => (
-                  <div key={type} className="rounded-md bg-muted p-3">
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      {type}-credit bank{" "}
-                      <HelpTooltip label={`${type}-credit bank definition`}>
-                        {type === "P"
-                          ? "Project-funded credit; it may expire and is the only cash-eligible type."
-                          : "Recognition credit; it does not expire and cannot be paid out as cash."}
-                      </HelpTooltip>
-                    </div>
-                    <div className="text-2xl font-bold">
-                      {(
-                        bank.data?.find((item) => item.creditType === type)?.balance ?? 0
-                      ).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Credit type{" "}
-                    <HelpTooltip label="Credit type definition">
-                      Choose which of the two rule-book wallets receives the new bank issuance.
-                    </HelpTooltip>
-                  </Label>
-                  <select
-                    className={fieldClass}
-                    value={bankType}
-                    onChange={(event) => setBankType(event.target.value as CreditType)}
-                  >
-                    <option value="P">P-credit</option>
-                    <option value="R">R-credit</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Amount{" "}
-                    <HelpTooltip label="Bank amount definition">
-                      Positive integer added to the selected central bank. It is not added directly
-                      to a member.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bankAmount}
-                    onChange={(event) => setBankAmount(event.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label className="mb-1 flex items-center gap-1">
-                  Reason / approved budget reference{" "}
-                  <HelpTooltip label="Bank reason definition">
-                    Required audit note identifying the approved budget or funding decision for this
-                    issuance.
-                  </HelpTooltip>
-                </Label>
-                <Input
-                  value={bankReason}
-                  onChange={(event) => setBankReason(event.target.value)}
-                  placeholder="Approved budget reference"
-                />
-              </div>
-              <Button
-                disabled={mutate.isPending || !bankReason.trim()}
-                onClick={() =>
-                  mutate.mutate({
-                    path: "/admin/credits/bank/issue",
-                    body: { creditType: bankType, amount: Number(bankAmount), reason: bankReason },
-                  })
-                }
-              >
-                Issue to bank
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Member adjustment{" "}
-                <HelpTooltip label="Member adjustment definition">
-                  An admin-only balance change outside Give/Redeem/Exchange. It always needs a
-                  reason and creates a ledger plus audit entry.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>
-                Positive P-credit requires an expiry date. Negative adjustments return credits to
-                the bank.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <Label className="mb-1 flex items-center gap-1">
-                  Member ID{" "}
-                  <HelpTooltip label="Member ID definition">
-                    The active employee whose P-credit or R-credit wallet will be changed.
-                  </HelpTooltip>
-                </Label>
-                <Input
-                  value={memberId}
-                  onChange={(event) => setMemberId(event.target.value)}
-                  placeholder="Member ID"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Credit type{" "}
-                    <HelpTooltip label="Adjustment credit type definition">
-                      The wallet affected by this adjustment. P and R balances are kept separate.
-                    </HelpTooltip>
-                  </Label>
-                  <select
-                    className={fieldClass}
-                    value={adjustType}
-                    onChange={(event) => setAdjustType(event.target.value as CreditType)}
-                  >
-                    <option value="P">P-credit</option>
-                    <option value="R">R-credit</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Amount{" "}
-                    <HelpTooltip label="Adjustment amount definition">
-                      Positive adds from the Credit Bank; negative removes from the member and
-                      returns the amount to the bank.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    value={adjustAmount}
-                    onChange={(event) => setAdjustAmount(event.target.value)}
-                    placeholder="Amount (+/-)"
-                  />
-                </div>
-              </div>
-              {adjustType === "P" && Number(adjustAmount) > 0 && (
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Expiry date (required for positive P-credit){" "}
-                    <HelpTooltip label="P-credit expiry definition">
-                      Unused P-credit lapses at this date. R-credit has no expiry.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="date"
-                    value={expiresAt}
-                    onChange={(event) => setExpiresAt(event.target.value)}
-                  />
-                </div>
-              )}
-              <div>
-                <Label className="mb-1 flex items-center gap-1">
-                  Reason / occasion / proposal reference{" "}
-                  <HelpTooltip label="Adjustment reason definition">
-                    Mandatory explanation for a bonus, correction, fraud response, onboarding or
-                    proposal-based grant.
-                  </HelpTooltip>
-                </Label>
-                <Input
-                  value={adjustReason}
-                  onChange={(event) => setAdjustReason(event.target.value)}
-                  placeholder="Reason / occasion / proposal reference"
-                />
-              </div>
-              <Button
-                disabled={mutate.isPending || !memberId || !adjustReason.trim()}
-                onClick={() =>
-                  mutate.mutate({
-                    path: "/admin/credits/adjust",
-                    body: {
-                      memberId,
-                      creditType: adjustType,
-                      amount: Number(adjustAmount),
-                      reason: adjustReason,
-                      ...(expiresAt
-                        ? { expiresAt: new Date(`${expiresAt}T23:59:59.000Z`).toISOString() }
-                        : {}),
-                    },
-                  })
-                }
-              >
-                Apply adjustment
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
+      <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Settings2 className="h-5 w-5" />
-              Program policy
+              <Banknote /> Credit bank
             </CardTitle>
             <CardDescription>
-              These values are configurable launch decisions; changing them is audited.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {config.data && (
-              <div className="grid gap-3 md:grid-cols-5">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    R allowance / period{" "}
-                    <HelpTooltip label="R-credit allowance definition">
-                      Maximum R-credit an employee can give during the configured rolling period.
-                      P-credit uses its balance and expiry instead of this allowance.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    defaultValue={config.data.creditGivingLimit ?? ""}
-                    id="giving-limit"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Period days{" "}
-                    <HelpTooltip label="Giving period definition">
-                      Length of the rolling window used to calculate the R-credit allowance.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    defaultValue={config.data.creditGivingPeriodDays}
-                    id="giving-period"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Pair limit{" "}
-                    <HelpTooltip label="Giver-receiver pair limit definition">
-                      Optional maximum amount an employee may give to the same recipient in the
-                      rolling period.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    defaultValue={config.data.creditGivingPairLimit ?? ""}
-                    id="pair-limit"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Bank cycle days{" "}
-                    <HelpTooltip label="Bank cycle definition">
-                      Length of the rolling Credit Bank reconciliation cycle. Clearing is recorded;
-                      ledger history is never deleted.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    defaultValue={config.data.creditBankCycleDays}
-                    id="cycle-days"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Expiry warnings{" "}
-                    <HelpTooltip label="Expiry warning definition">
-                      Comma-separated days before P-credit expiry when the worker may send advance
-                      notifications.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    defaultValue={config.data.creditExpiryWarningDays.join(",")}
-                    id="warning-days"
-                  />
-                </div>
-              </div>
-            )}
-            <Button
-              className="mt-3"
-              onClick={() => {
-                const numberOrNull = (id: string): number | null => {
-                  const value =
-                    (document.getElementById(id) as HTMLInputElement | null)?.value ?? "";
-                  return value.trim() ? Number(value) : null;
-                };
-                const warnings = (
-                  (document.getElementById("warning-days") as HTMLInputElement | null)?.value ?? ""
-                )
-                  .split(",")
-                  .map((value) => Number(value.trim()))
-                  .filter((value) => Number.isInteger(value) && value > 0);
-                mutate.mutate({
-                  path: "/admin/credits/config",
-                  method: "PATCH",
-                  body: {
-                    creditGivingLimit: numberOrNull("giving-limit"),
-                    creditGivingPeriodDays: numberOrNull("giving-period") ?? 30,
-                    creditGivingPairLimit: numberOrNull("pair-limit"),
-                    creditBankCycleDays: numberOrNull("cycle-days") ?? 30,
-                    creditExpiryWarningDays: warnings,
-                  },
-                });
-              }}
-            >
-              Save policy
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1">
-              Governance settings & permissions{" "}
-              <HelpTooltip label="Governance settings definition">
-                These settings are launch and finance decisions. Values are stored per program,
-                changes are audited, and permissions determine who can see or edit each setting.
-              </HelpTooltip>
-            </CardTitle>
-            <CardDescription>
-              Financial values, payout/reconciliation behavior and employee visibility are database
-              settings. Every change is audited and role-scoped.
+              Fund governed issuance pools. Each point type has an independent bank.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-md border bg-muted/30 p-3 text-sm">
-              Current role: <strong>{governance.data?.currentAdminRole ?? "…"}</strong>. SUPER_ADMIN
-              controls the permission matrix; OPERATOR can edit only the settings granted to its
-              role.
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {visibleDefinitions.map((definition) => {
-                const permission = governance.data?.permissions.find(
-                  (item) =>
-                    item.settingKey === definition.key &&
-                    (governance.data?.currentAdminRole === "SERVER" ||
-                      item.role === governance.data?.currentAdminRole),
-                );
-                const canEdit =
-                  governance.data?.currentAdminRole === "SERVER" || permission?.canEdit === true;
-                const value = settingDraft[definition.key];
-                return (
-                  <div key={definition.key} className="space-y-1">
-                    <div className="flex items-center gap-1">
-                      <Label>{definition.label}</Label>
-                      <HelpTooltip label={`${definition.label} definition`}>
-                        {definition.description}
-                      </HelpTooltip>
-                    </div>
-                    {settingControl(definition, value, canEdit)}
-                    {!canEdit && (
-                      <p className="text-xs text-muted-foreground">
-                        Visible but read-only for your role.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <Button
-              disabled={saveGovernanceSettings.isPending}
-              onClick={() => saveGovernanceSettings.mutate()}
-            >
-              {saveGovernanceSettings.isPending ? "Saving…" : "Save governance settings"}
-            </Button>
-            {(governance.data?.currentAdminRole === "SUPER_ADMIN" ||
-              governance.data?.currentAdminRole === "SERVER") && (
-              <div className="space-y-3 rounded-md border p-3">
-                <div>
-                  <h3 className="flex items-center gap-1 font-medium">
-                    Role permissions{" "}
-                    <HelpTooltip label="Role permission definition">
-                      View means the setting is visible to the role. Edit means it can be changed.
-                      Edit is only valid when View is enabled.
-                    </HelpTooltip>
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Use the explicit labels below instead of guessing what each checkbox controls.
-                  </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(banks.data ?? []).map((bank) => (
+                <div
+                  key={bank.pointTypeId}
+                  className="rounded-md border p-3"
+                  style={{ borderTopColor: bank.color ?? undefined, borderTopWidth: 3 }}
+                >
+                  <p className="text-sm text-muted-foreground">{bank.name}</p>
+                  <p className="text-2xl font-bold">{bank.balance.toLocaleString()}</p>
                 </div>
-                {(["OPERATOR", "ANALYST"] as const).map((role) => (
-                  <div key={role} className="overflow-x-auto">
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm font-medium">{role}</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={savePermissions.isPending}
-                        onClick={() => savePermissions.mutate({ role })}
-                      >
-                        Save {role}
-                      </Button>
-                    </div>
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="py-1 pr-3">Setting</th>
-                          <th className="py-1 pr-3">
-                            Can view{" "}
-                            <HelpTooltip label="Can view definition">
-                              The setting and current value are returned to this role.
-                            </HelpTooltip>
-                          </th>
-                          <th className="py-1">
-                            Can edit{" "}
-                            <HelpTooltip label="Can edit definition">
-                              The role may save a new value. Turning off View automatically turns
-                              off Edit.
-                            </HelpTooltip>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(governance.data?.definitions ?? []).map((definition) => {
-                          const key = `${role}:${definition.key}`;
-                          const permission = permissionDraft[key] ?? {
-                            canView: true,
-                            canEdit: false,
-                          };
-                          return (
-                            <tr key={key} className="border-b last:border-0">
-                              <td className="py-1 pr-3">
-                                <span className="inline-flex items-center gap-1">
-                                  {definition.label}
-                                  <HelpTooltip label={`${definition.label} definition`}>
-                                    {definition.description}
-                                  </HelpTooltip>
-                                </span>
-                              </td>
-                              <td className="py-1 pr-3">
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={permission.canView}
-                                    onChange={(event) =>
-                                      setPermissionDraft((draft) => ({
-                                        ...draft,
-                                        [key]: {
-                                          ...permission,
-                                          canView: event.target.checked,
-                                          canEdit: event.target.checked
-                                            ? permission.canEdit
-                                            : false,
-                                        },
-                                      }))
-                                    }
-                                  />
-                                  View
-                                </label>
-                              </td>
-                              <td className="py-1">
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={permission.canEdit}
-                                    disabled={!permission.canView}
-                                    onChange={(event) =>
-                                      setPermissionDraft((draft) => ({
-                                        ...draft,
-                                        [key]: { ...permission, canEdit: event.target.checked },
-                                      }))
-                                    }
-                                  />
-                                  Edit
-                                </label>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
-              </div>
-            )}
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                id="bank-type"
+                label="Point type"
+                help="Only point types with bank governance enabled appear here."
+              >
+                <select
+                  id="bank-type"
+                  className={selectClass}
+                  value={bankTypeId}
+                  onChange={(event) => {
+                    setBankTypeId(event.target.value);
+                  }}
+                >
+                  {activeTypes
+                    .filter((type) => type.bankEnabled)
+                    .map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field
+                id="bank-amount"
+                label="Funding amount"
+                help="Positive amount added to the selected central bank."
+              >
+                <Input
+                  id="bank-amount"
+                  type="number"
+                  min="1"
+                  value={bankAmount}
+                  onChange={(event) => {
+                    setBankAmount(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="bank-reason"
+                label="Funding reason"
+                help="Mandatory audit reason for creating bank value."
+              >
+                <Input
+                  id="bank-reason"
+                  value={bankReason}
+                  onChange={(event) => {
+                    setBankReason(event.target.value);
+                  }}
+                />
+              </Field>
+              <Button
+                className="self-end"
+                disabled={!bankTypeId || !bankReason || issueBank.isPending}
+                onClick={() => {
+                  issueBank.mutate();
+                }}
+              >
+                Fund bank
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        <PointTypesPanel />
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Recognition categories{" "}
-                <HelpTooltip label="Recognition category definition">
-                  Optional labels on Give transactions, such as teamwork or customer focus.
-                  Categories in use are deactivated instead of deleted.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>
-                Categories are reference data and cannot be deleted after use.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Name{" "}
-                    <HelpTooltip label="Category name definition">
-                      The label employees select when giving recognition.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    value={categoryName}
-                    onChange={(event) => setCategoryName(event.target.value)}
-                    placeholder="Category name"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Description{" "}
-                    <HelpTooltip label="Category description definition">
-                      Optional explanation that helps employees choose the right category.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    value={categoryDescription}
-                    onChange={(event) => setCategoryDescription(event.target.value)}
-                    placeholder="Description"
-                  />
-                </div>
-              </div>
-              <Button
-                disabled={!categoryName.trim()}
-                onClick={() => {
-                  mutate.mutate({
-                    path: "/admin/credits/categories",
-                    body: { name: categoryName, description: categoryDescription },
-                  });
-                  setCategoryName("");
-                  setCategoryDescription("");
-                }}
-              >
-                Add category
-              </Button>
-              <div className="divide-y">
-                {(categories.data ?? []).map((category) => (
-                  <div key={category.id} className="flex items-center justify-between py-2 text-sm">
-                    <span className={category.isActive ? "" : "text-muted-foreground line-through"}>
-                      {category.name}
-                    </span>
-                    {category.isActive && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          mutate.mutate({
-                            path: `/admin/credits/categories/${category.id}`,
-                            method: "PATCH",
-                            body: { isActive: false },
-                          })
-                        }
-                      >
-                        Deactivate
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Exchange rates{" "}
-                <HelpTooltip label="Exchange rate definition">
-                  A versioned value used to preview and record an Exchange. The applied version is
-                  stored on the request and ledger so history does not change when rates are
-                  updated.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>
-                Each save creates a new version; requests store the exact version used.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Credit type{" "}
-                    <HelpTooltip label="Exchange credit type definition">
-                      P-credit may use cash payout; R-credit is non-cash only, as required by the
-                      rule book.
-                    </HelpTooltip>
-                  </Label>
-                  <select
-                    className={fieldClass}
-                    value={rateType}
-                    onChange={(event) => setRateType(event.target.value as CreditType)}
-                  >
-                    <option value="P">P-credit</option>
-                    <option value="R">R-credit</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Minor units / credit{" "}
-                    <HelpTooltip label="Rate value definition">
-                      Integer monetary minor units per credit, for example cents. Enter the
-                      Finance-approved value before enabling Exchange.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={rateValue}
-                    onChange={(event) => setRateValue(event.target.value)}
-                    placeholder="Not configured"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Currency{" "}
-                    <HelpTooltip label="Currency definition">
-                      Three-letter currency code used for the payout value.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    value={rateCurrency}
-                    onChange={(event) => setRateCurrency(event.target.value.toUpperCase())}
-                    placeholder="Currency"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Payout mechanism{" "}
-                    <HelpTooltip label="Payout mechanism definition">
-                      Operational route for settlement, such as payroll, gift card or a partner
-                      adapter.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    value={rateMechanism}
-                    onChange={(event) => setRateMechanism(event.target.value)}
-                    placeholder="Payout mechanism"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Minimum{" "}
-                    <HelpTooltip label="Minimum exchange definition">
-                      Smallest amount allowed in a single Exchange request.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={rateMin}
-                    onChange={(event) => setRateMin(event.target.value)}
-                    placeholder="Min"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1 flex items-center gap-1">
-                    Maximum{" "}
-                    <HelpTooltip label="Maximum exchange definition">
-                      Largest amount allowed in a single Exchange request; leave blank for no
-                      maximum.
-                    </HelpTooltip>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={rateMax}
-                    onChange={(event) => setRateMax(event.target.value)}
-                    placeholder="No maximum"
-                  />
-                </div>
-                <label className="flex items-center gap-2 self-end pb-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={rateCash}
-                    onChange={(event) => setRateCash(event.target.checked)}
-                    disabled={rateType === "R"}
-                  />
-                  Cash{" "}
-                  <HelpTooltip label="Cash eligible definition">
-                    Only P-credit can be cash eligible. R-credit exchange remains non-cash.
-                  </HelpTooltip>
-                </label>
-              </div>
-              <Button
-                onClick={() =>
-                  mutate.mutate({
-                    path: "/admin/credits/exchange-rates",
-                    body: {
-                      creditType: rateType,
-                      valueMinorPerCredit: Number(rateValue),
-                      currency: rateCurrency,
-                      payoutMechanism: rateMechanism,
-                      cashEligible: rateType === "P" && rateCash,
-                      minCredits: Number(rateMin),
-                      ...(rateMax ? { maxCredits: Number(rateMax) } : {}),
-                    },
-                  })
-                }
-              >
-                Publish rate version
-              </Button>
-              <div className="divide-y">
-                {(rates.data ?? []).map((rate) => (
-                  <div key={rate.id} className="flex justify-between py-2 text-sm">
-                    <span>
-                      {rate.creditType} v{rate.version} · {rate.valueMinorPerCredit} {rate.currency}
-                    </span>
-                    <span>{rate.payoutMechanism}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-1">
-              Credit ledger & recognition transactions{" "}
-              <HelpTooltip label="Immutable ledger definition">
-                Append-only record of every credit-affecting action. It captures wallet, amount,
-                running balance, actor/counterparty and reason for auditability.
-              </HelpTooltip>
-            </CardTitle>
+            <CardTitle>Member adjustment</CardTitle>
             <CardDescription>
-              Filter by wallet/action; each row is immutable and linked to the member, counterparty
-              and category.
+              Add or remove value. Bank-enabled positive adjustments consume bank funds.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <Field
+              id="adjust-member"
+              label="Member ID"
+              help="Exact member whose wallet will be adjusted."
+            >
+              <Input
+                id="adjust-member"
+                value={adjustMemberId}
+                onChange={(event) => {
+                  setAdjustMemberId(event.target.value);
+                }}
+              />
+            </Field>
+            <Field id="adjust-type" label="Point type" help="Configured wallet to adjust.">
               <select
-                className={fieldClass + " max-w-48"}
-                value={ledgerCreditType}
-                onChange={(event) => setLedgerCreditType(event.target.value)}
+                id="adjust-type"
+                className={selectClass}
+                value={adjustTypeId}
+                onChange={(event) => {
+                  setAdjustTypeId(event.target.value);
+                }}
               >
-                <option value="">All wallets</option>
-                <option value="P">P-credit</option>
-                <option value="R">R-credit</option>
-              </select>
-              <select
-                className={fieldClass + " max-w-48"}
-                value={ledgerType}
-                onChange={(event) => setLedgerType(event.target.value)}
-              >
-                <option value="">All actions</option>
-                <option value="GIVE_IN">GIVE_IN</option>
-                <option value="GIVE_OUT">GIVE_OUT</option>
-                <option value="ADJUSTMENT">ADJUSTMENT</option>
-                <option value="REDEEM">REDEEM</option>
-                <option value="EXCHANGE">EXCHANGE</option>
-                <option value="EXPIRATION">EXPIRATION</option>
-              </select>
-              <select
-                className={fieldClass + " max-w-48"}
-                value={ledgerCategory}
-                onChange={(event) => setLedgerCategory(event.target.value)}
-              >
-                <option value="">All categories</option>
-                {(categories.data ?? []).map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+                {activeTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
                   </option>
                 ))}
               </select>
+            </Field>
+            <Field
+              id="adjust-amount"
+              label="Signed amount"
+              help="Positive adds value; negative removes value."
+            >
               <Input
-                type="date"
-                value={ledgerDateFrom}
-                onChange={(event) => setLedgerDateFrom(event.target.value)}
-              />
-              <Input
-                type="date"
-                value={ledgerDateTo}
-                onChange={(event) => setLedgerDateTo(event.target.value)}
-              />
-              <Input
-                className="w-28"
+                id="adjust-amount"
                 type="number"
-                value={ledgerMin}
-                onChange={(event) => setLedgerMin(event.target.value)}
-                placeholder="Min"
+                value={adjustAmount}
+                onChange={(event) => {
+                  setAdjustAmount(event.target.value);
+                }}
               />
+            </Field>
+            <Field
+              id="adjust-expiry"
+              label="Grant expiry override"
+              help="Optional explicit expiry, especially for Per grant point types."
+            >
               <Input
-                className="w-28"
-                type="number"
-                value={ledgerMax}
-                onChange={(event) => setLedgerMax(event.target.value)}
-                placeholder="Max"
+                id="adjust-expiry"
+                type="date"
+                value={adjustExpiry}
+                onChange={(event) => {
+                  setAdjustExpiry(event.target.value);
+                }}
               />
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="py-2 pr-3">Date</th>
-                    <th className="py-2 pr-3">Member</th>
-                    <th className="py-2 pr-3">Action</th>
-                    <th className="py-2 pr-3">Wallet</th>
-                    <th className="py-2 text-right">Amount / balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(ledger.data?.items ?? []).map((item) => (
-                    <tr key={item.id} className="border-b last:border-0">
-                      <td className="py-2 pr-3 text-xs">
-                        {new Date(item.createdAt).toLocaleString()}
-                      </td>
-                      <td className="py-2 pr-3">
-                        {[item.member?.firstName, item.member?.lastName]
-                          .filter(Boolean)
-                          .join(" ") ||
-                          item.member?.email ||
-                          item.memberId}
-                        {item.member?.department ? (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            · {item.member.department}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="py-2 pr-3">
-                        {item.type}
-                        {item.categoryRef ? (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            · {item.categoryRef.name}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="py-2 pr-3">{item.creditType}</td>
-                      <td className="py-2 text-right">
-                        <span className={item.amount >= 0 ? "text-green-600" : "text-red-600"}>
-                          {item.amount > 0 ? "+" : ""}
-                          {item.amount}
-                        </span>{" "}
-                        <span className="text-xs text-muted-foreground">→ {item.balanceAfter}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {(ledger.data?.items ?? []).length === 0 && (
-                <p className="py-4 text-sm text-muted-foreground">No ledger entries found.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Pending exchanges{" "}
-                <HelpTooltip label="Pending exchange definition">
-                  An Employee request has already reserved/debited the selected wallet. Admin moves
-                  it through approval, fulfillment or cancellation; cancellation creates a
-                  compensating ledger entry.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>Approve, fulfill, or cancel with a recorded reason.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {(requests.data?.items ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No pending exchange requests.</p>
-              ) : (
-                (requests.data?.items ?? []).map((request) => (
-                  <div key={request.id} className="rounded-md border p-3 text-sm">
-                    <div className="flex justify-between">
-                      <span>
-                        {request.member.email ?? request.member.id} · {request.amount}{" "}
-                        {request.creditType}
-                      </span>
-                      <span>
-                        {(request.valueMinor / 100).toFixed(2)} {request.currency}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          mutate.mutate({
-                            path: `/admin/credits/exchange-requests/${request.id}/approve`,
-                            body: {},
-                          })
-                        }
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          mutate.mutate({
-                            path: `/admin/credits/exchange-requests/${request.id}/fulfill`,
-                            body: {},
-                          })
-                        }
-                      >
-                        Fulfill
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() =>
-                          mutate.mutate({
-                            path: `/admin/credits/exchange-requests/${request.id}/cancel`,
-                            body: { reason: "Cancelled by administrator" },
-                          })
-                        }
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1">
-                Bank cycles{" "}
-                <HelpTooltip label="Bank cycle definition">
-                  A rolling reconciliation window for the central Credit Bank. Clearing closes the
-                  operational balance without deleting historical bank transactions.
-                </HelpTooltip>
-              </CardTitle>
-              <CardDescription>
-                Open and clear cycles for reconciliation without deleting ledger history.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button
-                onClick={() => mutate.mutate({ path: "/admin/credits/bank/cycles/open", body: {} })}
-              >
-                Open current cycle
-              </Button>
-              {(cycles.data ?? []).slice(0, 5).map((cycle) => (
-                <div
-                  key={cycle.id}
-                  className="flex items-center justify-between rounded-md border p-3 text-sm"
-                >
-                  <span>
-                    {cycle.status} · {new Date(cycle.startsAt).toLocaleDateString()} · opening P/R{" "}
-                    {cycle.openingP}/{cycle.openingR}
-                  </span>
-                  {cycle.status !== "CLEARED" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        mutate.mutate({
-                          path: `/admin/credits/bank/cycles/${cycle.id}/clear`,
-                          body: { reason: "Scheduled cycle reconciliation" },
-                        })
-                      }
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Bulk employee import / seed{" "}
-              <HelpTooltip label="Bulk import definition">
-                Creates or updates employees and can seed P/R balances during onboarding. Each row
-                gets a success/failure result and the batch is audited as one event.
-              </HelpTooltip>
-            </CardTitle>
-            <CardDescription>
-              CSV columns: email or externalId, firstName, lastName, phone, pCredit, rCredit,
-              pExpiresAt. Every row receives a result and the batch is audited.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Label className="flex items-center gap-1">
-              CSV/XLSX file{" "}
-              <HelpTooltip label="Import file definition">
-                Upload a CSV or XLSX file using the documented columns. XLSX content is sent to the
-                API as base64.
-              </HelpTooltip>
-            </Label>
-            <input
-              type="file"
-              accept=".csv,.xlsx"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                if (file.name.toLowerCase().endsWith(".xlsx")) {
-                  const bytes = new Uint8Array(await file.arrayBuffer());
-                  let binary = "";
-                  bytes.forEach((byte) => {
-                    binary += String.fromCharCode(byte);
-                  });
-                  setBulkCsv(btoa(binary));
-                  setBulkFormat("xlsx");
-                } else {
-                  setBulkCsv(await file.text());
-                  setBulkFormat("csv");
-                }
+            </Field>
+            <Field
+              id="adjust-reason"
+              label="Adjustment reason"
+              help="Mandatory business reason retained in ledger and audit log."
+            >
+              <Input
+                id="adjust-reason"
+                value={adjustReason}
+                onChange={(event) => {
+                  setAdjustReason(event.target.value);
+                }}
+              />
+            </Field>
+            <Button
+              className="self-end"
+              disabled={
+                !adjustMemberId ||
+                !adjustTypeId ||
+                !adjustReason ||
+                Number(adjustAmount) === 0 ||
+                adjust.isPending
+              }
+              onClick={() => {
+                adjust.mutate();
               }}
-            />
-            <Label className="flex items-center gap-1">
-              Preview / raw content{" "}
-              <HelpTooltip label="Import content definition">
-                Review or paste the selected content before importing. The API validates every row
-                and returns a report.
-              </HelpTooltip>
-            </Label>
-            <textarea
-              className="min-h-32 w-full rounded-md border bg-background p-3 font-mono text-xs"
-              value={bulkCsv}
-              onChange={(event) => {
-                setBulkCsv(event.target.value);
-                setBulkFormat("csv");
-              }}
-            />
-            <Button disabled={importBulk.isPending} onClick={() => importBulk.mutate()}>
-              {importBulk.isPending ? "Importing…" : `Import ${bulkFormat.toUpperCase()}`}
-            </Button>
-            {bulkResult && (
-              <div className="max-h-48 overflow-y-auto rounded-md border p-3 text-sm">
-                <p className="mb-2 flex items-center gap-1 font-medium">
-                  Per-row report{" "}
-                  <HelpTooltip label="Per-row report definition">
-                    Shows exactly which rows succeeded or failed so an operator can correct only the
-                    failed input.
-                  </HelpTooltip>
-                </p>
-                {(bulkResult.report ?? []).map((row) => (
-                  <div
-                    key={row.row}
-                    className={row.status === "success" ? "text-green-700" : "text-red-700"}
-                  >
-                    Row {row.row}: {row.status}
-                    {row.error ? ` — ${row.error}` : ""}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1">
-              Audit export{" "}
-              <HelpTooltip label="Audit export definition">
-                Downloads the append-only admin audit trail. Corrections are new entries; previous
-                entries are not edited or deleted.
-              </HelpTooltip>
-            </CardTitle>
-            <CardDescription>
-              Append-only credit actions, actor, reason and timestamp.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" asChild>
-              <a href="/api/v1/admin/credits/audit?format=csv&pageSize=100" download>
-                <Download className="h-4 w-4" />
-                Download CSV
-              </a>
+            >
+              Apply adjustment
             </Button>
           </CardContent>
         </Card>
       </div>
-    </HelpTooltipProvider>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History /> Unified ledger
+          </CardTitle>
+          <CardDescription>
+            Filter the immutable signed transaction stream across all point types.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <Field id="ledger-type" label="Point type" help="Limit results to one wallet type.">
+              <select
+                id="ledger-type"
+                className={selectClass}
+                value={ledgerTypeId}
+                onChange={(event) => {
+                  setLedgerTypeId(event.target.value);
+                  setLedgerPage(1);
+                }}
+              >
+                <option value="">All types</option>
+                {activeTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field id="ledger-member" label="Member ID" help="Limit results to one member.">
+              <Input
+                id="ledger-member"
+                value={ledgerMemberId}
+                onChange={(event) => {
+                  setLedgerMemberId(event.target.value);
+                  setLedgerPage(1);
+                }}
+              />
+            </Field>
+            <Field
+              id="ledger-action"
+              label="Action"
+              help="Exact ledger action such as EARN, GIVE_IN, REDEEM or EXPIRY."
+            >
+              <Input
+                id="ledger-action"
+                value={ledgerAction}
+                onChange={(event) => {
+                  setLedgerAction(event.target.value.toUpperCase());
+                  setLedgerPage(1);
+                }}
+              />
+            </Field>
+            <Button
+              variant="outline"
+              className="self-end"
+              disabled={expire.isPending}
+              onClick={() => {
+                expire.mutate();
+              }}
+            >
+              <RefreshCw /> Run expiry now
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="p-2">Date</th>
+                  <th className="p-2">Member</th>
+                  <th className="p-2">Type</th>
+                  <th className="p-2">Action / reason</th>
+                  <th className="p-2 text-right">Amount</th>
+                  <th className="p-2 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(ledger.data?.items ?? []).map((item) => (
+                  <tr key={item.id} className="border-b">
+                    <td className="p-2 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
+                    <td className="p-2">{displayName(item.member)}</td>
+                    <td className="p-2">{item.pointType.code}</td>
+                    <td className="p-2">
+                      {item.action}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {item.reason ?? item.message}
+                      </span>
+                    </td>
+                    <td
+                      className={`p-2 text-right font-semibold ${item.amount >= 0 ? "text-green-600" : "text-red-600"}`}
+                    >
+                      {item.amount > 0 ? "+" : ""}
+                      {item.amount.toLocaleString()}
+                    </td>
+                    <td className="p-2 text-right">{item.balanceAfter.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={ledgerPage <= 1}
+              onClick={() => {
+                setLedgerPage((page) => page - 1);
+              }}
+            >
+              Previous
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={ledgerPage >= (ledger.data?.totalPages ?? 1)}
+              onClick={() => {
+                setLedgerPage((page) => page + 1);
+              }}
+            >
+              Next
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowRightLeft /> Exchange rates
+            </CardTitle>
+            <CardDescription>
+              Saving creates a version and deactivates only the prior rate for the same payout type.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Field
+                id="rate-type"
+                label="Point type"
+                help="Exchange-enabled point type for this rate."
+              >
+                <select
+                  id="rate-type"
+                  className={selectClass}
+                  value={rateTypeId}
+                  onChange={(event) => {
+                    const id = event.target.value;
+                    setRateTypeId(id);
+                    if (!activeTypes.find((type) => type.id === id)?.cashEligible)
+                      setRatePayout("NON_CASH");
+                  }}
+                >
+                  {activeTypes
+                    .filter((type) => type.exchangeable)
+                    .map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field
+                id="rate-payout"
+                label="Payout type"
+                help="Cash is available only when the selected type permits cash exchange."
+              >
+                <select
+                  id="rate-payout"
+                  className={selectClass}
+                  value={ratePayout}
+                  onChange={(event) => {
+                    setRatePayout(event.target.value as "CASH" | "NON_CASH");
+                  }}
+                >
+                  <option value="NON_CASH">Non-cash</option>
+                  <option
+                    value="CASH"
+                    disabled={!activeTypes.find((type) => type.id === rateTypeId)?.cashEligible}
+                  >
+                    Cash
+                  </option>
+                </select>
+              </Field>
+              <Field
+                id="rate-value"
+                label="Minor currency units per point"
+                help="Integer payout in minor units; 100 means 1.00 for a two-decimal currency."
+              >
+                <Input
+                  id="rate-value"
+                  type="number"
+                  min="1"
+                  value={rateValue}
+                  onChange={(event) => {
+                    setRateValue(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field id="rate-currency" label="Currency" help="Three-letter ISO currency code.">
+                <Input
+                  id="rate-currency"
+                  maxLength={3}
+                  value={rateCurrency}
+                  onChange={(event) => {
+                    setRateCurrency(event.target.value.toUpperCase());
+                  }}
+                />
+              </Field>
+              <Field
+                id="rate-mechanism"
+                label="Payout mechanism"
+                help="Operational method such as payroll, gift card or bank transfer."
+              >
+                <Input
+                  id="rate-mechanism"
+                  value={rateMechanism}
+                  onChange={(event) => {
+                    setRateMechanism(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="rate-min"
+                label="Minimum points"
+                help="Smallest accepted exchange request."
+              >
+                <Input
+                  id="rate-min"
+                  type="number"
+                  min="1"
+                  value={rateMin}
+                  onChange={(event) => {
+                    setRateMin(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field id="rate-max" label="Maximum points" help="Optional maximum for one request.">
+                <Input
+                  id="rate-max"
+                  type="number"
+                  min="1"
+                  value={rateMax}
+                  onChange={(event) => {
+                    setRateMax(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="rate-period-limit"
+                label="Period limit"
+                help="Optional cumulative member limit during the rolling period."
+              >
+                <Input
+                  id="rate-period-limit"
+                  type="number"
+                  min="1"
+                  value={ratePeriodLimit}
+                  onChange={(event) => {
+                    setRatePeriodLimit(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="rate-period-days"
+                label="Period days"
+                help="Rolling window used by the cumulative exchange limit."
+              >
+                <Input
+                  id="rate-period-days"
+                  type="number"
+                  min="1"
+                  value={ratePeriodDays}
+                  onChange={(event) => {
+                    setRatePeriodDays(event.target.value);
+                  }}
+                />
+              </Field>
+            </div>
+            <Button
+              disabled={!rateTypeId || !rateMechanism || createRate.isPending}
+              onClick={() => {
+                createRate.mutate();
+              }}
+            >
+              Activate new rate version
+            </Button>
+            <div className="space-y-2">
+              {(rates.data ?? []).map((rate) => (
+                <div
+                  key={rate.id}
+                  className={`flex justify-between rounded-md border p-3 text-sm ${rate.isActive ? "" : "opacity-50"}`}
+                >
+                  <span>
+                    {rate.pointType.name} · {rate.payoutType} · v{rate.version}
+                  </span>
+                  <span>
+                    {rate.valueMinorPerPoint} {rate.currency} / {rate.pointType.unitLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Exchange requests</CardTitle>
+            <CardDescription>
+              Strict transitions: Pending → Approved → Paid, or cancellation with an automatic
+              wallet refund.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(requests.data?.items ?? []).map((item) => (
+              <div key={item.id} className="rounded-md border p-3 text-sm">
+                <div className="flex justify-between">
+                  <strong>{displayName(item.member)}</strong>
+                  <span>{item.status}</span>
+                </div>
+                <p className="text-muted-foreground">
+                  {item.amount.toLocaleString()} {item.pointType.unitLabel} ·{" "}
+                  {(item.valueMinor / 100).toLocaleString()} {item.currency} · {item.payoutType}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  {item.status === "PENDING" && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        transitionExchange.mutate({ id: item.id, action: "approve" });
+                      }}
+                    >
+                      Approve
+                    </Button>
+                  )}
+                  {item.status === "APPROVED" && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        transitionExchange.mutate({ id: item.id, action: "fulfill" });
+                      }}
+                    >
+                      Mark paid
+                    </Button>
+                  )}
+                  {["PENDING", "APPROVED"].includes(item.status) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        transitionExchange.mutate({ id: item.id, action: "cancel" });
+                      }}
+                    >
+                      Cancel & refund
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {(requests.data?.items ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No exchange requests.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Bank cycles</CardTitle>
+            <CardDescription>
+              Track allocation windows without deleting unused bank value when a cycle closes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                id="cycle-type"
+                label="Point type"
+                help="Bank-governed point type tracked by this cycle."
+              >
+                <select
+                  id="cycle-type"
+                  className={selectClass}
+                  value={cycleTypeId}
+                  onChange={(event) => {
+                    setCycleTypeId(event.target.value);
+                  }}
+                >
+                  {activeTypes
+                    .filter((type) => type.bankEnabled)
+                    .map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field
+                id="cycle-start"
+                label="Starts at"
+                help="Optional cycle start; defaults to now."
+              >
+                <Input
+                  id="cycle-start"
+                  type="date"
+                  value={cycleStart}
+                  onChange={(event) => {
+                    setCycleStart(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="cycle-end"
+                label="Ends at"
+                help="Optional cycle end; defaults to the point type allowance-cycle duration."
+              >
+                <Input
+                  id="cycle-end"
+                  type="date"
+                  value={cycleEnd}
+                  onChange={(event) => {
+                    setCycleEnd(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="cycle-note"
+                label="Cycle note"
+                help="Optional operational context for the allocation window."
+              >
+                <Input
+                  id="cycle-note"
+                  value={cycleNote}
+                  onChange={(event) => {
+                    setCycleNote(event.target.value);
+                  }}
+                />
+              </Field>
+            </div>
+            <Button
+              disabled={!cycleTypeId || openCycle.isPending}
+              onClick={() => {
+                openCycle.mutate();
+              }}
+            >
+              Open cycle
+            </Button>
+            <div className="space-y-2">
+              {(cycles.data ?? []).map((cycle) => (
+                <div
+                  key={cycle.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+                >
+                  <span>
+                    {cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleDateString()}–
+                    {new Date(cycle.endsAt).toLocaleDateString()} · {cycle.status}
+                  </span>
+                  <span>
+                    Opening {cycle.opening.toLocaleString()} · allocated{" "}
+                    {cycle.allocated.toLocaleString()} · closing {cycle.closing.toLocaleString()}
+                  </span>
+                  {cycle.status === "OPEN" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        clearCycle.mutate(cycle.id);
+                      }}
+                    >
+                      Close cycle
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recognition categories</CardTitle>
+            <CardDescription>
+              Used for member recognition and reporting. Used categories are archived rather than
+              deleted.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                id="category-name"
+                label="Category name"
+                help="Short label displayed in the Portal Give form."
+              >
+                <Input
+                  id="category-name"
+                  value={categoryName}
+                  onChange={(event) => {
+                    setCategoryName(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field
+                id="category-description"
+                label="Category description"
+                help="Explains when members should use this category."
+              >
+                <Input
+                  id="category-description"
+                  value={categoryDescription}
+                  onChange={(event) => {
+                    setCategoryDescription(event.target.value);
+                  }}
+                />
+              </Field>
+            </div>
+            <Button
+              disabled={!categoryName || createCategory.isPending}
+              onClick={() => {
+                createCategory.mutate();
+              }}
+            >
+              Create category
+            </Button>
+            <div className="space-y-2">
+              {(categories.data ?? []).map((category) => (
+                <div
+                  key={category.id}
+                  className={`flex items-center justify-between rounded-md border p-3 text-sm ${category.isActive ? "" : "opacity-50"}`}
+                >
+                  <span>
+                    <strong>{category.name}</strong>
+                    <span className="ml-2 text-muted-foreground">{category.description}</span>
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        updateCategory.mutate({ category });
+                      }}
+                    >
+                      {category.isActive ? "Deactivate" : "Activate"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => {
+                        updateCategory.mutate({ category, remove: true });
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload /> Dynamic member import
+          </CardTitle>
+          <CardDescription>
+            Use point_CODE and optional expiry_CODE columns for any configured type. Omitting status
+            preserves an existing member’s state.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Field
+            id="bulk-file"
+            label="CSV or XLSX file"
+            help="CSV is read as text; XLSX is transmitted as base64 and parsed server-side."
+          >
+            <Input
+              id="bulk-file"
+              type="file"
+              accept=".csv,.xlsx"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) readBulkFile(file);
+              }}
+            />
+          </Field>
+          {bulkFormat === "csv" && (
+            <Field
+              id="bulk-content"
+              label="CSV content"
+              help="Editable import preview. Positive bank-governed amounts consume bank funds; Per grant types require expiry_CODE."
+            >
+              <Textarea
+                id="bulk-content"
+                className="min-h-40 font-mono text-xs"
+                value={bulkContent}
+                onChange={(event) => {
+                  setBulkContent(event.target.value);
+                }}
+              />
+            </Field>
+          )}
+          <Button
+            disabled={!bulkContent || bulkImport.isPending}
+            onClick={() => {
+              bulkImport.mutate();
+            }}
+          >
+            <Upload /> Import members
+          </Button>
+          {bulkResult && (
+            <div className="rounded-md border p-3 text-sm">
+              <p>
+                {bulkResult.status}: {bulkResult.successRows}/{bulkResult.totalRows} succeeded
+              </p>
+              {bulkResult.report
+                ?.filter((row) => row.status === "failed")
+                .map((row) => (
+                  <p key={row.row} className="text-destructive">
+                    Row {row.row}: {row.error}
+                  </p>
+                ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

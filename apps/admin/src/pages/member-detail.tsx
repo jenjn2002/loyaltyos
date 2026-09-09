@@ -31,7 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
-import type { Balance, Member, PaginatedResponse, PointTransaction } from "@/types";
+import type { Member, MemberPointWallet, PaginatedResponse, PointTransaction } from "@/types";
 
 const adjustSchema = z.object({
   amount: z.coerce
@@ -46,9 +46,13 @@ type AdjustFormValues = z.infer<typeof adjustSchema>;
 const transactionTypeColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   EARN: "default",
   REDEEM: "destructive",
-  REVERSE: "secondary",
-  EXPIRE: "outline",
-  ADJUST: "secondary",
+  REVERSAL: "secondary",
+  EXPIRY: "outline",
+  ADJUSTMENT: "secondary",
+  GIVE_IN: "default",
+  GIVE_OUT: "secondary",
+  GIVE_ALLOWANCE_OUT: "secondary",
+  EXCHANGE: "destructive",
 };
 
 export function MemberDetailPage(): JSX.Element {
@@ -62,6 +66,7 @@ export function MemberDetailPage(): JSX.Element {
   const [statusReason, setStatusReason] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [selectedPointTypeId, setSelectedPointTypeId] = useState("");
 
   const {
     register,
@@ -82,9 +87,9 @@ export function MemberDetailPage(): JSX.Element {
     enabled: Boolean(memberId),
   });
 
-  const { data: balance, isLoading: balanceLoading } = useQuery({
+  const { data: wallets, isLoading: balanceLoading } = useQuery({
     queryKey: ["member-balance", memberId],
-    queryFn: () => fetchApi<Balance>(`/members/${memberId}/balance`),
+    queryFn: () => fetchApi<MemberPointWallet[]>(`/members/${memberId}/balance`),
     enabled: Boolean(memberId),
   });
 
@@ -108,7 +113,7 @@ export function MemberDetailPage(): JSX.Element {
     try {
       await fetchApi(`/members/${memberId}/adjust`, {
         method: "POST",
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, pointTypeId: selectedPointTypeId }),
         headers: {
           "Idempotency-Key": crypto.randomUUID(),
         },
@@ -125,13 +130,24 @@ export function MemberDetailPage(): JSX.Element {
   };
 
   const updateMemberStatus = async (status: "ACTIVE" | "INACTIVE"): Promise<void> => {
-    if (!statusReason.trim()) { setStatusMessage("A reason is required."); return; }
+    if (!statusReason.trim()) {
+      setStatusMessage("A reason is required.");
+      return;
+    }
     setStatusUpdating(true);
     setStatusMessage(null);
     try {
-      await fetchApi(`/admin/members/${memberId}/status`, { method: "POST", body: JSON.stringify({ status, reason: statusReason }) });
+      await fetchApi(`/admin/members/${memberId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status, reason: statusReason }),
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      });
       setStatusReason("");
-      setStatusMessage(status === "INACTIVE" ? "Member offboarded; P/R balances cleared and retained in history." : "Member reactivated; balances remain zero until a new grant.");
+      setStatusMessage(
+        status === "INACTIVE"
+          ? "Member offboarded; all configured wallets and allowances were cleared and retained in history."
+          : "Member reactivated; wallets remain zero until a new grant.",
+      );
       void queryClient.invalidateQueries({ queryKey: ["member", memberId] });
       void queryClient.invalidateQueries({ queryKey: ["member-balance", memberId] });
     } catch (error) {
@@ -213,7 +229,20 @@ export function MemberDetailPage(): JSX.Element {
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-sm text-muted-foreground">Credit wallets</dt>
-                <dd className="mt-1 flex gap-3 text-sm"><span className="rounded bg-muted px-2 py-1">P: {(member?.creditWallets?.find((wallet) => wallet.creditType === "P")?.balance ?? 0).toLocaleString()}</span><span className="rounded bg-muted px-2 py-1">R: {(member?.creditWallets?.find((wallet) => wallet.creditType === "R")?.balance ?? 0).toLocaleString()}</span></dd>
+                <dd className="mt-1 flex flex-wrap gap-2 text-sm">
+                  {(member?.pointWallets ?? []).length === 0 ? (
+                    <span className="text-muted-foreground">No configured wallets</span>
+                  ) : (
+                    member?.pointWallets?.map((wallet) => (
+                      <span key={wallet.pointTypeId} className="rounded bg-muted px-2 py-1">
+                        {wallet.name}: {wallet.balance.toLocaleString()} {wallet.unitLabel}
+                        {wallet.allowance
+                          ? ` · Give ${wallet.allowance.remaining.toLocaleString()}`
+                          : ""}
+                      </span>
+                    ))
+                  )}
+                </dd>
               </div>
               {member?.tags && member.tags.length > 0 && (
                 <div className="sm:col-span-2">
@@ -230,9 +259,33 @@ export function MemberDetailPage(): JSX.Element {
             </dl>
           )}
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
-            <div className="min-w-64 flex-1"><Label htmlFor="status-reason">Status / offboarding reason</Label><Input id="status-reason" value={statusReason} onChange={(event) => setStatusReason(event.target.value)} placeholder="Reason is required" /></div>
-            {member?.status === "INACTIVE" ? <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>Reactivate</Button> : <Button variant="destructive" disabled={statusUpdating} onClick={() => void updateMemberStatus("INACTIVE")}>Offboard & clear wallets</Button>}
-            {statusMessage && <p className="w-full text-sm text-muted-foreground">{statusMessage}</p>}
+            <div className="min-w-64 flex-1">
+              <Label htmlFor="status-reason">Status / offboarding reason</Label>
+              <Input
+                id="status-reason"
+                value={statusReason}
+                onChange={(event) => {
+                  setStatusReason(event.target.value);
+                }}
+                placeholder="Reason is required"
+              />
+            </div>
+            {member?.status === "INACTIVE" ? (
+              <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>
+                Reactivate
+              </Button>
+            ) : (
+              <Button
+                variant="destructive"
+                disabled={statusUpdating}
+                onClick={() => void updateMemberStatus("INACTIVE")}
+              >
+                Offboard & clear wallets
+              </Button>
+            )}
+            {statusMessage && (
+              <p className="w-full text-sm text-muted-foreground">{statusMessage}</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -241,7 +294,7 @@ export function MemberDetailPage(): JSX.Element {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Points Balance</CardTitle>
+            <CardTitle>Configured wallets</CardTitle>
           </CardHeader>
           <CardContent>
             {balanceLoading ? (
@@ -251,23 +304,27 @@ export function MemberDetailPage(): JSX.Element {
                 <Skeleton className="h-16" />
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg bg-muted p-4 text-center">
-                  <p className="text-sm text-muted-foreground">Confirmed</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {(balance?.confirmed ?? 0).toLocaleString()}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {(wallets ?? []).map((wallet) => (
+                  <div key={wallet.pointTypeId} className="rounded-lg bg-muted p-4">
+                    <p className="text-sm text-muted-foreground">
+                      {wallet.name} ({wallet.code})
+                    </p>
+                    <p className="text-2xl font-bold">{wallet.balance.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">{wallet.unitLabel}</p>
+                    {wallet.allowance && (
+                      <p className="mt-1 text-xs">
+                        Give allowance: {wallet.allowance.remaining.toLocaleString()} /{" "}
+                        {wallet.allowance.allocated.toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {(wallets ?? []).length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No active point types are configured.
                   </p>
-                </div>
-                <div className="rounded-lg bg-muted p-4 text-center">
-                  <p className="text-sm text-muted-foreground">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-600">
-                    {(balance?.pending ?? 0).toLocaleString()}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted p-4 text-center">
-                  <p className="text-sm text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold">{(balance?.total ?? 0).toLocaleString()}</p>
-                </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -298,6 +355,26 @@ export function MemberDetailPage(): JSX.Element {
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
                     <div>
+                      <Label htmlFor="adjust-point-type">Point type</Label>
+                      <select
+                        id="adjust-point-type"
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        value={selectedPointTypeId}
+                        onChange={(event) => {
+                          setSelectedPointTypeId(event.target.value);
+                        }}
+                      >
+                        <option value="">Select point type</option>
+                        {(wallets ?? [])
+                          .filter((wallet) => wallet.allowManualAdjustment !== false)
+                          .map((wallet) => (
+                            <option key={wallet.pointTypeId} value={wallet.pointTypeId}>
+                              {wallet.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
                       <Label htmlFor="amount">Amount</Label>
                       <Input id="amount" type="number" {...register("amount")} />
                       {errors.amount && (
@@ -314,7 +391,7 @@ export function MemberDetailPage(): JSX.Element {
                     {adjustError && <p className="text-sm text-destructive">{adjustError}</p>}
                   </div>
                   <DialogFooter>
-                    <Button type="submit" disabled={adjusting}>
+                    <Button type="submit" disabled={adjusting || !selectedPointTypeId}>
                       {adjusting ? "Submitting..." : "Submit"}
                     </Button>
                   </DialogFooter>
@@ -385,24 +462,18 @@ export function MemberDetailPage(): JSX.Element {
                     <TableRow key={tx.id}>
                       <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Badge variant={transactionTypeColors[tx.type] ?? "outline"}>
-                          {tx.type}
+                        <Badge variant={transactionTypeColors[tx.action] ?? "outline"}>
+                          {tx.action}
                         </Badge>
                       </TableCell>
-                      <TableCell
-                        className={
-                          tx.type === "EARN" || tx.type === "ADJUST"
-                            ? tx.amount > 0
-                              ? "text-green-600"
-                              : "text-red-600"
-                            : "text-red-600"
-                        }
-                      >
+                      <TableCell className={tx.amount > 0 ? "text-green-600" : "text-red-600"}>
                         {tx.amount > 0 ? "+" : ""}
                         {tx.amount.toLocaleString()}
                       </TableCell>
                       <TableCell>{tx.balanceAfter.toLocaleString()}</TableCell>
-                      <TableCell>{tx.source}</TableCell>
+                      <TableCell>
+                        {tx.pointType.code} · {tx.source}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

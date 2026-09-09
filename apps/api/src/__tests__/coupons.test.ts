@@ -32,7 +32,7 @@ mockPrisma.apiKey.findUnique.mockResolvedValue({
   id: "key-1",
   programId: "prog-1",
   key: "test-api-key",
-  scope: "admin",
+  scope: "SERVER",
   isActive: true,
   name: "Test Key",
   expiresAt: null,
@@ -61,7 +61,7 @@ beforeEach(async () => {
     id: "key-1",
     programId: "prog-1",
     key: "test-api-key",
-    scope: "admin",
+    scope: "SERVER",
     isActive: true,
     name: "Test Key",
     expiresAt: null,
@@ -76,7 +76,7 @@ beforeEach(async () => {
 
   app.addHook("onRequest", async (request) => {
     request.programId = (request.headers["x-program-id"] as string) || "prog-1";
-    request.apiKeyScope = (request.headers["x-api-scope"] as string) || "admin";
+    request.apiKeyScope = (request.headers["x-api-scope"] as string) || "SERVER";
   });
 });
 

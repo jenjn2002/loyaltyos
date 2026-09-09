@@ -26,3 +26,24 @@
     --radius: 0.5rem;
   }
 }
+
+@layer components {
+  .auto-field-help {
+    @apply relative ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-muted-foreground/50 text-[10px] font-bold leading-none text-muted-foreground outline-none;
+    vertical-align: middle;
+  }
+
+  .auto-field-help:hover,
+  .auto-field-help:focus-visible {
+    @apply border-foreground text-foreground ring-2 ring-ring ring-offset-1;
+  }
+
+  .auto-field-help__tooltip {
+    @apply pointer-events-none invisible absolute left-1/2 top-full z-[100] mt-2 w-72 -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs font-normal leading-relaxed text-popover-foreground opacity-0 shadow-lg transition-opacity;
+  }
+
+  .auto-field-help:hover .auto-field-help__tooltip,
+  .auto-field-help:focus-visible .auto-field-help__tooltip {
+    @apply visible opacity-100;
+  }
+}

@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import type { AuditActor } from "../lib/audit.js";
 import { adminLucia } from "../lib/auth/admin-lucia.js";
 import { lucia } from "../lib/auth/lucia.js";
+import { assertCapability, capabilityForAdminRequest } from "../lib/permissions.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -64,7 +65,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
         if (user) {
           // Treat an omitted status as legacy ACTIVE; migrated records always
           // have an explicit status with ACTIVE as the database default.
-          if (user.status && user.status !== "ACTIVE") {
+          if (user.status !== "ACTIVE") {
             throw Object.assign(new Error("Member account is inactive"), { statusCode: 403 });
           }
           request.memberId = user.id;
@@ -98,14 +99,35 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       throw Object.assign(new Error("API key has expired"), { statusCode: 401 });
     }
 
+    if (programId && programId !== key.programId) {
+      throw Object.assign(new Error("API key cannot access the requested program"), {
+        statusCode: 403,
+      });
+    }
+
     await prisma.apiKey.update({
       where: { id: key.id },
       data: { lastUsedAt: new Date() },
     });
 
-    request.programId = programId ?? key.programId;
+    request.programId = key.programId;
     request.apiKeyScope = key.scope;
     request.actor = { type: "API_KEY", id: key.id };
+  });
+
+  // All protected admin routes require an admin session or a server-scoped key.
+  // This guard is global so a newly added admin module cannot accidentally omit it.
+  app.addHook("preHandler", async (request) => {
+    if (!request.url.startsWith("/api/v1/admin/")) return;
+    if (
+      request.url.startsWith("/api/v1/admin/login") ||
+      request.url.startsWith("/api/v1/admin/logout")
+    )
+      return;
+    if (!request.adminId && request.apiKeyScope !== "SERVER")
+      throw Object.assign(new Error("Admin access required"), { statusCode: 403 });
+    const capability = capabilityForAdminRequest(request.method, request.url);
+    if (capability) await assertCapability(request, capability);
   });
 }
 

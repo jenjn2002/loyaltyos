@@ -29,6 +29,11 @@ interface Reward {
   tierRequired: string | null;
   isActive: boolean;
   redemptions: { id: string; memberId: string }[];
+  pointPrices: {
+    pointTypeId: string;
+    amount: number;
+    pointType: { code: string; name: string; unitLabel: string };
+  }[];
   createdAt: string;
 }
 
@@ -57,11 +62,11 @@ export function RewardsListPage(): JSX.Element {
 
   const { data, isLoading } = useQuery<RewardsResponse>({
     queryKey: ["rewards", page, search],
-    queryFn: () =>
-      fetchApi<RewardsResponse>(
-        `/rewards?page=${String(page)}&pageSize=20&name=${encodeURIComponent(search)}`,
-      ),
+    queryFn: () => fetchApi<RewardsResponse>(`/admin/rewards?page=${String(page)}&pageSize=20`),
   });
+  const visibleRewards = (data?.items ?? []).filter((reward) =>
+    reward.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
 
   return (
     <div className="space-y-6">
@@ -117,14 +122,14 @@ export function RewardsListPage(): JSX.Element {
         <RewardsSkeleton view={view} />
       ) : view === "table" ? (
         <RewardsTable
-          rewards={data?.items ?? []}
+          rewards={visibleRewards}
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
         />
       ) : (
         <RewardsGrid
-          rewards={data?.items ?? []}
+          rewards={visibleRewards}
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
@@ -203,7 +208,11 @@ function RewardsTable({
                     "—"
                   )}
                 </TableCell>
-                <TableCell>{r.pointsCost.toLocaleString()} pts</TableCell>
+                <TableCell>
+                  {r.pointPrices
+                    .map((price) => `${price.amount.toLocaleString()} ${price.pointType.unitLabel}`)
+                    .join(" · ")}
+                </TableCell>
                 <TableCell>{r.stock ?? "∞"}</TableCell>
                 <TableCell>{r.tierRequired ?? "All"}</TableCell>
                 <TableCell>
@@ -265,7 +274,9 @@ function RewardsGrid({
               <div>
                 <h3 className="font-semibold">{r.name}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {r.pointsCost.toLocaleString()} pts
+                  {r.pointPrices
+                    .map((price) => `${price.amount.toLocaleString()} ${price.pointType.unitLabel}`)
+                    .join(" · ")}
                   {r.tierRequired ? ` · ${r.tierRequired}+` : ""}
                 </p>
               </div>

@@ -3,8 +3,15 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { audit } from "../../lib/audit.js";
 import { adminLucia } from "../../lib/auth/admin-lucia.js";
 import { LoyaltyError } from "../../lib/errors.js";
+import {
+  ADMIN_CAPABILITIES,
+  ADMIN_ROLE_LABELS,
+  capabilitiesFor,
+  requireCapability,
+} from "../../lib/permissions.js";
 
 const loginSchema = z.object({
   email: z.string().email().toLowerCase(),
@@ -48,6 +55,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
             email: admin.email,
             name: admin.name,
             role: admin.role,
+            roleLabel: ADMIN_ROLE_LABELS[admin.role],
             locale: admin.locale,
           },
         },
@@ -93,7 +101,13 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
       throw new LoyaltyError("NOT_FOUND", 404);
     }
 
-    return reply.send({ data: admin });
+    return reply.send({
+      data: {
+        ...admin,
+        roleLabel: ADMIN_ROLE_LABELS[admin.role],
+        capabilities: await capabilitiesFor(admin.programId, admin.role),
+      },
+    });
   });
 
   const updateAdminMeSchema = z.object({
@@ -125,6 +139,75 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
 
     return reply.send({ data: admin });
   });
+
+  app.get(
+    "/admin/permissions",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      const roles = ["SUPER_ADMIN", "OPERATOR", "ANALYST"] as const;
+      return reply.send({
+        data: {
+          capabilities: ADMIN_CAPABILITIES,
+          roles: await Promise.all(
+            roles.map(async (role) => ({
+              role,
+              label: ADMIN_ROLE_LABELS[role],
+              permissions: await capabilitiesFor(request.programId, role),
+            })),
+          ),
+        },
+      });
+    },
+  );
+
+  app.patch(
+    "/admin/permissions/:role",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      const { role } = z.object({ role: z.enum(["OPERATOR", "ANALYST"]) }).parse(request.params);
+      const body = z
+        .object({
+          permissions: z.record(z.enum(ADMIN_CAPABILITIES), z.boolean()),
+        })
+        .parse(request.body);
+      await prisma.$transaction(
+        Object.entries(body.permissions).map(([capability, allowed]) =>
+          prisma.adminRolePermission.upsert({
+            where: {
+              programId_role_capability: {
+                programId: request.programId,
+                role,
+                capability,
+              },
+            },
+            create: {
+              programId: request.programId,
+              role,
+              capability,
+              allowed,
+              updatedById: request.adminId,
+            },
+            update: { allowed, updatedById: request.adminId },
+          }),
+        ),
+      );
+      await audit(
+        request.programId,
+        request.actor,
+        "CONFIG_CHANGE",
+        "admin_role_permissions",
+        role,
+        { permissions: body.permissions },
+      );
+      return reply.send({
+        data: {
+          role,
+          label: ADMIN_ROLE_LABELS[role],
+          permissions: await capabilitiesFor(request.programId, role),
+        },
+      });
+    },
+  );
 
   done();
 }

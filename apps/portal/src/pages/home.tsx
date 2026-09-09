@@ -37,17 +37,23 @@ function CreditWalletCard({ wallets }: { wallets: CreditBalance[] }) {
         <span className="text-xs font-semibold text-[var(--color-primary)]">Manage</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        {(["P", "R"] as const).map((creditType) => {
-          const wallet = wallets.find((item) => item.creditType === creditType);
-          return (
-            <div key={creditType}>
-              <p className="text-xs text-[var(--color-text-secondary)]">{creditType}-credit</p>
-              <p className="text-2xl font-bold">{(wallet?.balance ?? 0).toLocaleString()}</p>
-            </div>
-          );
-        })}
+        {wallets.map((wallet) => (
+          <div key={wallet.pointTypeId}>
+            <p className="truncate text-xs text-[var(--color-text-secondary)]">{wallet.name}</p>
+            <p className="text-2xl font-bold">{wallet.balance.toLocaleString()}</p>
+            {wallet.allowance && (
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Give: {wallet.allowance.remaining.toLocaleString()}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
-      <p className="mt-2 text-xs text-[var(--color-text-secondary)]">P-credit expires · R-credit does not</p>
+      {wallets.length === 0 && (
+        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
+          No visible wallets configured
+        </p>
+      )}
     </Link>
   );
 }
@@ -127,7 +133,9 @@ function TopRewards({ rewards }: { rewards: Reward[] }) {
             )}
             <p className="mt-2 truncate text-center text-xs font-medium">{r.name}</p>
             <p className="text-center text-xs text-[var(--color-text-secondary)]">
-              {r.pointsCost} {t("pointsCost")}
+              {r.pointPrices?.[0]
+                ? `${r.pointPrices[0].amount.toLocaleString()} ${r.pointPrices[0].pointType.unitLabel}`
+                : `${r.pointsCost.toLocaleString()} ${t("pointsCost")}`}
             </p>
           </Link>
         ))}
@@ -182,7 +190,9 @@ export default function Home() {
 
   const magicLinkMutation = useMutation({
     mutationFn: () => sendMagicLink(email),
-    onSuccess: () => setSent(true),
+    onSuccess: () => {
+      setSent(true);
+    },
   });
 
   const balance = useQuery({
@@ -240,7 +250,9 @@ export default function Home() {
                 type="email"
                 required
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                }}
                 className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
               />
             </label>
@@ -259,7 +271,8 @@ export default function Home() {
         <>
           {(balance.isError || tier.isError || rewards.isError || badges.isError) && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              Session expired or account data could not be loaded. Please sign in again from Profile.
+              Session expired or account data could not be loaded. Please sign in again from
+              Profile.
             </div>
           )}
           {credits.data && <CreditWalletCard wallets={credits.data} />}

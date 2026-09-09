@@ -1,8 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { AppLayout } from "@/components/layout/app-layout";
+import { AutoFieldHelp } from "@/components/ui/auto-field-help";
+import { HelpTooltipProvider } from "@/components/ui/help-tooltip";
+import { restoreAdminSession } from "@/lib/api-client";
 import { BadgeEditorPage } from "@/pages/badge-editor";
 import { BadgesListPage } from "@/pages/badges-list";
 import { CampaignBuilderPage } from "@/pages/campaign-builder";
@@ -23,6 +26,7 @@ import { TermsListPage } from "@/pages/giftcards/terms-list";
 import { LoginPage } from "@/pages/login";
 import { MemberDetailPage } from "@/pages/member-detail";
 import { MembersListPage } from "@/pages/members-list";
+import { PermissionsPage } from "@/pages/permissions";
 import { PointTypesPage } from "@/pages/point-types";
 import { RewardsEditorPage } from "@/pages/rewards/rewards-editor";
 import { RewardsListPage } from "@/pages/rewards/rewards-list";
@@ -30,7 +34,6 @@ import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
 import { SegmentBuilderPage } from "@/pages/segment-builder";
 import { SegmentsListPage } from "@/pages/segments-list";
 import { TiersListPage } from "@/pages/tiers-list";
-import { restoreAdminSession } from "@/lib/api-client";
 
 function AdminGuard({ children }: { children: ReactNode }): JSX.Element {
   const location = useLocation();
@@ -57,43 +60,53 @@ function AdminGuard({ children }: { children: ReactNode }): JSX.Element {
 
 export function App(): JSX.Element {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route element={<AdminGuard><AppLayout /></AdminGuard>}>
-        <Route index element={<DashboardPage />} />
-        <Route path="/members" element={<MembersListPage />} />
-        <Route path="/members/:id" element={<MemberDetailPage />} />
-        <Route path="/credits" element={<CreditsManagementPage />} />
-        <Route path="/point-types" element={<PointTypesPage />} />
-        <Route path="/campaigns" element={<CampaignsListPage />} />
-        <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
-        <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />
-        <Route path="/coupons" element={<CouponsListPage />} />
-        <Route path="/coupons/generate" element={<CouponBulkGeneratePage />} />
-        <Route path="/segments" element={<SegmentsListPage />} />
-        <Route path="/segments/new" element={<SegmentBuilderPage />} />
-        <Route path="/segments/:id/edit" element={<SegmentBuilderPage />} />
-        <Route path="/badges" element={<BadgesListPage />} />
-        <Route path="/badges/new" element={<BadgeEditorPage />} />
-        <Route path="/badges/:id/edit" element={<BadgeEditorPage />} />
-        <Route path="/tiers" element={<TiersListPage />} />
-        <Route path="/rewards" element={<RewardsListPage />} />
-        <Route path="/rewards/new" element={<RewardsEditorPage />} />
-        <Route path="/rewards/:id/edit" element={<RewardsEditorPage />} />
-        <Route path="/rewards/:id/redemptions" element={<RewardsRedemptionsPage />} />
-        <Route path="/coalition" element={<CoalitionConfigPage />} />
-        <Route path="/coalition/transactions" element={<CoalitionTransactionsPage />} />
-        <Route path="/coalition/members" element={<CoalitionLinkedMembersPage />} />
-        <Route path="/giftcards" element={<BatchesListPage />} />
-        <Route path="/giftcards/batches/new" element={<BatchWizardPage />} />
-        <Route path="/giftcards/batches/:id" element={<BatchDetailPage />} />
-        <Route path="/giftcards/cards/:code" element={<CardDetailPage />} />
-        <Route path="/giftcards/terms" element={<TermsListPage />} />
-        <Route path="/giftcards/terms/new" element={<TermsEditorPage />} />
-        <Route path="/giftcards/terms/:id" element={<TermsEditorPage />} />
-      </Route>
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <HelpTooltipProvider>
+      <AutoFieldHelp />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <AdminGuard>
+              <AppLayout />
+            </AdminGuard>
+          }
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="/members" element={<MembersListPage />} />
+          <Route path="/members/:id" element={<MemberDetailPage />} />
+          <Route path="/credits" element={<CreditsManagementPage />} />
+          <Route path="/point-types" element={<PointTypesPage />} />
+          <Route path="/permissions" element={<PermissionsPage />} />
+          <Route path="/campaigns" element={<CampaignsListPage />} />
+          <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
+          <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />
+          <Route path="/coupons" element={<CouponsListPage />} />
+          <Route path="/coupons/generate" element={<CouponBulkGeneratePage />} />
+          <Route path="/segments" element={<SegmentsListPage />} />
+          <Route path="/segments/new" element={<SegmentBuilderPage />} />
+          <Route path="/segments/:id/edit" element={<SegmentBuilderPage />} />
+          <Route path="/badges" element={<BadgesListPage />} />
+          <Route path="/badges/new" element={<BadgeEditorPage />} />
+          <Route path="/badges/:id/edit" element={<BadgeEditorPage />} />
+          <Route path="/tiers" element={<TiersListPage />} />
+          <Route path="/rewards" element={<RewardsListPage />} />
+          <Route path="/rewards/new" element={<RewardsEditorPage />} />
+          <Route path="/rewards/:id/edit" element={<RewardsEditorPage />} />
+          <Route path="/rewards/:id/redemptions" element={<RewardsRedemptionsPage />} />
+          <Route path="/coalition" element={<CoalitionConfigPage />} />
+          <Route path="/coalition/transactions" element={<CoalitionTransactionsPage />} />
+          <Route path="/coalition/members" element={<CoalitionLinkedMembersPage />} />
+          <Route path="/giftcards" element={<BatchesListPage />} />
+          <Route path="/giftcards/batches/new" element={<BatchWizardPage />} />
+          <Route path="/giftcards/batches/:id" element={<BatchDetailPage />} />
+          <Route path="/giftcards/cards/:code" element={<CardDetailPage />} />
+          <Route path="/giftcards/terms" element={<TermsListPage />} />
+          <Route path="/giftcards/terms/new" element={<TermsEditorPage />} />
+          <Route path="/giftcards/terms/:id" element={<TermsEditorPage />} />
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </HelpTooltipProvider>
   );
 }
 

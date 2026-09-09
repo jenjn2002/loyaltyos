@@ -37,7 +37,6 @@ async function triggerMagicLinkEmail(
     const member = await prisma.member.findFirst({
       where: { id: memberId },
       include: {
-        pointAccount: true,
         memberTiers: { include: { tier: true } },
         program: { select: { name: true } },
       },
@@ -79,7 +78,9 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
 
       const member = await prisma.member.findFirst({
         where: { email, deletedAt: null, status: "ACTIVE" },
-        include: { program: { select: { name: true, defaultLocale: true, supportedLocales: true } } },
+        include: {
+          program: { select: { name: true, defaultLocale: true, supportedLocales: true } },
+        },
       });
 
       if (member) {
@@ -142,7 +143,7 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
     }
     // Older test fixtures and pre-migration records may not expose status;
     // real migrated members default to ACTIVE in the database.
-    if ((record.member.status && record.member.status !== "ACTIVE") || record.member.deletedAt) {
+    if (record.member.status !== "ACTIVE" || record.member.deletedAt) {
       throw new LoyaltyError("MEMBER_INACTIVE", 403);
     }
 

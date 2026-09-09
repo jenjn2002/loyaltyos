@@ -10,6 +10,7 @@ export interface EarnInput {
   idempotencyKey: string;
   metadata?: Record<string, unknown>;
   expiresAt?: Date;
+  pointTypeId?: string;
 }
 
 export interface RedeemInput {

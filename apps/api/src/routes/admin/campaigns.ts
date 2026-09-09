@@ -1,17 +1,20 @@
 import { CampaignsService } from "@loyaltyos/campaigns";
-import { PointsService } from "@loyaltyos/core";
 import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
-import { adaptPointsMetrics, getBusinessMetrics } from "../../lib/business-metrics.js";
+import { audit } from "../../lib/audit.js";
+import { LoyaltyError } from "../../lib/errors.js";
+import { walletService } from "../../lib/wallets.js";
 
-const pointsMetrics = adaptPointsMetrics(getBusinessMetrics());
-const points = new PointsService(prisma, pointsMetrics);
+const points = {
+  earn: (input: Parameters<typeof walletService.earn>[0]) => walletService.earn(input),
+};
 const campaigns = new CampaignsService(prisma, points);
 
 const createSchema = z.object({
+  pointTypeId: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
   type: z.enum([
@@ -50,14 +53,37 @@ const lifecycleSchema = z.object({
   action: z.enum(["activate", "pause", "archive"]),
 });
 
+async function assertPointType(programId: string, pointTypeId: string): Promise<void> {
+  const pointType = await prisma.pointTypeDefinition.findFirst({
+    where: { id: pointTypeId, programId, isActive: true, archivedAt: null },
+    select: { id: true },
+  });
+  if (!pointType) throw new LoyaltyError("POINT_TYPE_NOT_FOUND", 404);
+}
+
+async function ownedCampaign(id: string, programId: string) {
+  const campaign = await prisma.campaign.findFirst({
+    where: { id, programId, deletedAt: null },
+  });
+  if (!campaign) throw new LoyaltyError("CAMPAIGN_NOT_FOUND", 404);
+  return campaign;
+}
+
 export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   // POST /admin/campaigns — Create campaign
   app.post("/admin/campaigns", async (request, reply) => {
     const body = createSchema.parse(request.body);
-    const programId = request.programId || (request.headers["x-program-id"] as string);
+    const programId = request.programId;
+    await assertPointType(programId, body.pointTypeId);
+    if (body.startsAt && body.endsAt && body.endsAt <= body.startsAt)
+      throw new LoyaltyError("CAMPAIGN_DATES_INVALID", 400);
     const campaign = await campaigns.create({
       ...body,
       programId,
+    });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "campaign", campaign.id, {
+      created: true,
+      pointTypeId: body.pointTypeId,
     });
     return reply.status(201).send({ data: campaign });
   });
@@ -130,13 +156,21 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
   app.patch("/admin/campaigns/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
+    const existing = await ownedCampaign(id, request.programId);
+    if (body.pointTypeId) await assertPointType(request.programId, body.pointTypeId);
+    const startsAt = body.startsAt ?? existing.startsAt;
+    const endsAt = body.endsAt ?? existing.endsAt;
+    if (startsAt && endsAt && endsAt <= startsAt)
+      throw new LoyaltyError("CAMPAIGN_DATES_INVALID", 400);
     const campaign = await campaigns.update(id, body);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "campaign", id, body);
     return reply.send({ data: campaign });
   });
 
   // DELETE /admin/campaigns/:id — Soft delete campaign
   app.delete("/admin/campaigns/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    await ownedCampaign(id, request.programId);
     await campaigns.archive(id);
     return reply.status(204).send();
   });
@@ -185,6 +219,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
   app.post("/admin/campaigns/:id/lifecycle", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const { action } = lifecycleSchema.parse(request.body);
+    await ownedCampaign(id, request.programId);
 
     switch (action) {
       case "activate":

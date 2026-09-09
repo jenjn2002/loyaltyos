@@ -17,6 +17,7 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
     findMany: vi.fn(),
   },
+  customPointWallet: { findFirst: vi.fn() },
   memberTier: {
     findMany: vi.fn(),
   },
@@ -198,10 +199,7 @@ describe("SegmentsService.evaluate", () => {
   it("returns belongsTo:true for DYNAMIC segment with matching rules", async () => {
     mockPrisma.segment.findFirst.mockResolvedValue(segmentRow());
     mockPrisma.member.findFirst.mockResolvedValue(memberRow());
-    mockPrisma.pointAccount.findFirst.mockResolvedValue({
-      totalEarned: 100000,
-      totalRedeemed: 25000,
-    });
+    mockPrisma.customPointWallet.findFirst.mockResolvedValue({ totalEarned: 100000 });
     mockPrisma.memberTier.findMany.mockResolvedValue([
       { downgradedAt: null, tier: { name: "Gold" } },
     ]);
@@ -215,10 +213,7 @@ describe("SegmentsService.evaluate", () => {
   it("returns belongsTo:false when totalSpent is below threshold", async () => {
     mockPrisma.segment.findFirst.mockResolvedValue(segmentRow());
     mockPrisma.member.findFirst.mockResolvedValue(memberRow());
-    mockPrisma.pointAccount.findFirst.mockResolvedValue({
-      totalEarned: 10000,
-      totalRedeemed: 5000,
-    });
+    mockPrisma.customPointWallet.findFirst.mockResolvedValue({ totalEarned: 10000 });
     mockPrisma.memberTier.findMany.mockResolvedValue([]);
 
     const svc = new SegmentsService(mockPrisma as never);
@@ -272,8 +267,8 @@ describe("SegmentsService.getMembers", () => {
       segmentRow({ type: "STATIC", memberIds: ["mem-1", "mem-2"], rules: {} }),
     );
     mockPrisma.member.findMany.mockResolvedValue([
-      { ...memberRow({ id: "mem-1" }), pointAccount: null, memberTiers: [] },
-      { ...memberRow({ id: "mem-2" }), pointAccount: null, memberTiers: [] },
+      { ...memberRow({ id: "mem-1" }), pointWallets: [], memberTiers: [] },
+      { ...memberRow({ id: "mem-2" }), pointWallets: [], memberTiers: [] },
     ]);
     mockPrisma.member.count.mockResolvedValue(2);
 
@@ -300,7 +295,7 @@ describe("SegmentsService.getMembers", () => {
       }),
     );
     mockPrisma.member.findMany.mockResolvedValue([
-      { ...memberRow(), pointAccount: null, memberTiers: [] },
+      { ...memberRow(), pointWallets: [], memberTiers: [] },
     ]);
     mockPrisma.member.count.mockResolvedValue(1);
 
@@ -324,12 +319,12 @@ describe("SegmentsService.getMembers", () => {
     mockPrisma.member.findMany.mockResolvedValue([
       {
         ...memberRow({ id: "mem-1" }),
-        pointAccount: { totalEarned: 100000, totalRedeemed: 25000 },
+        pointWallets: [{ totalEarned: 100000 }],
         memberTiers: [{ downgradedAt: null, tier: { name: "Gold" } }],
       },
       {
         ...memberRow({ id: "mem-2" }),
-        pointAccount: { totalEarned: 10000, totalRedeemed: 5000 },
+        pointWallets: [{ totalEarned: 10000 }],
         memberTiers: [],
       },
     ]);
@@ -395,7 +390,7 @@ describe("SegmentsService.count", () => {
     mockPrisma.member.findMany.mockResolvedValue([
       {
         ...memberRow({ id: "mem-1" }),
-        pointAccount: { totalEarned: 100000, totalRedeemed: 25000 },
+        pointWallets: [{ totalEarned: 100000 }],
         memberTiers: [{ downgradedAt: null, tier: { name: "Gold" } }],
       },
     ]);

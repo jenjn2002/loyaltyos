@@ -3,10 +3,15 @@ import { CoalitionService, createApprecioAdapter } from "@loyaltyos/coalition";
 import { prisma } from "../db.js";
 import { adaptCoalitionMetrics, getBusinessMetrics } from "./business-metrics.js";
 import { getRedisCache } from "./redis-cache.js";
+import { walletService } from "./wallets.js";
 
 export const coalitionService = new CoalitionService(
   prisma,
   adaptCoalitionMetrics(getBusinessMetrics()),
+  {
+    earn: (input) => walletService.earn(input),
+    redeem: (input) => walletService.redeem(input),
+  },
 );
 
 // ── Apprecio Adapter ──────────────────────────────────────────────

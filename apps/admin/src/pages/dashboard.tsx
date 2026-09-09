@@ -164,15 +164,113 @@ export function DashboardPage(): JSX.Element {
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Credit issued</CardTitle><WalletCards className="h-4 w-4 text-green-600" /></CardHeader><CardContent><p className="text-2xl font-bold text-green-600">{(data.creditIssued ?? 0).toLocaleString()}</p></CardContent></Card>
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Credit redeemed</CardTitle><ArrowDown className="h-4 w-4 text-orange-600" /></CardHeader><CardContent><p className="text-2xl font-bold text-orange-600">{(data.creditRedeemed ?? 0).toLocaleString()}</p></CardContent></Card>
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Recognition events</CardTitle><Users className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><p className="text-2xl font-bold">{(data.recognitionVolume ?? 0).toLocaleString()}</p></CardContent></Card>
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Bank unused P / R</CardTitle><WalletCards className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><p className="text-2xl font-bold">{(data.creditBankMetrics?.P.unused ?? data.creditBank?.P ?? 0).toLocaleString()} / {(data.creditBankMetrics?.R.unused ?? data.creditBank?.R ?? 0).toLocaleString()}</p><p className="mt-1 text-xs text-muted-foreground">Used: {(data.creditBankMetrics?.P.used ?? 0).toLocaleString()} / {(data.creditBankMetrics?.R.used ?? 0).toLocaleString()}</p></CardContent></Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Value issued
+            </CardTitle>
+            <WalletCards className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-green-600">
+              {(data.pointIssued ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Value redeemed
+            </CardTitle>
+            <ArrowDown className="h-4 w-4 text-orange-600" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-orange-600">
+              {(data.pointRedeemed ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Value exchanged
+            </CardTitle>
+            <ArrowDown className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-blue-600">
+              {(data.pointExchanged ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Recognition</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{(data.recognitionVolume ?? 0).toLocaleString()}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {(data.recognitionCount ?? 0).toLocaleString()} events
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
+      {(data.pointBanks ?? []).length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {data.pointBanks?.map((bank) => (
+            <Card key={bank.pointType.id}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {bank.pointType.name} bank
+                </CardTitle>
+                <WalletCards className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{bank.unused.toLocaleString()}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Used {bank.used.toLocaleString()} · issued {bank.issued.toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card><CardHeader><CardTitle>Top rewards</CardTitle></CardHeader><CardContent className="space-y-2">{(data.topRewards ?? []).map((reward) => <div key={reward.name} className="flex justify-between text-sm"><span>{reward.name}</span><span className="font-semibold">{reward.redemptions}</span></div>)}{(data.topRewards ?? []).length === 0 && <p className="text-sm text-muted-foreground">No redemptions yet.</p>}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Recognition volume · last 30 days</CardTitle></CardHeader><CardContent className="space-y-2">{(data.recognitionOverTime ?? []).slice(-10).map((day) => <div key={day.date} className="flex justify-between text-sm"><span>{day.date}</span><span className="font-semibold">{day.count}</span></div>)}{(data.recognitionOverTime ?? []).length === 0 && <p className="text-sm text-muted-foreground">No recognition yet.</p>}</CardContent></Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Top rewards</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(data.topRewards ?? []).map((reward) => (
+              <div key={reward.name} className="flex justify-between text-sm">
+                <span>{reward.name}</span>
+                <span className="font-semibold">{reward.redemptions}</span>
+              </div>
+            ))}
+            {(data.topRewards ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No redemptions yet.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recognition volume · last 30 days</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(data.recognitionOverTime ?? []).slice(-10).map((day) => (
+              <div key={day.date} className="flex justify-between text-sm">
+                <span>{day.date}</span>
+                <span className="font-semibold">{day.count}</span>
+              </div>
+            ))}
+            {(data.recognitionOverTime ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No recognition yet.</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -135,12 +135,27 @@ export function MembersListPage(): JSX.Element {
               }}
               className="max-w-sm"
             />
-            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={status} onChange={(event) => { setStatus(event.target.value as "ACTIVE" | "INACTIVE" | ""); setPage(1); }}>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as "ACTIVE" | "INACTIVE" | "");
+                setPage(1);
+              }}
+            >
               <option value="ACTIVE">Active members</option>
               <option value="INACTIVE">Inactive members</option>
               <option value="">All status</option>
             </select>
-            <Input placeholder="Department" value={department} onChange={(event) => { setDepartment(event.target.value); setPage(1); }} className="max-w-xs" />
+            <Input
+              placeholder="Department"
+              value={department}
+              onChange={(event) => {
+                setDepartment(event.target.value);
+                setPage(1);
+              }}
+              className="max-w-xs"
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -217,9 +232,18 @@ export function MembersListPage(): JSX.Element {
                       <TableCell>{member.externalId ?? "--"}</TableCell>
                       <TableCell>
                         <div className="text-xs">
-                          <div>P: {(member.creditWallets?.find((wallet) => wallet.creditType === "P")?.balance ?? 0).toLocaleString()}</div>
-                          <div>R: {(member.creditWallets?.find((wallet) => wallet.creditType === "R")?.balance ?? 0).toLocaleString()}</div>
-                          <div className="text-muted-foreground">Legacy: {(member.pointAccount?.balance ?? 0).toLocaleString()} {t("members.points")}</div>
+                          {(member.pointWallets ?? []).length === 0 ? (
+                            <span className="text-muted-foreground">No configured wallets</span>
+                          ) : (
+                            member.pointWallets?.map((wallet) => (
+                              <div key={wallet.pointTypeId}>
+                                {wallet.code}: {wallet.balance.toLocaleString()}
+                                {wallet.allowance
+                                  ? ` · Give ${wallet.allowance.remaining.toLocaleString()}`
+                                  : ""}
+                              </div>
+                            ))
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>{new Date(member.joinedAt).toLocaleDateString()}</TableCell>

@@ -12,6 +12,7 @@ import {
 await initTracing("loyaltyos-worker");
 
 import { closeQueueConnection } from "./lib/queue.js";
+import { startCreditExpiryWorker } from "./workers/credits.js";
 import {
   startGiftCardExpireWorker,
   startGiftCardGenerateWorker,
@@ -28,6 +29,7 @@ startNotificationsWorker();
 startGiftCardGenerateWorker();
 startGiftCardExpireWorker();
 startOutstandingBalanceWorker();
+startCreditExpiryWorker();
 
 // Minimal HTTP server for health check and metrics (Prometheus scrape target)
 const metricsPort = Number(process.env.WORKER_METRICS_PORT) || 3003;

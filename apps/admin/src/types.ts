@@ -1,3 +1,14 @@
+export interface MemberPointWallet {
+  pointTypeId: string;
+  code: string;
+  name: string;
+  unitLabel: string;
+  balance: number;
+  allowance?: { allocated: number; remaining: number } | null;
+  allowManualAdjustment?: boolean;
+  expiryMode?: string;
+}
+
 export interface Member {
   id: string;
   externalId: string | null;
@@ -14,8 +25,7 @@ export interface Member {
   updatedAt: string;
   status?: "ACTIVE" | "INACTIVE";
   deactivatedAt?: string | null;
-  pointAccount?: { balance: number } | null;
-  creditWallets?: { creditType: "P" | "R"; balance: number }[];
+  pointWallets?: MemberPointWallet[];
 }
 
 export interface DashboardStats {
@@ -24,23 +34,30 @@ export interface DashboardStats {
   totalPointsRedeemed: number;
   redemptionRatio: number;
   recentTransactions: number;
-  creditIssued?: number;
-  creditRedeemed?: number;
-  creditExchanged?: number;
+  pointIssued?: number;
+  pointRedeemed?: number;
+  pointExchanged?: number;
+  recognitionCount?: number;
   recognitionVolume?: number;
-  creditBank?: { P: number; R: number };
-  creditBankMetrics?: { P: { used: number; unused: number; issued: number }; R: { used: number; unused: number; issued: number } };
+  pointBanks?: {
+    pointType: { id: string; code: string; name: string; unitLabel: string; color: string | null };
+    used: number;
+    unused: number;
+    issued: number;
+  }[];
   topRewards?: { name: string; redemptions: number }[];
   recognitionOverTime?: { date: string; count: number }[];
 }
 
 export interface PointTransaction {
   id: string;
-  type: string;
+  action: string;
   amount: number;
   balanceAfter: number;
   source: string;
-  description: string | null;
+  reason: string | null;
+  message: string | null;
+  pointType: { id: string; code: string; name: string; unitLabel: string };
   createdAt: string;
 }
 
@@ -79,6 +96,7 @@ export interface CampaignVariant {
 export interface Campaign {
   id: string;
   programId: string;
+  pointTypeId: string | null;
   name: string;
   description: string | null;
   type: CampaignType;

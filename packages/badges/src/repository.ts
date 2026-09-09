@@ -100,6 +100,7 @@ export function createRepository(prisma: PrismaClient) {
       return prisma.tier.create({
         data: {
           programId: data.programId,
+          pointTypeId: data.pointTypeId,
           name: data.name,
           rank: data.rank,
           minPoints: data.minPoints,
@@ -114,6 +115,7 @@ export function createRepository(prisma: PrismaClient) {
       return prisma.tier.update({
         where: { id },
         data: {
+          ...(data.pointTypeId !== undefined && { pointTypeId: data.pointTypeId }),
           ...(data.name !== undefined && { name: data.name }),
           ...(data.rank !== undefined && { rank: data.rank }),
           ...(data.minPoints !== undefined && { minPoints: data.minPoints }),
@@ -149,11 +151,16 @@ export function createRepository(prisma: PrismaClient) {
     // MEMBER AGGREGATES
     // ═══════════════════════════════════════════════════════════════════
 
-    async findMemberAggregate(memberId: string): Promise<MemberAggregate | null> {
+    async findMemberAggregate(
+      memberId: string,
+      qualificationPointTypeId?: string | null,
+    ): Promise<MemberAggregate | null> {
       const member = await prisma.member.findFirst({
         where: { id: memberId, deletedAt: null },
         include: {
-          pointAccount: true,
+          pointWallets: {
+            include: { pointType: true },
+          },
           memberTiers: {
             where: { downgradedAt: null },
             include: { tier: true },
@@ -180,8 +187,16 @@ export function createRepository(prisma: PrismaClient) {
       }
 
       const currentTier = member.memberTiers.length > 0 ? member.memberTiers[0] : null;
-      const totalEarned = member.pointAccount?.totalEarned ?? 0;
-      const totalRedeemed = member.pointAccount?.totalRedeemed ?? 0;
+      const qualificationWallet =
+        member.pointWallets.find(
+          (wallet) =>
+            wallet.pointTypeId ===
+            (qualificationPointTypeId ??
+              currentTier?.tier.pointTypeId ??
+              member.pointWallets.find((candidate) => candidate.pointType.isPrimary)?.pointTypeId),
+        ) ?? null;
+      const totalEarned = qualificationWallet?.totalEarned ?? 0;
+      const totalRedeemed = qualificationWallet?.totalSpent ?? 0;
 
       return {
         id: member.id,
@@ -195,7 +210,7 @@ export function createRepository(prisma: PrismaClient) {
         deletedAt: member.deletedAt,
         totalEarned,
         totalRedeemed,
-        currentBalance: member.pointAccount?.balance ?? 0,
+        currentBalance: qualificationWallet?.balance ?? 0,
         currentTier: currentTier?.tier.name ?? null,
         currentTierId: currentTier?.tierId ?? null,
         currentTierRank: currentTier?.tier.rank ?? null,
@@ -375,13 +390,17 @@ export function createRepository(prisma: PrismaClient) {
         where: { programId, deletedAt: null },
         select: {
           id: true,
-          pointAccount: { select: { totalEarned: true } },
+          pointWallets: {
+            where: { pointType: { isPrimary: true, isActive: true } },
+            select: { totalEarned: true },
+            take: 1,
+          },
         },
       });
 
-      return members.map((m: { id: string; pointAccount: { totalEarned: number } | null }) => ({
+      return members.map((m) => ({
         id: m.id,
-        totalEarned: m.pointAccount?.totalEarned ?? 0,
+        totalEarned: m.pointWallets[0]?.totalEarned ?? 0,
       }));
     },
 

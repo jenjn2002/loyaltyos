@@ -20,6 +20,7 @@ import { fetchApi } from "@/lib/api-client";
 
 interface TierItem {
   id: string;
+  pointTypeId: string | null;
   name: string;
   rank: number;
   minPoints: number;
@@ -28,12 +29,21 @@ interface TierItem {
   benefits?: unknown;
 }
 
+interface PointTypeItem {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  archivedAt: string | null;
+}
+
 export function TiersListPage(): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newTier, setNewTier] = useState(false);
   const [formData, setFormData] = useState({
+    pointTypeId: "",
     name: "",
     minPoints: 0,
     color: "#94a3b8",
@@ -48,6 +58,14 @@ export function TiersListPage(): JSX.Element {
     queryKey: ["tiers"],
     queryFn: () => fetchApi<TierItem[]>("/admin/tiers"),
   });
+
+  const { data: pointTypes } = useQuery({
+    queryKey: ["point-types", "tiers"],
+    queryFn: () => fetchApi<PointTypeItem[]>("/admin/point-types"),
+  });
+  const activePointTypes = (pointTypes ?? []).filter(
+    (pointType) => pointType.isActive && !pointType.archivedAt,
+  );
 
   const handleReorder = async (index: number, direction: "up" | "down") => {
     if (!tiers) return;
@@ -72,6 +90,7 @@ export function TiersListPage(): JSX.Element {
     await fetchApi("/admin/tiers", {
       method: "POST",
       body: JSON.stringify({
+        pointTypeId: formData.pointTypeId,
         name: formData.name,
         rank: (tiers?.length ?? 0) + 1,
         minPoints: formData.minPoints,
@@ -80,7 +99,13 @@ export function TiersListPage(): JSX.Element {
       }),
     });
     setNewTier(false);
-    setFormData({ name: "", minPoints: 0, color: "#94a3b8", benefits: "{}" });
+    setFormData({
+      pointTypeId: tiers?.[0]?.pointTypeId ?? activePointTypes[0]?.id ?? "",
+      name: "",
+      minPoints: 0,
+      color: "#94a3b8",
+      benefits: "{}",
+    });
     void queryClient.invalidateQueries({ queryKey: ["tiers"] });
   };
 
@@ -88,6 +113,7 @@ export function TiersListPage(): JSX.Element {
     await fetchApi(`/admin/tiers/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
+        pointTypeId: formData.pointTypeId,
         name: formData.name,
         minPoints: formData.minPoints,
         color: formData.color,
@@ -101,6 +127,7 @@ export function TiersListPage(): JSX.Element {
   const openEditor = (tier: TierItem) => {
     setEditingId(tier.id);
     setFormData({
+      pointTypeId: tier.pointTypeId ?? tiers?.[0]?.pointTypeId ?? "",
       name: tier.name,
       minPoints: tier.minPoints,
       color: tier.color ?? "#94a3b8",
@@ -115,7 +142,13 @@ export function TiersListPage(): JSX.Element {
         <Button
           onClick={() => {
             setNewTier(true);
-            setFormData({ name: "", minPoints: 0, color: "#94a3b8", benefits: "{}" });
+            setFormData({
+              pointTypeId: tiers?.[0]?.pointTypeId ?? activePointTypes[0]?.id ?? "",
+              name: "",
+              minPoints: 0,
+              color: "#94a3b8",
+              benefits: "{}",
+            });
           }}
           disabled={newTier}
         >
@@ -145,7 +178,10 @@ export function TiersListPage(): JSX.Element {
                 >
                   {tier.name}
                   <span className="ml-2 text-xs text-muted-foreground">
-                    ({">"} {tier.minPoints.toLocaleString()} pts)
+                    ({">"} {tier.minPoints.toLocaleString()}{" "}
+                    {activePointTypes.find((pointType) => pointType.id === tier.pointTypeId)
+                      ?.code ?? "points"}
+                    )
                   </span>
                 </div>
               ))}
@@ -173,6 +209,7 @@ export function TiersListPage(): JSX.Element {
                 <TableRow>
                   <TableHead className="w-12">Rank</TableHead>
                   <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>Qualification point type</TableHead>
                   <TableHead>Min Points</TableHead>
                   <TableHead>Color</TableHead>
                   <TableHead className="w-32" />
@@ -190,6 +227,28 @@ export function TiersListPage(): JSX.Element {
                         }}
                         placeholder="Tier name"
                       />
+                    </TableCell>
+                    <TableCell>
+                      <select
+                        aria-label="Qualification point type"
+                        data-help="All tiers in this ladder qualify from lifetime earned value in this one point type."
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        value={formData.pointTypeId}
+                        disabled={Boolean(tiers?.length)}
+                        onChange={(event) => {
+                          setFormData((form) => ({
+                            ...form,
+                            pointTypeId: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="">Select point type</option>
+                        {activePointTypes.map((pointType) => (
+                          <option key={pointType.id} value={pointType.id}>
+                            {pointType.name} ({pointType.code})
+                          </option>
+                        ))}
+                      </select>
                     </TableCell>
                     <TableCell>
                       <Input
@@ -213,6 +272,7 @@ export function TiersListPage(): JSX.Element {
                     <TableCell>
                       <Button
                         size="sm"
+                        disabled={!formData.pointTypeId || !formData.name.trim()}
                         onClick={() => {
                           void handleCreate();
                         }}
@@ -239,6 +299,10 @@ export function TiersListPage(): JSX.Element {
                       ) : (
                         <span className="font-medium">{tier.name}</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {activePointTypes.find((pointType) => pointType.id === tier.pointTypeId)
+                        ?.name ?? "Unconfigured"}
                     </TableCell>
                     <TableCell>
                       {editingId === tier.id ? (
@@ -318,7 +382,7 @@ export function TiersListPage(): JSX.Element {
                 ))}
                 {tiers?.length === 0 && !newTier && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       {t("common.noResults")}
                     </TableCell>
                   </TableRow>

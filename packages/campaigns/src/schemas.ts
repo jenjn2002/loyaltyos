@@ -32,6 +32,7 @@ export const campaignVariantSchema = z.object({
 
 export const campaignCreateSchema = z.object({
   programId: z.string().min(1),
+  pointTypeId: z.string().min(1).optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   type: z.enum([

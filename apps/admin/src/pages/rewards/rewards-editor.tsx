@@ -1,143 +1,135 @@
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, Save } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
 
-const rewardSchema = z.object({
-  name: z.string().min(1, "Name is required").max(100),
-  description: z.string().optional().default(""),
-  pointsCost: z.coerce.number().int().min(1, "Must be at least 1"),
-  stock: z.coerce.number().int().min(0).optional().nullable(),
-  imageUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-  category: z.string().optional().default(""),
-  tierRequired: z.string().optional().default(""),
-  isActive: z.boolean().optional().default(false),
-});
-
-type RewardFormData = z.infer<typeof rewardSchema>;
-
-const CATEGORIES = [
-  { value: "__none__", label: "None" },
-  { value: "DISCOUNT_FUTURE", label: "Discount" },
-  { value: "PHYSICAL_PRODUCT", label: "Physical Product" },
-  { value: "GIFT_CARD", label: "Gift Card" },
-  { value: "EXPERIENCE", label: "Experience" },
-  { value: "CHARITY_DONATION", label: "Charity Donation" },
-  { value: "COALITION_TRANSFER", label: "Coalition Transfer" },
-];
-
+interface PointType {
+  id: string;
+  code: string;
+  name: string;
+  unitLabel: string;
+  redeemable: boolean;
+  isActive: boolean;
+  archivedAt: string | null;
+}
 interface Tier {
   id: string;
   name: string;
   rank: number;
 }
-
-interface EligibilityPreview {
-  eligible: boolean;
-  reason?: string;
+interface Price {
+  pointTypeId: string;
+  amount: string;
 }
+interface Reward {
+  name: string;
+  description: string | null;
+  stock: number | null;
+  imageUrl: string | null;
+  category: string | null;
+  tierRequired: string | null;
+  availableFrom: string | null;
+  availableUntil: string | null;
+  isActive: boolean;
+  pointPrices: { pointTypeId: string; amount: number }[];
+}
+
+const CATEGORIES = [
+  "DISCOUNT_FUTURE",
+  "PHYSICAL_PRODUCT",
+  "GIFT_CARD",
+  "EXPERIENCE",
+  "CHARITY_DONATION",
+  "COALITION_TRANSFER",
+];
+const controlClass = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
 export function RewardsEditorPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
-  const isEdit = Boolean(id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [previewMemberId, setPreviewMemberId] = useState("");
-  const [previewResult, setPreviewResult] = useState<EligibilityPreview | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [stock, setStock] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [category, setCategory] = useState("");
+  const [tierRequired, setTierRequired] = useState("");
+  const [availableFrom, setAvailableFrom] = useState("");
+  const [availableUntil, setAvailableUntil] = useState("");
+  const [isActive, setIsActive] = useState(false);
+  const [prices, setPrices] = useState<Price[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const form = useForm<RewardFormData>({
-    resolver: zodResolver(rewardSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      pointsCost: 100,
-      stock: null,
-      imageUrl: "",
-      category: "",
-      tierRequired: "",
-      isActive: false,
-    },
+  const pointTypes = useQuery({
+    queryKey: ["point-types", "reward-editor"],
+    queryFn: () => fetchApi<PointType[]>("/admin/point-types"),
   });
-
-  const { data: existingReward } = useQuery<{
-    name: string;
-    description: string | null;
-    pointsCost: number;
-    stock: number | null;
-    imageUrl: string | null;
-    category: string | null;
-    tierRequired: string | null;
-    isActive: boolean;
-  } | null>({
-    queryKey: ["reward", id],
-    queryFn: () => (id ? fetchApi(`/rewards/${id}`) : null),
-    enabled: isEdit,
+  const redeemableTypes = (pointTypes.data ?? []).filter(
+    (type) => type.redeemable && type.isActive && !type.archivedAt,
+  );
+  const tiers = useQuery({ queryKey: ["tiers"], queryFn: () => fetchApi<Tier[]>("/admin/tiers") });
+  const existing = useQuery({
+    queryKey: ["reward", "admin", id],
+    queryFn: () => fetchApi<Reward>(`/admin/rewards/${id ?? ""}`),
+    enabled: Boolean(id),
   });
 
   useEffect(() => {
-    if (existingReward) {
-      form.reset({
-        name: existingReward.name,
-        description: existingReward.description ?? "",
-        pointsCost: existingReward.pointsCost,
-        stock: existingReward.stock,
-        imageUrl: existingReward.imageUrl ?? "",
-        category: existingReward.category ?? "",
-        tierRequired: existingReward.tierRequired ?? "",
-        isActive: existingReward.isActive,
-      });
+    const reward = existing.data;
+    if (!reward) return;
+    setName(reward.name);
+    setDescription(reward.description ?? "");
+    setStock(reward.stock == null ? "" : String(reward.stock));
+    setImageUrl(reward.imageUrl ?? "");
+    setCategory(reward.category ?? "");
+    setTierRequired(reward.tierRequired ?? "");
+    setAvailableFrom(reward.availableFrom?.slice(0, 16) ?? "");
+    setAvailableUntil(reward.availableUntil?.slice(0, 16) ?? "");
+    setIsActive(reward.isActive);
+    setPrices(
+      reward.pointPrices.map((price) => ({
+        pointTypeId: price.pointTypeId,
+        amount: String(price.amount),
+      })),
+    );
+  }, [existing.data]);
+
+  useEffect(() => {
+    if (!id && prices.length === 0 && redeemableTypes[0]) {
+      setPrices([{ pointTypeId: redeemableTypes[0].id, amount: "100" }]);
     }
-  }, [existingReward, form]);
+  }, [id, prices.length, redeemableTypes]);
 
-  const { data: tiers } = useQuery<Tier[]>({
-    queryKey: ["tiers"],
-    queryFn: () => fetchApi<Tier[]>("/tiers"),
-  });
-
-  const mutation = useMutation({
-    mutationFn: (data: RewardFormData) => {
-      const body = {
-        name: data.name,
-        description: data.description,
-        pointsCost: data.pointsCost,
-        stock: data.stock ?? null,
-        imageUrl: data.imageUrl === "" ? null : data.imageUrl,
-        category: data.category && data.category !== "__none__" ? data.category : null,
-        tierRequired:
-          data.tierRequired && data.tierRequired !== "__none__" ? data.tierRequired : null,
-        isActive: data.isActive,
-      };
-      return isEdit
-        ? fetchApi(`/admin/rewards/${id ?? ""}`, {
-            method: "PATCH",
-            body: JSON.stringify(body),
-          })
-        : fetchApi("/admin/rewards", {
-            method: "POST",
-            body: JSON.stringify(body),
-          });
-    },
-    onSuccess: () => {
-      setSubmitError(null);
-      void queryClient.invalidateQueries({ queryKey: ["rewards"] });
+  const save = useMutation({
+    mutationFn: () =>
+      fetchApi(id ? `/admin/rewards/${id}` : "/admin/rewards", {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || null,
+          pointPrices: prices.map((price) => ({
+            pointTypeId: price.pointTypeId,
+            amount: Number(price.amount),
+          })),
+          stock: stock.trim() ? Number(stock) : null,
+          imageUrl: imageUrl.trim() || null,
+          category: category || null,
+          tierRequired: tierRequired || null,
+          availableFrom: availableFrom ? new Date(availableFrom).toISOString() : null,
+          availableUntil: availableUntil ? new Date(availableUntil).toISOString() : null,
+          isActive,
+        }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["rewards"] });
       navigate("/rewards");
     },
     onError: (error: Error) => {
@@ -145,220 +137,296 @@ export function RewardsEditorPage(): JSX.Element {
     },
   });
 
-  const onSubmit = (data: RewardFormData): void => {
-    mutation.mutate(data);
-  };
-
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
-    e.preventDefault();
-    void form.handleSubmit(onSubmit)(e);
-  };
-
-  const handlePreviewClick = (): void => {
-    void previewEligibility();
-  };
-
-  const previewEligibility = async (): Promise<void> => {
-    if (!previewMemberId || !id) return;
-    try {
-      const result = await fetchApi<EligibilityPreview>(
-        `/rewards/${id}/eligibility?memberId=${encodeURIComponent(previewMemberId)}`,
-      );
-      setPreviewResult(result);
-    } catch (err) {
-      setPreviewResult({ eligible: false, reason: (err as Error).message });
-    }
+  const addPrice = (): void => {
+    const unused = redeemableTypes.find(
+      (type) => !prices.some((price) => price.pointTypeId === type.id),
+    );
+    if (unused) setPrices((current) => [...current, { pointTypeId: unused.id, amount: "100" }]);
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link to="/rewards">
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft />
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{isEdit ? "Edit Reward" : "New Reward"}</h1>
+          <h1 className="text-2xl font-bold">{id ? "Edit reward" : "New reward"}</h1>
           <p className="text-sm text-muted-foreground">
-            {isEdit ? "Update reward details" : "Create a new reward for your catalog"}
+            Configure one or more accepted point types and prices.
           </p>
         </div>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Reward details</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Label htmlFor="reward-name" data-help="Member-facing reward name.">
+              Name
+            </Label>
+            <Input
+              id="reward-name"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+              }}
+            />
+          </div>
+          <div className="md:col-span-2">
+            <Label
+              htmlFor="reward-description"
+              data-help="Member-facing details and fulfillment expectations."
+            >
+              Description
+            </Label>
+            <Textarea
+              id="reward-description"
+              value={description}
+              onChange={(event) => {
+                setDescription(event.target.value);
+              }}
+            />
+          </div>
+          <div>
+            <Label
+              htmlFor="reward-stock"
+              data-help="Available units; leave blank for unlimited inventory."
+            >
+              Stock
+            </Label>
+            <Input
+              id="reward-stock"
+              type="number"
+              min="0"
+              value={stock}
+              onChange={(event) => {
+                setStock(event.target.value);
+              }}
+              placeholder="Unlimited"
+            />
+          </div>
+          <div>
+            <Label
+              htmlFor="reward-image"
+              data-help="Optional HTTPS image shown in the reward catalog."
+            >
+              Image URL
+            </Label>
+            <Input
+              id="reward-image"
+              type="url"
+              value={imageUrl}
+              onChange={(event) => {
+                setImageUrl(event.target.value);
+              }}
+            />
+          </div>
+          <div>
+            <Label htmlFor="reward-category" data-help="Catalog and reporting category.">
+              Category
+            </Label>
+            <select
+              id="reward-category"
+              className={controlClass}
+              value={category}
+              onChange={(event) => {
+                setCategory(event.target.value);
+              }}
+            >
+              <option value="">None</option>
+              {CATEGORIES.map((value) => (
+                <option key={value} value={value}>
+                  {value.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label
+              htmlFor="reward-tier"
+              data-help="Optional minimum tier name required for redemption."
+            >
+              Tier required
+            </Label>
+            <select
+              id="reward-tier"
+              className={controlClass}
+              value={tierRequired}
+              onChange={(event) => {
+                setTierRequired(event.target.value);
+              }}
+            >
+              <option value="">All tiers</option>
+              {(tiers.data ?? []).map((tier) => (
+                <option key={tier.id} value={tier.name}>
+                  {tier.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label
+              htmlFor="available-from"
+              data-help="Optional date and time when this reward becomes redeemable."
+            >
+              Available from
+            </Label>
+            <Input
+              id="available-from"
+              type="datetime-local"
+              value={availableFrom}
+              onChange={(event) => {
+                setAvailableFrom(event.target.value);
+              }}
+            />
+          </div>
+          <div>
+            <Label
+              htmlFor="available-until"
+              data-help="Optional exclusive end date and time for redemption."
+            >
+              Available until
+            </Label>
+            <Input
+              id="available-until"
+              type="datetime-local"
+              value={availableUntil}
+              onChange={(event) => {
+                setAvailableUntil(event.target.value);
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
+            <Label
+              htmlFor="reward-active"
+              data-help="Publishes this reward when its availability window, stock and price rules also pass."
+            >
+              Active in catalog
+            </Label>
+            <Switch id="reward-active" checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+        </CardContent>
+      </Card>
 
-      <form onSubmit={handleFormSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" {...form.register("name")} placeholder="10% off next purchase" />
-              {form.formState.errors.name && (
-                <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description (Markdown)</Label>
-              <Textarea
-                id="description"
-                {...form.register("description")}
-                rows={4}
-                placeholder="Get **10% off** your next online order..."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="pointsCost">Points Cost</Label>
-                <Input
-                  id="pointsCost"
-                  type="number"
-                  min={1}
-                  {...form.register("pointsCost", { valueAsNumber: true })}
-                />
-                {form.formState.errors.pointsCost && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.pointsCost.message}
-                  </p>
-                )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Accepted point prices</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {redeemableTypes.length === 0 && (
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              No active redeemable point type exists. Enable Redeem on a Point Type first.
+            </p>
+          )}
+          {prices.map((price, index) => (
+            <div
+              key={`${price.pointTypeId}-${String(index)}`}
+              className="grid items-end gap-3 rounded-md border p-3 sm:grid-cols-[2fr_1fr_auto]"
+            >
+              <div>
+                <Label
+                  htmlFor={`price-type-${String(index)}`}
+                  data-help="Point type accepted as payment for this reward."
+                >
+                  Point type
+                </Label>
+                <select
+                  id={`price-type-${String(index)}`}
+                  className={controlClass}
+                  value={price.pointTypeId}
+                  onChange={(event) => {
+                    setPrices((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, pointTypeId: event.target.value } : item,
+                      ),
+                    );
+                  }}
+                >
+                  {redeemableTypes.map((type) => (
+                    <option
+                      key={type.id}
+                      value={type.id}
+                      disabled={prices.some(
+                        (item, itemIndex) => itemIndex !== index && item.pointTypeId === type.id,
+                      )}
+                    >
+                      {type.name} ({type.code})
+                    </option>
+                  ))}
+                </select>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="stock">
-                  Stock <span className="text-muted-foreground text-xs">(empty = unlimited)</span>
+              <div>
+                <Label
+                  htmlFor={`price-amount-${String(index)}`}
+                  data-help="Exact amount deducted from this point type on redemption."
+                >
+                  Price
                 </Label>
                 <Input
-                  id="stock"
+                  id={`price-amount-${String(index)}`}
                   type="number"
-                  min={0}
-                  {...form.register("stock", {
-                    setValueAs: (v) => (v === "" ? null : Number(v)),
-                  })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="imageUrl">Image URL</Label>
-              <Input
-                id="imageUrl"
-                {...form.register("imageUrl")}
-                placeholder="https://cdn.example.com/reward.png"
-              />
-              {form.watch("imageUrl") && (
-                <img
-                  src={form.watch("imageUrl")}
-                  alt="Preview"
-                  className="mt-2 h-32 w-32 rounded-md border object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
+                  min="1"
+                  value={price.amount}
+                  onChange={(event) => {
+                    setPrices((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, amount: event.target.value } : item,
+                      ),
+                    );
                   }}
                 />
-              )}
+              </div>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label="Remove price"
+                disabled={prices.length === 1}
+                onClick={() => {
+                  setPrices((current) => current.filter((_, itemIndex) => itemIndex !== index));
+                }}
+              >
+                <Trash2 />
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Availability</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="category">Category</Label>
-                <Select
-                  value={form.watch("category")}
-                  onValueChange={(v) => {
-                    form.setValue("category", v);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIES.map((c) => (
-                      <SelectItem key={c.value} value={c.value}>
-                        {c.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="tierRequired">
-                  Tier Required <span className="text-muted-foreground text-xs">(optional)</span>
-                </Label>
-                <Select
-                  value={form.watch("tierRequired")}
-                  onValueChange={(v) => {
-                    form.setValue("tierRequired", v);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="All tiers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">All tiers</SelectItem>
-                    {(tiers ?? []).map((t) => (
-                      <SelectItem key={t.id} value={t.name}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {isEdit && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Eligibility Preview</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Member ID"
-                  value={previewMemberId}
-                  onChange={(e) => {
-                    setPreviewMemberId(e.target.value);
-                  }}
-                />
-                <Button type="button" variant="outline" onClick={handlePreviewClick}>
-                  <Eye className="mr-1 h-4 w-4" />
-                  Check
-                </Button>
-              </div>
-              {previewResult && (
-                <div
-                  className={`rounded-md px-4 py-3 text-sm ${previewResult.eligible ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-                >
-                  {previewResult.eligible
-                    ? "This member is eligible to redeem this reward."
-                    : (previewResult.reason ?? "Not eligible")}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="flex gap-3">
-          <Button type="submit" disabled={mutation.isPending}>
-            <Save className="mr-2 h-4 w-4" />
-            {mutation.isPending ? "Saving..." : isEdit ? "Update Reward" : "Create Reward"}
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={prices.length >= redeemableTypes.length}
+            onClick={addPrice}
+          >
+            <Plus /> Add accepted point type
           </Button>
-          <Button variant="outline" type="button" asChild>
-            <Link to="/rewards">Cancel</Link>
-          </Button>
-        </div>
-        {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-      </form>
+        </CardContent>
+      </Card>
+      {submitError && (
+        <p role="alert" className="text-sm text-destructive">
+          {submitError}
+        </p>
+      )}
+      <div className="flex gap-3">
+        <Button
+          disabled={
+            save.isPending ||
+            !name.trim() ||
+            prices.length === 0 ||
+            prices.some((price) => !price.pointTypeId || Number(price.amount) <= 0)
+          }
+          onClick={() => {
+            save.mutate();
+          }}
+        >
+          <Save /> {save.isPending ? "Saving…" : "Save reward"}
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/rewards">Cancel</Link>
+        </Button>
+      </div>
     </div>
   );
 }

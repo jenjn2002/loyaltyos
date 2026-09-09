@@ -15,50 +15,84 @@ export interface Balance {
   total: number;
 }
 
-export type CreditType = "P" | "R";
+/** @deprecated Point types are program-defined; use a pointTypeId string. */
+export type CreditType = string;
 
 export interface CreditBalance {
-  creditType: CreditType;
-  balance: number;
-  totalGranted: number;
-  totalSpent: number;
-}
-
-export interface CustomPointWallet {
   pointTypeId: string;
   code: string;
   name: string;
   unitLabel: string;
   description: string | null;
+  icon: string | null;
   color: string | null;
-  expiryMode: "NEVER" | "AFTER_DAYS";
+  expiryMode: "NEVER" | "AFTER_DAYS" | "FIXED_DATE" | "PER_GRANT";
   expiryDays: number | null;
+  fixedExpiryAt: string | null;
+  expiryWarningDays: number[];
   transferable: boolean;
   redeemable: boolean;
   exchangeable: boolean;
   cashEligible: boolean;
+  bankEnabled: boolean;
+  giveEnabled: boolean;
+  giveSource: "BALANCE" | "ALLOWANCE" | "BOTH";
+  requireGiveMessage: boolean;
+  allowMultiRecipient: boolean;
+  maxRecipients: number;
+  pairLimit: number | null;
+  pairLimitPeriodDays: number;
   balance: number;
   totalEarned: number;
   totalSpent: number;
+  isPrimary: boolean;
+  showZeroBalance: boolean;
+  allowance: {
+    allocated: number;
+    remaining: number;
+    cycleStart: string | null;
+    cycleEnd: string | null;
+    cycleDays: number;
+  } | null;
+  transferTargets: {
+    id: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    color: string | null;
+    sourceAmount: number;
+    destinationAmount: number;
+  }[];
 }
+
+export type CustomPointWallet = CreditBalance;
 
 export interface CreditExchangeRate {
   id: string;
-  creditType: CreditType;
+  pointTypeId: string;
   version: number;
-  valueMinorPerCredit: number;
+  valueMinorPerPoint: number;
   currency: string;
   payoutMechanism: string;
-  cashEligible: boolean;
-  minCredits: number;
-  maxCredits: number | null;
+  payoutType: "CASH" | "NON_CASH";
+  minPoints: number;
+  maxPoints: number | null;
+  periodLimitPoints: number | null;
+  periodDays: number;
   isActive: boolean;
+  pointType: {
+    id: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    color: string | null;
+  };
 }
 
 export interface CreditTransaction {
   id: string;
-  creditType: CreditType;
-  type: string;
+  pointTypeId: string;
+  action: string;
   amount: number;
   balanceAfter: number;
   source: string;
@@ -66,8 +100,21 @@ export interface CreditTransaction {
   message: string | null;
   category: string | null;
   counterpartyMemberId: string | null;
-  counterparty?: { id: string; firstName: string | null; lastName: string | null; email: string | null } | null;
+  counterparty?: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  } | null;
   categoryRef?: { name: string } | null;
+  pointType: {
+    id: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    color: string | null;
+  };
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -87,16 +134,29 @@ export interface CreditCategory {
 
 export interface RecognitionFeedItem extends CreditTransaction {
   member?: { id: string; firstName: string | null; lastName: string | null; email: string | null };
-  counterparty?: { id: string; firstName: string | null; lastName: string | null; email: string | null } | null;
+  counterparty?: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  } | null;
 }
 
 export interface PointTransaction {
   id: string;
-  type: "EARN" | "REDEEM" | "ADJUST" | "REVERSE" | "EXPIRE";
+  action: string;
   amount: number;
   balanceAfter: number;
   source: string;
-  description: string | null;
+  reason: string | null;
+  message: string | null;
+  pointType: {
+    id: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    color: string | null;
+  };
   createdAt: string;
 }
 
@@ -119,6 +179,20 @@ export interface Reward {
   tierRequired: string | null;
   isActive: boolean;
   redemptions: { id: string; memberId: string }[];
+  pointPrices?: {
+    id: string;
+    pointTypeId: string;
+    amount: number;
+    pointType: {
+      id: string;
+      code: string;
+      name: string;
+      unitLabel: string;
+      color: string | null;
+    };
+    availableBalance?: number;
+    eligible?: boolean;
+  }[];
 }
 
 export interface RewardDetail extends Reward {
@@ -183,5 +257,7 @@ export interface MemberRewardRedemption {
   redeemedAt: string;
   fulfilledAt: string | null;
   cancelledAt: string | null;
+  pointTypeId: string | null;
+  pointType: { code: string; name: string; unitLabel: string } | null;
   reward: { name: string; description: string | null };
 }

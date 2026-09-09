@@ -1,4 +1,4 @@
-import type { AuditAction, AuditActorType } from "@prisma/client";
+import type { AuditAction, AuditActorType, Prisma } from "@prisma/client";
 
 import { prisma } from "../db.js";
 
@@ -15,8 +15,9 @@ export async function audit(
   entityId: string | null,
   diff: Record<string, unknown> = {},
   reason?: string,
+  client: Pick<Prisma.TransactionClient, "auditLog"> = prisma,
 ): Promise<void> {
-  await prisma.auditLog.create({
+  await client.auditLog.create({
     data: {
       programId,
       actorType: actor.type,

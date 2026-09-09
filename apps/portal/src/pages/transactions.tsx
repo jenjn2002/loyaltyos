@@ -9,17 +9,25 @@ import type { PaginatedResponse, PointTransaction } from "../types";
 const typeIcons: Record<string, React.ElementType> = {
   EARN: ArrowUp,
   REDEEM: ArrowDown,
-  ADJUST: Filter,
-  REVERSE: RotateCcw,
-  EXPIRE: XCircle,
+  ADJUSTMENT: Filter,
+  REVERSAL: RotateCcw,
+  EXPIRY: XCircle,
+  GIVE_IN: ArrowUp,
+  GIVE_OUT: ArrowDown,
+  GIVE_ALLOWANCE_OUT: ArrowDown,
+  EXCHANGE: ArrowDown,
 };
 
 const typeColors: Record<string, string> = {
   EARN: "text-green-500",
   REDEEM: "text-red-500",
-  ADJUST: "text-blue-500",
-  REVERSE: "text-amber-500",
-  EXPIRE: "text-slate-400",
+  ADJUSTMENT: "text-blue-500",
+  REVERSAL: "text-amber-500",
+  EXPIRY: "text-slate-400",
+  GIVE_IN: "text-green-500",
+  GIVE_OUT: "text-purple-500",
+  GIVE_ALLOWANCE_OUT: "text-purple-500",
+  EXCHANGE: "text-red-500",
 };
 
 export default function Transactions() {
@@ -41,7 +49,17 @@ export default function Transactions() {
       <h1 className="text-2xl font-bold">{t("transactions")}</h1>
 
       <div className="flex gap-2 overflow-x-auto" role="group" aria-label={t("filterAll")}>
-        {["", "EARN", "REDEEM", "ADJUST", "REVERSE", "EXPIRE"].map((type) => (
+        {[
+          "",
+          "EARN",
+          "REDEEM",
+          "ADJUSTMENT",
+          "GIVE_IN",
+          "GIVE_OUT",
+          "EXCHANGE",
+          "EXPIRY",
+          "REVERSAL",
+        ].map((type) => (
           <button
             key={type}
             onClick={() => {
@@ -74,23 +92,23 @@ export default function Transactions() {
       ) : (
         <ul className="space-y-2" role="list">
           {transactions.map((tx) => {
-            const Icon = typeIcons[tx.type] ?? Filter;
-            const sign = tx.type === "EARN" || tx.type === "ADJUST" ? "+" : "-";
+            const Icon = typeIcons[tx.action] ?? Filter;
+            const sign = tx.amount > 0 ? "+" : "";
             return (
               <li
                 key={tx.id}
                 className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3"
               >
                 <div
-                  className={`rounded-full p-1.5 ${typeColors[tx.type] ?? "text-slate-400"} bg-opacity-10`}
+                  className={`rounded-full p-1.5 ${typeColors[tx.action] ?? "text-slate-400"} bg-opacity-10`}
                 >
                   <Icon className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{tx.source}</p>
-                  {tx.description && (
+                  {tx.reason && (
                     <p className="truncate text-xs text-[var(--color-text-secondary)]">
-                      {tx.description}
+                      {tx.reason}
                     </p>
                   )}
                   <p className="text-xs text-[var(--color-text-secondary)]">
@@ -98,9 +116,9 @@ export default function Transactions() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className={`text-sm font-semibold ${sign === "+" ? "text-green-500" : ""}`}>
+                  <p className={`text-sm font-semibold ${tx.amount > 0 ? "text-green-500" : ""}`}>
                     {sign}
-                    {Math.abs(tx.amount).toLocaleString()}
+                    {tx.amount.toLocaleString()} {tx.pointType.unitLabel}
                   </p>
                   <p className="text-xs text-[var(--color-text-secondary)]">
                     {tx.balanceAfter.toLocaleString()}

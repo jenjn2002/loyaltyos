@@ -166,12 +166,14 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   // Public routes (before auth plugin)
   await app.register(authRoutes, { prefix: "/api/v1" });
-  await app.register(adminAuthRoutes, { prefix: "/api/v1" });
 
   // Custom plugins
   await app.register(authPlugin);
 
   // Protected routes (after auth plugin)
+  // Login/logout are explicitly allow-listed by the auth plugin; /admin/me and
+  // permission endpoints now receive the authenticated request context.
+  await app.register(adminAuthRoutes, { prefix: "/api/v1" });
   await app.register(healthRoutes, { prefix: "/" });
   await app.register(membersRoutes, { prefix: "/api/v1" });
   await app.register(pointTypesRoutes, { prefix: "/api/v1" });

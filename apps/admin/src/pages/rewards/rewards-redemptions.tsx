@@ -20,10 +20,10 @@ interface Redemption {
   id: string;
   memberId: string;
   pointsSpent: number;
-  createdAt: string;
-  redeemedAt?: string;
+  redeemedAt: string;
   fulfillmentStatus: "PENDING" | "FULFILLED" | "CANCELLED";
   member?: { email: string | null; firstName: string | null; lastName: string | null };
+  pointType: { id: string; code: string; name: string; unitLabel: string } | null;
 }
 
 interface RedemptionsResponse {
@@ -43,8 +43,23 @@ export function RewardsRedemptionsPage(): JSX.Element {
   const rewardId = id ?? "";
   const queryClient = useQueryClient();
   const statusMutation = useMutation({
-    mutationFn: ({ redemptionId, status }: { redemptionId: string; status: Redemption["fulfillmentStatus"] }) => fetchApi(`/admin/rewards/redemptions/${redemptionId}/status`, { method: "PATCH", body: JSON.stringify({ status, reason: `Fulfillment marked ${status.toLowerCase()} from reward operations` }) }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["reward-redemptions", id] }); },
+    mutationFn: ({
+      redemptionId,
+      status,
+    }: {
+      redemptionId: string;
+      status: Redemption["fulfillmentStatus"];
+    }) =>
+      fetchApi(`/admin/rewards/redemptions/${redemptionId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status,
+          reason: `Fulfillment marked ${status.toLowerCase()} from reward operations`,
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["reward-redemptions", id] });
+    },
   });
 
   const { data: redemptions, isLoading } = useQuery<RedemptionsResponse>({
@@ -53,9 +68,9 @@ export function RewardsRedemptionsPage(): JSX.Element {
     enabled: Boolean(id),
   });
 
-  const { data: reward } = useQuery<{ name: string; pointsCost: number }>({
+  const { data: reward } = useQuery<{ name: string }>({
     queryKey: ["reward", id],
-    queryFn: async () => fetchApi<{ name: string; pointsCost: number }>(`/rewards/${rewardId}`),
+    queryFn: async () => fetchApi<{ name: string }>(`/admin/rewards/${rewardId}`),
     enabled: Boolean(id),
   });
 
@@ -106,7 +121,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Points Spent</CardTitle>
+            <CardTitle className="text-sm font-medium">Point units spent</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -144,7 +159,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
                 {items.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
-                      {new Date(r.createdAt).toLocaleDateString("en-US", {
+                      {new Date(r.redeemedAt).toLocaleDateString("en-US", {
                         year: "numeric",
                         month: "short",
                         day: "numeric",
@@ -160,10 +175,45 @@ export function RewardsRedemptionsPage(): JSX.Element {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{r.pointsSpent.toLocaleString()} pts</Badge>
+                      <Badge variant="secondary">
+                        {r.pointsSpent.toLocaleString()} {r.pointType?.unitLabel ?? "points"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2"><Badge variant={r.fulfillmentStatus === "FULFILLED" ? "default" : r.fulfillmentStatus === "CANCELLED" ? "destructive" : "outline"}>{r.fulfillmentStatus}</Badge>{r.fulfillmentStatus === "PENDING" && <><Button size="sm" onClick={() => statusMutation.mutate({ redemptionId: r.id, status: "FULFILLED" })}>Fulfill</Button><Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ redemptionId: r.id, status: "CANCELLED" })}>Cancel</Button></>}</div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            r.fulfillmentStatus === "FULFILLED"
+                              ? "default"
+                              : r.fulfillmentStatus === "CANCELLED"
+                                ? "destructive"
+                                : "outline"
+                          }
+                        >
+                          {r.fulfillmentStatus}
+                        </Badge>
+                        {r.fulfillmentStatus === "PENDING" && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                statusMutation.mutate({ redemptionId: r.id, status: "FULFILLED" });
+                              }}
+                            >
+                              Fulfill
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                statusMutation.mutate({ redemptionId: r.id, status: "CANCELLED" });
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

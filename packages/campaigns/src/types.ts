@@ -10,6 +10,7 @@ export interface CampaignVariantInput {
 
 export interface CampaignCreateInput {
   programId: string;
+  pointTypeId?: string;
   name: string;
   description?: string;
   type: CampaignType;
@@ -25,6 +26,7 @@ export interface CampaignCreateInput {
 }
 
 export interface CampaignUpdateInput {
+  pointTypeId?: string;
   name?: string;
   description?: string;
   conditions?: Record<string, unknown>;
@@ -38,6 +40,7 @@ export interface CampaignUpdateInput {
 }
 
 export interface EventContext {
+  eventId?: string;
   type: string;
   memberId: string;
   programId: string;
@@ -48,6 +51,7 @@ export interface EventContext {
 export interface CampaignWithVariants {
   id: string;
   programId: string;
+  pointTypeId: string | null;
   name: string;
   description: string | null;
   type: CampaignType;

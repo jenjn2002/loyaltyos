@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Award,
   BarChart3,
@@ -7,6 +8,8 @@ import {
   LogOut,
   Megaphone,
   PieChart,
+  Settings2,
+  ShieldCheck,
   Ticket,
   Users,
   WalletCards,
@@ -24,25 +27,68 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { persistLocale } from "@/i18n";
-import { adminLogout, isAdminAuthenticated } from "@/lib/api-client";
+import { adminLogout, fetchApi, isAdminAuthenticated } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 export function Sidebar(): JSX.Element {
   const { t, i18n } = useTranslation();
+  const authenticated = isAdminAuthenticated();
+  const admin = useQuery({
+    queryKey: ["admin-me"],
+    queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
+    enabled: authenticated,
+    staleTime: 30_000,
+  });
 
   const links = [
-    { to: "/", label: t("navigation.dashboard"), icon: LayoutDashboard, end: true },
-    { to: "/members", label: t("navigation.members"), icon: Users },
-    { to: "/credits", label: "Credits", icon: WalletCards },
-    { to: "/campaigns", label: t("navigation.campaigns"), icon: Megaphone },
-    { to: "/coupons", label: t("navigation.coupons"), icon: Ticket },
-    { to: "/segments", label: t("navigation.segments"), icon: PieChart },
-    { to: "/badges", label: t("navigation.badges"), icon: Award },
-    { to: "/tiers", label: t("navigation.tiers"), icon: BarChart3 },
-    { to: "/rewards", label: t("navigation.rewards"), icon: Gift },
-    { to: "/coalition", label: t("navigation.coalition"), icon: Link2 },
-    { to: "/giftcards", label: t("navigation.giftcards"), icon: Gift },
-  ];
+    {
+      to: "/",
+      label: t("navigation.dashboard"),
+      icon: LayoutDashboard,
+      end: true,
+      capability: "dashboard.view",
+    },
+    { to: "/members", label: t("navigation.members"), icon: Users, capability: "member.view" },
+    { to: "/credits", label: "Credits", icon: WalletCards, capability: "wallet.view" },
+    {
+      to: "/point-types",
+      label: "Point Types",
+      icon: Settings2,
+      capability: "point_type.view",
+    },
+    {
+      to: "/permissions",
+      label: "Roles & Permissions",
+      icon: ShieldCheck,
+      capability: "permission.manage",
+    },
+    {
+      to: "/campaigns",
+      label: t("navigation.campaigns"),
+      icon: Megaphone,
+      capability: "campaign.view",
+    },
+    { to: "/coupons", label: t("navigation.coupons"), icon: Ticket, capability: "campaign.view" },
+    {
+      to: "/segments",
+      label: t("navigation.segments"),
+      icon: PieChart,
+      capability: "campaign.view",
+    },
+    { to: "/badges", label: t("navigation.badges"), icon: Award, capability: "campaign.view" },
+    { to: "/tiers", label: t("navigation.tiers"), icon: BarChart3, capability: "campaign.view" },
+    { to: "/rewards", label: t("navigation.rewards"), icon: Gift, capability: "reward.view" },
+    {
+      to: "/coalition",
+      label: t("navigation.coalition"),
+      icon: Link2,
+      capability: "campaign.view",
+    },
+    { to: "/giftcards", label: t("navigation.giftcards"), icon: Gift, capability: "reward.view" },
+  ].filter(
+    ({ capability }) =>
+      !authenticated || admin.isLoading || admin.data?.capabilities[capability] !== false,
+  );
 
   function handleLocaleChange(locale: string): void {
     void i18n.changeLanguage(locale);
@@ -87,7 +133,7 @@ export function Sidebar(): JSX.Element {
             </SelectContent>
           </Select>
         </div>
-        {isAdminAuthenticated() && (
+        {authenticated && (
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 px-3 text-sm text-muted-foreground hover:text-accent-foreground"

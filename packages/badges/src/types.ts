@@ -57,6 +57,7 @@ export interface BadgeEvaluation {
 
 export interface TierCreateInput {
   programId: string;
+  pointTypeId?: string;
   name: string;
   rank: number;
   minPoints: number;
@@ -66,6 +67,7 @@ export interface TierCreateInput {
 }
 
 export interface TierUpdateInput {
+  pointTypeId?: string;
   name?: string;
   rank?: number;
   minPoints?: number;

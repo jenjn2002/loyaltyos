@@ -83,6 +83,18 @@ function memberAggregate() {
   };
 }
 
+function pointWallet(totalEarned: number) {
+  return [
+    {
+      pointTypeId: "pt-1",
+      totalEarned,
+      totalSpent: 0,
+      balance: totalEarned,
+      pointType: { isPrimary: true },
+    },
+  ];
+}
+
 function service() {
   return new BadgesService(mockPrisma as never);
 }
@@ -139,7 +151,7 @@ describe("BadgesService.evaluateOnEvent", () => {
     mockPrisma.badge.findMany.mockResolvedValue([badge]);
     mockPrisma.member.findFirst.mockResolvedValue({
       ...agg,
-      pointAccount: { totalEarned: 10000, totalRedeemed: 0, balance: 10000, pendingBalance: 0 },
+      pointWallets: pointWallet(10000),
       memberTiers: [],
     });
     mockPrisma.pointAccount.findFirst.mockResolvedValue(null);
@@ -177,7 +189,7 @@ describe("BadgesService.evaluateOnEvent", () => {
     mockPrisma.badge.findMany.mockResolvedValue([badge]);
     mockPrisma.member.findFirst.mockResolvedValue({
       ...agg,
-      pointAccount: { totalEarned: 10000, totalRedeemed: 0, balance: 10000, pendingBalance: 0 },
+      pointWallets: pointWallet(10000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -214,7 +226,7 @@ describe("BadgesService.evaluateOnEvent", () => {
     mockPrisma.badge.findMany.mockResolvedValue([badge]);
     mockPrisma.member.findFirst.mockResolvedValue({
       ...agg,
-      pointAccount: { totalEarned: 25000, totalRedeemed: 0, balance: 25000, pendingBalance: 0 },
+      pointWallets: pointWallet(25000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -250,7 +262,7 @@ describe("BadgesService.progress", () => {
     mockPrisma.badge.findFirst.mockResolvedValue(badge);
     mockPrisma.member.findFirst.mockResolvedValue({
       ...agg,
-      pointAccount: { totalEarned: 10000, totalRedeemed: 0, balance: 10000, pendingBalance: 0 },
+      pointWallets: pointWallet(10000),
       memberTiers: [],
     });
     mockPrisma.event.findMany.mockResolvedValue([]);
@@ -325,7 +337,7 @@ describe("BadgesService.getMemberBadges", () => {
       lastName: null,
       tags: [],
       joinedAt: new Date(),
-      pointAccount: { totalEarned: 10000, totalRedeemed: 0, balance: 10000, pendingBalance: 0 },
+      pointWallets: pointWallet(10000),
       memberTiers: [],
     });
     mockPrisma.badge.findMany.mockResolvedValue([badge1, badge2]);

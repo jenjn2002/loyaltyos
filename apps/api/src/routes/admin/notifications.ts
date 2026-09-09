@@ -104,6 +104,12 @@ export function adminNotificationsRoutes(
   app.get("/admin/notification-templates/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const template = await notifications.getTemplate(id);
+    const programId = getProgramId(request);
+    if (template.programId !== programId) {
+      return reply
+        .status(404)
+        .send({ error: { code: "NOT_FOUND", message: "Template not found" } });
+    }
     return reply.send({ data: template });
   });
 
@@ -111,6 +117,12 @@ export function adminNotificationsRoutes(
   app.patch("/admin/notification-templates/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = templateUpdateBody.parse(request.body);
+    const existing = await notifications.getTemplate(id);
+    if (existing.programId !== getProgramId(request)) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Template not found" },
+      });
+    }
     const template = await notifications.updateTemplate(id, body);
     await audit(
       getProgramId(request),
@@ -126,6 +138,12 @@ export function adminNotificationsRoutes(
   // DELETE /admin/notification-templates/:id
   app.delete("/admin/notification-templates/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    const template = await notifications.getTemplate(id);
+    if (template.programId !== getProgramId(request)) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Template not found" },
+      });
+    }
     await notifications.deleteTemplate(id);
     await audit(
       getProgramId(request),
@@ -145,6 +163,11 @@ export function adminNotificationsRoutes(
       .parse(request.body);
 
     const template = await notifications.getTemplate(id);
+    if (template.programId !== getProgramId(request)) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Template not found" },
+      });
+    }
     const subject = template.subject ? render(template.subject, variables) : null;
     const bodyHtml = template.bodyHtml ? render(template.bodyHtml, variables) : null;
     const bodyText = template.bodyText ? render(template.bodyText, variables) : null;
@@ -179,6 +202,11 @@ export function adminNotificationsRoutes(
     }
 
     const template = await notifications.getTemplate(id);
+    if (template.programId !== getProgramId(request)) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Template not found" },
+      });
+    }
     const targetChannel = channel ?? template.channel;
     let context: Record<string, unknown> = {};
     let targetMemberId: string;
@@ -187,9 +215,12 @@ export function adminNotificationsRoutes(
     if (memberId) {
       // Load member data for variable interpolation
       const member = await prisma.member.findFirst({
-        where: { id: memberId },
+        where: { id: memberId, programId: template.programId, deletedAt: null },
         include: {
-          pointAccount: true,
+          pointWallets: {
+            where: { pointType: { isActive: true } },
+            include: { pointType: true },
+          },
           memberTiers: { include: { tier: true } },
         },
       });
@@ -202,6 +233,13 @@ export function adminNotificationsRoutes(
 
       targetMemberId = member.id;
       const currentTier = member.memberTiers.find((mt) => !mt.downgradedAt)?.tier.name;
+      const visibleBalances = Object.fromEntries(
+        member.pointWallets
+          .filter((wallet) => wallet.pointType.showOnMemberProfile)
+          .map((wallet) => [wallet.pointType.code, wallet.balance]),
+      );
+      const primaryBalance =
+        member.pointWallets.find((wallet) => wallet.pointType.isPrimary)?.balance ?? 0;
 
       context = {
         member: {
@@ -213,8 +251,9 @@ export function adminNotificationsRoutes(
           tags: member.tags,
           currentTier,
         },
-        points: member.pointAccount?.balance ?? 0,
-        balance: member.pointAccount?.balance ?? 0,
+        points: primaryBalance,
+        balance: primaryBalance,
+        pointBalances: visibleBalances,
       };
 
       if (member.email) metadata.email = member.email;

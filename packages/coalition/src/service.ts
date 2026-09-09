@@ -70,16 +70,25 @@ export interface CoalitionServiceMetrics {
   setCircuitBreakerState(adapter: string, state: number): void;
 }
 
+interface LocalPointsAdapter {
+  earn(input: Parameters<PointsService["earn"]>[0]): ReturnType<PointsService["earn"]>;
+  redeem(input: Parameters<PointsService["redeem"]>[0]): ReturnType<PointsService["redeem"]>;
+}
+
 export class CoalitionService {
   private repo: Repository;
-  private pointsService: PointsService;
+  private pointsService: LocalPointsAdapter;
   private adapters: Map<string, CoalitionAdapter>;
   private breakers: Map<string, CircuitBreaker>;
   private metrics?: CoalitionServiceMetrics;
 
-  constructor(prisma: PrismaClient, metrics?: CoalitionServiceMetrics) {
+  constructor(
+    prisma: PrismaClient,
+    metrics?: CoalitionServiceMetrics,
+    pointsService?: LocalPointsAdapter,
+  ) {
     this.repo = createRepository(prisma);
-    this.pointsService = new PointsService(prisma);
+    this.pointsService = pointsService ?? new PointsService(prisma);
     this.adapters = new Map();
     this.breakers = new Map();
     this.metrics = metrics;

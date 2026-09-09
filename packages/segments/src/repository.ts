@@ -101,9 +101,11 @@ export function createRepository(prisma: PrismaClient) {
     async findMemberWithAccountAndTiers(
       memberId: string,
     ): Promise<MemberWithComputedFields | null> {
-      const [member, account, memberTiers] = await Promise.all([
+      const [member, primaryWallet, memberTiers] = await Promise.all([
         prisma.member.findFirst({ where: { id: memberId } }),
-        prisma.pointAccount.findFirst({ where: { memberId } }),
+        prisma.customPointWallet.findFirst({
+          where: { memberId, pointType: { isPrimary: true, isActive: true } },
+        }),
         prisma.memberTier.findMany({
           where: { memberId, downgradedAt: null },
           include: { tier: true },
@@ -113,7 +115,7 @@ export function createRepository(prisma: PrismaClient) {
       if (!member) return null;
 
       const currentTier = memberTiers.length > 0 ? (memberTiers[0]?.tier?.name ?? null) : null;
-      const totalSpent = account ? account.totalEarned - account.totalRedeemed : 0;
+      const totalSpent = primaryWallet?.totalEarned ?? 0;
 
       return {
         id: member.id,
@@ -135,7 +137,10 @@ export function createRepository(prisma: PrismaClient) {
       const members = await prisma.member.findMany({
         where: { programId, deletedAt: null },
         include: {
-          pointAccount: true,
+          pointWallets: {
+            where: { pointType: { isPrimary: true, isActive: true } },
+            take: 1,
+          },
           memberTiers: {
             where: { downgradedAt: null },
             include: { tier: true },
@@ -154,7 +159,7 @@ export function createRepository(prisma: PrismaClient) {
         tags: m.tags,
         joinedAt: m.joinedAt,
         deletedAt: m.deletedAt,
-        totalSpent: m.pointAccount ? m.pointAccount.totalEarned - m.pointAccount.totalRedeemed : 0,
+        totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
         currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,
       }));
     },
@@ -174,7 +179,10 @@ export function createRepository(prisma: PrismaClient) {
           skip: (page - 1) * pageSize,
           take: pageSize,
           include: {
-            pointAccount: true,
+            pointWallets: {
+              where: { pointType: { isPrimary: true, isActive: true } },
+              take: 1,
+            },
             memberTiers: {
               where: { downgradedAt: null },
               include: { tier: true },
@@ -196,9 +204,7 @@ export function createRepository(prisma: PrismaClient) {
           tags: m.tags,
           joinedAt: m.joinedAt,
           deletedAt: m.deletedAt,
-          totalSpent: m.pointAccount
-            ? m.pointAccount.totalEarned - m.pointAccount.totalRedeemed
-            : 0,
+          totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
           currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,
         })),
         total,
@@ -223,7 +229,10 @@ export function createRepository(prisma: PrismaClient) {
           skip: (page - 1) * pageSize,
           take: pageSize,
           include: {
-            pointAccount: true,
+            pointWallets: {
+              where: { pointType: { isPrimary: true, isActive: true } },
+              take: 1,
+            },
             memberTiers: {
               where: { downgradedAt: null },
               include: { tier: true },
@@ -245,9 +254,7 @@ export function createRepository(prisma: PrismaClient) {
           tags: m.tags,
           joinedAt: m.joinedAt,
           deletedAt: m.deletedAt,
-          totalSpent: m.pointAccount
-            ? m.pointAccount.totalEarned - m.pointAccount.totalRedeemed
-            : 0,
+          totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
           currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,
         })),
         total,

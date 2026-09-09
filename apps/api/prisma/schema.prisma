@@ -9,107 +9,119 @@ datasource db {
 }
 
 model Program {
-  id          String    @id @default(cuid())
-  name        String
-  description String?
-  pointsUnit  String    @default("PTS")
-  creditGivingLimit Int?
-  creditGivingPeriodDays Int @default(30)
-  creditGivingPairLimit Int?
-  creditBankCycleDays Int @default(30)
-  creditExpiryWarningDays Int[] @default([30, 7])
-  logoUrl     String?
-  isActive    Boolean   @default(true)
-  defaultLocale String  @default("es-MX")
-  supportedLocales String[] @default(["es-MX", "en-US"])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                      String   @id @default(cuid())
+  name                    String
+  description             String?
+  pointsUnit              String   @default("PTS")
+  creditGivingLimit       Int?
+  creditGivingPeriodDays  Int      @default(30)
+  creditGivingPairLimit   Int?
+  creditBankCycleDays     Int      @default(30)
+  creditExpiryWarningDays Int[]    @default([30, 7])
+  logoUrl                 String?
+  isActive                Boolean  @default(true)
+  defaultLocale           String   @default("es-MX")
+  supportedLocales        String[] @default(["es-MX", "en-US"])
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  members            Member[]
-  pointAccounts      PointAccount[]
-  pointRules         PointRule[]
-  creditWallets      CreditWallet[]
-  creditLots         CreditLot[]
-  creditTransactions CreditTransaction[]
-  creditBanks        CreditBank[]
-  creditBankTransactions CreditBankTransaction[]
-  creditExchangeRates CreditExchangeRate[]
-  creditExchangeRequests CreditExchangeRequest[]
-  creditSettings      CreditSetting[]
-  creditSettingPermissions CreditSettingPermission[]
-  pointTypeDefinitions PointTypeDefinition[]
-  pointWallets         CustomPointWallet[]
-  pointTransactions    CustomPointTransaction[]
-  pointLots            CustomPointLot[]
-  creditCategories   CreditCategory[]
-  creditBankCycles   CreditBankCycle[]
-  creditBulkBatches  CreditBulkBatch[]
-  tiers              Tier[]
-  campaigns          Campaign[]
-  segments           Segment[]
-  coupons            Coupon[]
-  rewards            Reward[]
-  badges             Badge[]
-  notificationTemplates NotificationTemplate[]
-  memberDevices        MemberDevice[]
+  members                       Member[]
+  pointAccounts                 PointAccount[]
+  pointRules                    PointRule[]
+  creditWallets                 CreditWallet[]
+  creditLots                    CreditLot[]
+  creditTransactions            CreditTransaction[]
+  creditBanks                   CreditBank[]
+  creditBankTransactions        CreditBankTransaction[]
+  creditExchangeRates           CreditExchangeRate[]
+  creditExchangeRequests        CreditExchangeRequest[]
+  creditSettings                CreditSetting[]
+  creditSettingPermissions      CreditSettingPermission[]
+  pointTypeDefinitions          PointTypeDefinition[]
+  pointWallets                  CustomPointWallet[]
+  pointTransactions             CustomPointTransaction[]
+  pointLots                     CustomPointLot[]
+  pointTransferRules            PointTransferRule[]             @relation("PointTransferRuleProgram")
+  pointAllowances               PointAllowance[]
+  pointBanks                    PointBank[]
+  pointBankTransactions         PointBankTransaction[]
+  pointBankCycles               PointBankCycle[]
+  pointExchangeRates            PointExchangeRate[]
+  pointExchangeRequests         PointExchangeRequest[]
+  rewardPointPrices             RewardPointPrice[]
+  adminRolePermissions          AdminRolePermission[]
+  creditCategories              CreditCategory[]
+  creditBankCycles              CreditBankCycle[]
+  creditBulkBatches             CreditBulkBatch[]
+  tiers                         Tier[]
+  campaigns                     Campaign[]
+  segments                      Segment[]
+  coupons                       Coupon[]
+  rewards                       Reward[]
+  badges                        Badge[]
+  notificationTemplates         NotificationTemplate[]
+  memberDevices                 MemberDevice[]
   memberNotificationPreferences MemberNotificationPreferences[]
-  coalitionAccounts  CoalitionAccount[]
-  coalitionConfig    CoalitionConfig?
-  adminUsers         AdminUser[]
-  events             Event[]
-  apiKeys            ApiKey[]
-  webhookSubscriptions WebhookSubscription[]
-  auditLogs          AuditLog[]
-  termsTemplates     TermsTemplate[]
-  giftCardBatches    GiftCardBatch[]
+  coalitionAccounts             CoalitionAccount[]
+  coalitionConfig               CoalitionConfig?
+  adminUsers                    AdminUser[]
+  events                        Event[]
+  apiKeys                       ApiKey[]
+  webhookSubscriptions          WebhookSubscription[]
+  auditLogs                     AuditLog[]
+  termsTemplates                TermsTemplate[]
+  giftCardBatches               GiftCardBatch[]
 
   @@index([isActive])
 }
 
 model Member {
-  id          String   @id @default(cuid())
-  programId   String
-  externalId  String?
-  email       String?
-  phone       String?
-  firstName   String?
-  lastName    String?
-  department  String?
-  photoUrl    String?
-  metadata    Json?    @default("{}")
-  tags        String[] @default([])
-  joinedAt    DateTime @default(now())
-  lastActiveAt DateTime?
-  deletedAt   DateTime?
-  status      MemberStatus @default(ACTIVE)
+  id            String       @id @default(cuid())
+  programId     String
+  externalId    String?
+  email         String?
+  phone         String?
+  firstName     String?
+  lastName      String?
+  department    String?
+  photoUrl      String?
+  metadata      Json?        @default("{}")
+  tags          String[]     @default([])
+  joinedAt      DateTime     @default(now())
+  lastActiveAt  DateTime?
+  deletedAt     DateTime?
+  status        MemberStatus @default(ACTIVE)
   deactivatedAt DateTime?
-  locale      String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  locale        String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  program            Program              @relation(fields: [programId], references: [id], onDelete: Restrict)
-  pointAccount       PointAccount?
-  creditWallets      CreditWallet[]
-  creditTransactions CreditTransaction[] @relation("CreditTransactionMember")
-  creditCounterpartyTransactions CreditTransaction[] @relation("CreditTransactionCounterparty")
-  creditLots         CreditLot[]
-  memberTiers        MemberTier[]
-  couponRedemptions  CouponRedemption[]
-  rewardRedemptions  RewardRedemption[]
-  memberBadges       MemberBadge[]
-  notifications      Notification[]
-  memberDevices      MemberDevice[]
-  memberNotificationPreferences MemberNotificationPreferences[]
-  coalitionAccounts  CoalitionAccount[]
+  program                        Program                         @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointAccount                   PointAccount?
+  creditWallets                  CreditWallet[]
+  creditTransactions             CreditTransaction[]             @relation("CreditTransactionMember")
+  creditCounterpartyTransactions CreditTransaction[]             @relation("CreditTransactionCounterparty")
+  creditLots                     CreditLot[]
+  memberTiers                    MemberTier[]
+  couponRedemptions              CouponRedemption[]
+  rewardRedemptions              RewardRedemption[]
+  memberBadges                   MemberBadge[]
+  notifications                  Notification[]
+  memberDevices                  MemberDevice[]
+  memberNotificationPreferences  MemberNotificationPreferences[]
+  coalitionAccounts              CoalitionAccount[]
   // Inbound events
-  events             Event[]
-  sessions           Session[]
-  magicLinkTokens    MagicLinkToken[]
-  giftCardTransactions GiftCardTransaction[]
-  exchangeRequests CreditExchangeRequest[]
-  pointWallets     CustomPointWallet[]
-  pointTransactions CustomPointTransaction[]
-  pointLots        CustomPointLot[]
+  events                         Event[]
+  sessions                       Session[]
+  magicLinkTokens                MagicLinkToken[]
+  giftCardTransactions           GiftCardTransaction[]
+  exchangeRequests               CreditExchangeRequest[]
+  pointWallets                   CustomPointWallet[]
+  pointTransactions              CustomPointTransaction[]        @relation("PointTransactionMember")
+  pointCounterpartyTransactions  CustomPointTransaction[]        @relation("PointTransactionCounterparty")
+  pointLots                      CustomPointLot[]
+  pointAllowances                PointAllowance[]
+  pointExchangeRequests          PointExchangeRequest[]
 
   @@unique([programId, externalId])
   @@index([programId])
@@ -118,51 +130,85 @@ model Member {
 }
 
 model PointAccount {
-  id             String  @id @default(cuid())
-  memberId       String  @unique
+  id             String   @id @default(cuid())
+  memberId       String   @unique
   programId      String
-  balance        Int     @default(0)
-  pendingBalance Int     @default(0)
-  totalEarned    Int     @default(0)
-  totalRedeemed  Int     @default(0)
+  balance        Int      @default(0)
+  pendingBalance Int      @default(0)
+  totalEarned    Int      @default(0)
+  totalRedeemed  Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  member       Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program      Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  member       Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program      Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
   transactions PointTransaction[]
 
   @@index([memberId, programId])
   @@index([programId])
 }
 
-/// Extensible point-type registry. P/R remain in the rule-book credit ledger;
-/// these definitions allow programs to add independent myCred-style wallets.
+/// Canonical wallet definition. Codes such as P and R are optional template data,
+/// never special cases in the schema or runtime.
 model PointTypeDefinition {
-  id                    String   @id @default(cuid())
+  id                    String    @id @default(cuid())
   programId             String
   code                  String
   name                  String
-  unitLabel             String   @default("points")
+  unitLabel             String    @default("points")
   description           String?
+  icon                  String?
   color                 String?
-  expiryMode            String   @default("NEVER")
+  expiryMode            String    @default("NEVER")
   expiryDays            Int?
-  allowNegativeBalance  Boolean  @default(false)
-  allowManualAdjustment Boolean  @default(true)
-  transferable          Boolean  @default(false)
-  redeemable            Boolean  @default(false)
-  exchangeable          Boolean  @default(false)
-  cashEligible          Boolean  @default(false)
-  isActive              Boolean  @default(true)
-  metadata              Json?    @default("{}")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  fixedExpiryAt         DateTime?
+  expiryWarningDays     Int[]     @default([30, 7])
+  allowNegativeBalance  Boolean   @default(false)
+  allowManualAdjustment Boolean   @default(true)
+  transferable          Boolean   @default(false)
+  redeemable            Boolean   @default(false)
+  exchangeable          Boolean   @default(false)
+  cashEligible          Boolean   @default(false)
+  bankEnabled           Boolean   @default(false)
+  giveEnabled           Boolean   @default(false)
+  giveSource            String    @default("BALANCE")
+  allowanceAmount       Int?
+  allowanceCycleDays    Int       @default(30)
+  allowanceCarryOver    Boolean   @default(false)
+  pairLimit             Int?
+  pairLimitPeriodDays   Int       @default(30)
+  requireGiveMessage    Boolean   @default(true)
+  allowMultiRecipient   Boolean   @default(true)
+  maxRecipients         Int       @default(500)
+  showOnMemberProfile   Boolean   @default(true)
+  showZeroBalance       Boolean   @default(true)
+  isPrimary             Boolean   @default(false)
+  sortOrder             Int       @default(0)
+  isActive              Boolean   @default(true)
+  archivedAt            DateTime?
+  metadata              Json?     @default("{}")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  program      Program                 @relation(fields: [programId], references: [id], onDelete: Cascade)
-  wallets      CustomPointWallet[]
-  transactions CustomPointTransaction[]
-  lots         CustomPointLot[]
+  program                 Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  wallets                 CustomPointWallet[]
+  transactions            CustomPointTransaction[]
+  sourceTransactions      CustomPointTransaction[] @relation("PointTransactionSourceType")
+  destinationTransactions CustomPointTransaction[] @relation("PointTransactionDestinationType")
+  lots                    CustomPointLot[]
+  outgoingTransferRules   PointTransferRule[]      @relation("PointTransferSource")
+  incomingTransferRules   PointTransferRule[]      @relation("PointTransferDestination")
+  allowances              PointAllowance[]
+  banks                   PointBank[]
+  bankTransactions        PointBankTransaction[]
+  bankCycles              PointBankCycle[]
+  exchangeRates           PointExchangeRate[]
+  exchangeRequests        PointExchangeRequest[]
+  rewardPrices            RewardPointPrice[]
+  rewardRedemptions       RewardRedemption[]
+  pointRules              PointRule[]
+  campaigns               Campaign[]
+  tiers                   Tier[]
 
   @@unique([programId, code])
   @@index([programId, isActive])
@@ -179,64 +225,252 @@ model CustomPointWallet {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  member      Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program     Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
-  pointType   PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  member       Member                   @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program      Program                  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType    PointTypeDefinition      @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
   transactions CustomPointTransaction[]
-  lots        CustomPointLot[]
+  lots         CustomPointLot[]
 
   @@unique([memberId, pointTypeId])
   @@index([programId, pointTypeId])
 }
 
 model CustomPointTransaction {
-  id          String   @id @default(cuid())
-  walletId    String
-  memberId    String
-  programId   String
-  pointTypeId String
-  action      String
-  amount      Int
-  balanceAfter Int
-  reason      String?
-  actorType   String?
-  actorId     String?
-  idempotencyKey String @unique
-  expiresAt   DateTime?
-  metadata    Json?    @default("{}")
-  createdAt   DateTime @default(now())
+  id                     String    @id @default(cuid())
+  walletId               String
+  memberId               String
+  programId              String
+  pointTypeId            String
+  action                 String
+  amount                 Int
+  balanceAfter           Int
+  source                 String    @default("manual")
+  reason                 String?
+  message                String?
+  category               String?
+  categoryId             String?
+  counterpartyMemberId   String?
+  sourcePointTypeId      String?
+  destinationPointTypeId String?
+  exchangeRateId         String?
+  exchangeRequestId      String?   @unique
+  actorType              String?
+  actorId                String?
+  previousHash           String?
+  recordHash             String?
+  reversedFromId         String?
+  reversedById           String?
+  idempotencyKey         String
+  expiresAt              DateTime?
+  metadata               Json?     @default("{}")
+  createdAt              DateTime  @default(now())
 
-  wallet    CustomPointWallet  @relation(fields: [walletId], references: [id], onDelete: Restrict)
-  member    Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program   Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
-  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
-  grantLot  CustomPointLot?
+  wallet               CustomPointWallet     @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member               Member                @relation("PointTransactionMember", fields: [memberId], references: [id], onDelete: Restrict)
+  counterparty         Member?               @relation("PointTransactionCounterparty", fields: [counterpartyMemberId], references: [id], onDelete: SetNull)
+  program              Program               @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType            PointTypeDefinition   @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  sourcePointType      PointTypeDefinition?  @relation("PointTransactionSourceType", fields: [sourcePointTypeId], references: [id], onDelete: SetNull)
+  destinationPointType PointTypeDefinition?  @relation("PointTransactionDestinationType", fields: [destinationPointTypeId], references: [id], onDelete: SetNull)
+  categoryRef          CreditCategory?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  exchangeRate         PointExchangeRate?    @relation(fields: [exchangeRateId], references: [id], onDelete: SetNull)
+  exchangeRequest      PointExchangeRequest? @relation(fields: [exchangeRequestId], references: [id], onDelete: SetNull)
+  grantLots            CustomPointLot[]
 
+  @@unique([programId, idempotencyKey])
   @@index([memberId, pointTypeId, createdAt])
   @@index([programId, pointTypeId, createdAt])
+  @@index([categoryId])
+  @@index([counterpartyMemberId])
+  @@index([recordHash])
   @@index([expiresAt])
 }
 
 model CustomPointLot {
-  id                String   @id @default(cuid())
-  walletId          String
-  memberId          String
-  programId         String
-  pointTypeId       String
+  id                 String    @id @default(cuid())
+  walletId           String
+  memberId           String
+  programId          String
+  pointTypeId        String
   grantTransactionId String
-  originalAmount    Int
-  remainingAmount   Int
-  expiresAt         DateTime?
-  createdAt         DateTime @default(now())
+  originalAmount     Int
+  remainingAmount    Int
+  expiresAt          DateTime?
+  warningDaysSent    Int[]     @default([])
+  createdAt          DateTime  @default(now())
 
-  wallet          CustomPointWallet   @relation(fields: [walletId], references: [id], onDelete: Restrict)
-  member          Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program         Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
-  pointType       PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  wallet           CustomPointWallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member           Member                 @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program          Program                @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType        PointTypeDefinition    @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
   grantTransaction CustomPointTransaction @relation(fields: [grantTransactionId], references: [id], onDelete: Restrict)
 
-  @@unique([grantTransactionId])
+  @@index([grantTransactionId])
   @@index([memberId, pointTypeId, remainingAmount, expiresAt])
+}
+
+/// Explicit source -> destination matrix for Give/transfer. A missing row means
+/// the transfer is forbidden.
+model PointTransferRule {
+  id                     String   @id @default(cuid())
+  programId              String
+  sourcePointTypeId      String
+  destinationPointTypeId String
+  sourceAmount           Int      @default(1)
+  destinationAmount      Int      @default(1)
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  program         Program             @relation("PointTransferRuleProgram", fields: [programId], references: [id], onDelete: Cascade)
+  sourceType      PointTypeDefinition @relation("PointTransferSource", fields: [sourcePointTypeId], references: [id], onDelete: Cascade)
+  destinationType PointTypeDefinition @relation("PointTransferDestination", fields: [destinationPointTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([sourcePointTypeId, destinationPointTypeId])
+  @@index([programId, isActive])
+}
+
+/// A Give allowance is deliberately separate from a member's owned wallet.
+model PointAllowance {
+  id          String   @id @default(cuid())
+  memberId    String
+  programId   String
+  pointTypeId String
+  cycleStart  DateTime
+  cycleEnd    DateTime
+  allocated   Int
+  remaining   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  member    Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program   Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([memberId, pointTypeId, cycleStart])
+  @@index([programId, pointTypeId, cycleEnd])
+}
+
+model PointBank {
+  id          String   @id @default(cuid())
+  programId   String
+  pointTypeId String
+  balance     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  program      Program                @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType    PointTypeDefinition    @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  transactions PointBankTransaction[]
+
+  @@unique([programId, pointTypeId])
+  @@index([programId])
+}
+
+model PointBankTransaction {
+  id             String   @id @default(cuid())
+  bankId         String
+  programId      String
+  pointTypeId    String
+  amount         Int
+  balanceAfter   Int
+  type           String
+  reason         String
+  actorId        String
+  cycleId        String?
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  bank      PointBank           @relation(fields: [bankId], references: [id], onDelete: Restrict)
+  program   Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  cycle     PointBankCycle?     @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+
+  @@unique([programId, idempotencyKey])
+  @@index([programId, pointTypeId, createdAt])
+}
+
+model PointBankCycle {
+  id          String    @id @default(cuid())
+  programId   String
+  pointTypeId String
+  startsAt    DateTime
+  endsAt      DateTime
+  status      String    @default("OPEN")
+  opening     Int       @default(0)
+  allocated   Int       @default(0)
+  closing     Int       @default(0)
+  clearedAt   DateTime?
+  clearedBy   String?
+  note        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  program      Program                @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType    PointTypeDefinition    @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  transactions PointBankTransaction[]
+
+  @@index([programId, pointTypeId, status])
+  @@index([programId, startsAt, endsAt])
+}
+
+model PointExchangeRate {
+  id                 String   @id @default(cuid())
+  programId          String
+  pointTypeId        String
+  version            Int
+  valueMinorPerPoint Int
+  currency           String   @db.Char(3)
+  payoutMechanism    String
+  payoutType         String   @default("NON_CASH")
+  minPoints          Int      @default(1)
+  maxPoints          Int?
+  periodLimitPoints  Int?
+  periodDays         Int      @default(30)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  program      Program                  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  pointType    PointTypeDefinition      @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  transactions CustomPointTransaction[]
+  requests     PointExchangeRequest[]
+
+  @@unique([programId, pointTypeId, version])
+  @@index([programId, pointTypeId, isActive])
+}
+
+model PointExchangeRequest {
+  id                 String    @id @default(cuid())
+  programId          String
+  memberId           String
+  pointTypeId        String
+  amount             Int
+  valueMinor         Int
+  currency           String    @db.Char(3)
+  payoutMechanism    String
+  payoutType         String
+  status             String    @default("PENDING")
+  exchangeRateId     String
+  idempotencyKey     String
+  requestedAt        DateTime  @default(now())
+  approvedAt         DateTime?
+  approvedBy         String?
+  fulfilledAt        DateTime?
+  fulfilledBy        String?
+  cancelledAt        DateTime?
+  cancelledBy        String?
+  cancellationReason String?
+  metadata           Json?     @default("{}")
+
+  program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
+  member       Member                  @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  pointType    PointTypeDefinition     @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  exchangeRate PointExchangeRate       @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+  transaction  CustomPointTransaction?
+
+  @@unique([programId, idempotencyKey])
+  @@index([programId, status, requestedAt])
+  @@index([memberId, requestedAt])
 }
 
 enum TransactionType {
@@ -250,22 +484,22 @@ enum TransactionType {
 }
 
 model PointTransaction {
-  id              String          @id @default(cuid())
-  accountId       String
-  type            TransactionType
-  amount          Int
-  balanceAfter    Int
-  source          String
-  description     String?
-  metadata        Json?           @default("{}")
-  idempotencyKey  String          @unique
-  expiresAt       DateTime?
-  settledAt       DateTime?
-  reversedFromId  String?
-  reversedById    String?
-  createdAt       DateTime        @default(now())
+  id             String          @id @default(cuid())
+  accountId      String
+  type           TransactionType
+  amount         Int
+  balanceAfter   Int
+  source         String
+  description    String?
+  metadata       Json?           @default("{}")
+  idempotencyKey String          @unique
+  expiresAt      DateTime?
+  settledAt      DateTime?
+  reversedFromId String?
+  reversedById   String?
+  createdAt      DateTime        @default(now())
 
-  account       PointAccount              @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account PointAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([accountId])
   @@index([type])
@@ -327,18 +561,18 @@ enum RewardFulfillmentStatus {
 /// The two program wallets required by the Credit & Recognition rule book.
 /// This ledger is append-only: balance changes are represented by signed rows.
 model CreditWallet {
-  id             String     @id @default(cuid())
-  memberId       String
-  programId      String
-  creditType     CreditType
-  balance        Int        @default(0)
-  totalGranted   Int        @default(0)
-  totalSpent     Int        @default(0)
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id           String     @id @default(cuid())
+  memberId     String
+  programId    String
+  creditType   CreditType
+  balance      Int        @default(0)
+  totalGranted Int        @default(0)
+  totalSpent   Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  member       Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program      Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  member       Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program      Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
   transactions CreditTransaction[]
   lots         CreditLot[]
 
@@ -348,41 +582,41 @@ model CreditWallet {
 }
 
 model CreditTransaction {
-  id                    String                @id @default(cuid())
-  walletId              String
-  memberId              String
-  programId             String
-  creditType            CreditType
-  type                  CreditTransactionType
-  amount                Int
-  balanceAfter          Int
-  source                String
-  reason                String?
-  message               String?
-  category              String?
-  categoryId            String?
-  sourceCreditType      CreditType?
-  receivedCreditType    CreditType?
-  counterpartyMemberId  String?
-  idempotencyKey        String                @unique
-  expiresAt             DateTime?
-  exchangeRateId        String?
-  exchangeRequestId     String?               @unique
-  actorType             String?
-  actorId               String?
-  previousHash          String?
-  recordHash            String?
-  metadata              Json?                 @default("{}")
-  createdAt             DateTime              @default(now())
+  id                   String                @id @default(cuid())
+  walletId             String
+  memberId             String
+  programId            String
+  creditType           CreditType
+  type                 CreditTransactionType
+  amount               Int
+  balanceAfter         Int
+  source               String
+  reason               String?
+  message              String?
+  category             String?
+  categoryId           String?
+  sourceCreditType     CreditType?
+  receivedCreditType   CreditType?
+  counterpartyMemberId String?
+  idempotencyKey       String                @unique
+  expiresAt            DateTime?
+  exchangeRateId       String?
+  exchangeRequestId    String?               @unique
+  actorType            String?
+  actorId              String?
+  previousHash         String?
+  recordHash           String?
+  metadata             Json?                 @default("{}")
+  createdAt            DateTime              @default(now())
 
-  wallet       CreditWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
-  member       Member       @relation("CreditTransactionMember", fields: [memberId], references: [id], onDelete: Restrict)
-  program      Program      @relation(fields: [programId], references: [id], onDelete: Restrict)
-  counterparty Member?      @relation("CreditTransactionCounterparty", fields: [counterpartyMemberId], references: [id], onDelete: SetNull)
-  exchangeRate CreditExchangeRate? @relation(fields: [exchangeRateId], references: [id], onDelete: SetNull)
+  wallet          CreditWallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member          Member                 @relation("CreditTransactionMember", fields: [memberId], references: [id], onDelete: Restrict)
+  program         Program                @relation(fields: [programId], references: [id], onDelete: Restrict)
+  counterparty    Member?                @relation("CreditTransactionCounterparty", fields: [counterpartyMemberId], references: [id], onDelete: SetNull)
+  exchangeRate    CreditExchangeRate?    @relation(fields: [exchangeRateId], references: [id], onDelete: SetNull)
   exchangeRequest CreditExchangeRequest? @relation(fields: [exchangeRequestId], references: [id], onDelete: SetNull)
-  categoryRef  CreditCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  grantLot     CreditLot?
+  categoryRef     CreditCategory?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  grantLot        CreditLot?
 
   @@index([memberId, createdAt])
   @@index([programId, creditType, createdAt])
@@ -394,36 +628,36 @@ model CreditTransaction {
 /// Mutable allocation state for an immutable positive ledger grant.
 /// Debits consume lots FIFO; expiration only removes the remaining amount in an expired lot.
 model CreditLot {
-  id                String   @id @default(cuid())
-  grantTransactionId String   @unique
-  walletId          String
-  memberId          String
-  programId         String
-  creditType        CreditType
-  originalAmount    Int
-  remainingAmount   Int
-  expiresAt         DateTime?
-  warningDaysSent   Int[]    @default([])
-  createdAt         DateTime @default(now())
+  id                 String     @id @default(cuid())
+  grantTransactionId String     @unique
+  walletId           String
+  memberId           String
+  programId          String
+  creditType         CreditType
+  originalAmount     Int
+  remainingAmount    Int
+  expiresAt          DateTime?
+  warningDaysSent    Int[]      @default([])
+  createdAt          DateTime   @default(now())
 
   grantTransaction CreditTransaction @relation(fields: [grantTransactionId], references: [id], onDelete: Restrict)
-  wallet          CreditWallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
-  member          Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  program         Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  wallet           CreditWallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  member           Member            @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  program          Program           @relation(fields: [programId], references: [id], onDelete: Restrict)
 
   @@index([walletId, remainingAmount, expiresAt])
   @@index([memberId, creditType, expiresAt])
 }
 
 model CreditBank {
-  id          String     @id @default(cuid())
-  programId   String
-  creditType  CreditType
-  balance     Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id         String     @id @default(cuid())
+  programId  String
+  creditType CreditType
+  balance    Int        @default(0)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  program      Program               @relation(fields: [programId], references: [id], onDelete: Restrict)
+  program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
   transactions CreditBankTransaction[]
 
   @@unique([programId, creditType])
@@ -439,51 +673,52 @@ model CreditCategory {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  program      Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
-  transactions CreditTransaction[]
+  program           Program                  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  transactions      CreditTransaction[]
+  pointTransactions CustomPointTransaction[]
 
   @@unique([programId, name])
   @@index([programId, isActive])
 }
 
 model CreditBankTransaction {
-  id           String     @id @default(cuid())
-  bankId       String
-  programId    String
-  creditType   CreditType
-  amount       Int
-  balanceAfter Int
-  type         String
-  reason       String
-  actorId      String
-  cycleId      String?
-  idempotencyKey String   @unique
-  createdAt    DateTime   @default(now())
+  id             String     @id @default(cuid())
+  bankId         String
+  programId      String
+  creditType     CreditType
+  amount         Int
+  balanceAfter   Int
+  type           String
+  reason         String
+  actorId        String
+  cycleId        String?
+  idempotencyKey String     @unique
+  createdAt      DateTime   @default(now())
 
-  bank    CreditBank @relation(fields: [bankId], references: [id], onDelete: Restrict)
-  program Program    @relation(fields: [programId], references: [id], onDelete: Restrict)
+  bank    CreditBank       @relation(fields: [bankId], references: [id], onDelete: Restrict)
+  program Program          @relation(fields: [programId], references: [id], onDelete: Restrict)
   cycle   CreditBankCycle? @relation(fields: [cycleId], references: [id], onDelete: SetNull)
 
   @@index([programId, creditType, createdAt])
 }
 
 model CreditBankCycle {
-  id             String                 @id @default(cuid())
-  programId      String
-  startsAt       DateTime
-  endsAt         DateTime
-  status         CreditBankCycleStatus  @default(OPEN)
-  openingP       Int                    @default(0)
-  openingR       Int                    @default(0)
-  allocatedP     Int                    @default(0)
-  allocatedR     Int                    @default(0)
-  closingP       Int                    @default(0)
-  closingR       Int                    @default(0)
-  clearedAt      DateTime?
-  clearedBy      String?
-  note           String?
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  id         String                @id @default(cuid())
+  programId  String
+  startsAt   DateTime
+  endsAt     DateTime
+  status     CreditBankCycleStatus @default(OPEN)
+  openingP   Int                   @default(0)
+  openingR   Int                   @default(0)
+  allocatedP Int                   @default(0)
+  allocatedR Int                   @default(0)
+  closingP   Int                   @default(0)
+  closingR   Int                   @default(0)
+  clearedAt  DateTime?
+  clearedBy  String?
+  note       String?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
 
   program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
   transactions CreditBankTransaction[]
@@ -506,7 +741,7 @@ model CreditExchangeRate {
   isActive            Boolean    @default(true)
   createdAt           DateTime   @default(now())
 
-  program      Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
   transactions CreditTransaction[]
   requests     CreditExchangeRequest[]
 
@@ -519,7 +754,7 @@ model CreditSetting {
   programId   String
   key         String
   value       Json
-  updatedById  String?
+  updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -547,31 +782,31 @@ model CreditSettingPermission {
 }
 
 model CreditExchangeRequest {
-  id                String               @id @default(cuid())
-  programId         String
-  memberId          String
-  creditType        CreditType
-  amount            Int
-  valueMinor        Int
-  currency          String               @db.Char(3)
-  payoutMechanism   String
-  payoutType        String
-  status            CreditExchangeStatus @default(PENDING)
-  exchangeRateId    String
-  idempotencyKey    String               @unique
-  requestedAt       DateTime             @default(now())
-  approvedAt        DateTime?
-  approvedBy        String?
-  fulfilledAt       DateTime?
-  fulfilledBy       String?
-  cancelledAt       DateTime?
-  cancelledBy       String?
+  id                 String               @id @default(cuid())
+  programId          String
+  memberId           String
+  creditType         CreditType
+  amount             Int
+  valueMinor         Int
+  currency           String               @db.Char(3)
+  payoutMechanism    String
+  payoutType         String
+  status             CreditExchangeStatus @default(PENDING)
+  exchangeRateId     String
+  idempotencyKey     String               @unique
+  requestedAt        DateTime             @default(now())
+  approvedAt         DateTime?
+  approvedBy         String?
+  fulfilledAt        DateTime?
+  fulfilledBy        String?
+  cancelledAt        DateTime?
+  cancelledBy        String?
   cancellationReason String?
-  metadata          Json?                @default("{}")
+  metadata           Json?                @default("{}")
 
-  program      Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
-  member       Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  exchangeRate CreditExchangeRate  @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+  program      Program            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  member       Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  exchangeRate CreditExchangeRate @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
   transaction  CreditTransaction?
 
   @@index([programId, status, requestedAt])
@@ -599,18 +834,20 @@ model CreditBulkBatch {
 }
 
 model PointRule {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   programId   String
+  pointTypeId String?
   eventType   String
-  multiplier  Float    @default(1.0)
-  conditions  Json?    @default("{}")
-  isActive    Boolean  @default(true)
+  multiplier  Float     @default(1.0)
+  conditions  Json?     @default("{}")
+  isActive    Boolean   @default(true)
   startsAt    DateTime?
   endsAt      DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program   Program              @relation(fields: [programId], references: [id], onDelete: Cascade)
+  pointType PointTypeDefinition? @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
 
   @@index([programId, eventType])
   @@index([isActive])
@@ -619,6 +856,7 @@ model PointRule {
 model Tier {
   id          String   @id @default(cuid())
   programId   String
+  pointTypeId String?
   name        String
   rank        Int
   minPoints   Int      @default(0)
@@ -628,7 +866,8 @@ model Tier {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  program     Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program     Program              @relation(fields: [programId], references: [id], onDelete: Cascade)
+  pointType   PointTypeDefinition? @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
   memberTiers MemberTier[]
 
   @@unique([programId, rank])
@@ -636,10 +875,10 @@ model Tier {
 }
 
 model MemberTier {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   memberId     String
   tierId       String
-  upgradedAt   DateTime @default(now())
+  upgradedAt   DateTime  @default(now())
   downgradedAt DateTime?
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -662,25 +901,27 @@ enum CampaignType {
 }
 
 model Campaign {
-  id              String       @id @default(cuid())
-  programId       String
-  name            String
-  description     String?
-  type            CampaignType
-  conditions      Json?        @default("{}")
-  multiplier      Float        @default(1.0)
-  maxBudget       Int?
+  id               String       @id @default(cuid())
+  programId        String
+  pointTypeId      String?
+  name             String
+  description      String?
+  type             CampaignType
+  conditions       Json?        @default("{}")
+  multiplier       Float        @default(1.0)
+  maxBudget        Int?
   maxUsesPerMember Int?
-  isStackable     Boolean      @default(false)
-  isActive        Boolean      @default(true)
-  abTesting       Boolean      @default(false)
-  startsAt        DateTime?
-  endsAt          DateTime?
-  deletedAt       DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  isStackable      Boolean      @default(false)
+  isActive         Boolean      @default(true)
+  abTesting        Boolean      @default(false)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  program      Program                @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program      Program               @relation(fields: [programId], references: [id], onDelete: Cascade)
+  pointType    PointTypeDefinition?  @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
   variants     CampaignVariant[]
   applications CampaignApplication[]
 
@@ -690,30 +931,32 @@ model Campaign {
 }
 
 model CampaignVariant {
-  id          String   @id @default(cuid())
-  campaignId  String
-  name        String
-  trafficPct  Float    @default(50.0)
-  config      Json?    @default("{}")
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  campaignId String
+  name       String
+  trafficPct Float    @default(50.0)
+  config     Json?    @default("{}")
+  createdAt  DateTime @default(now())
 
-  campaign     Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign     Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   applications CampaignApplication[]
 }
 
 model CampaignApplication {
-  id            String   @id @default(cuid())
-  campaignId    String
-  variantId     String?
-  memberId      String
-  eventId       String?
-  pointsAwarded Int      @default(0)
-  metadata      Json?
-  createdAt     DateTime @default(now())
+  id             String   @id @default(cuid())
+  campaignId     String
+  variantId      String?
+  memberId       String
+  eventId        String?
+  idempotencyKey String?
+  pointsAwarded  Int      @default(0)
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
   campaign Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   variant  CampaignVariant? @relation(fields: [variantId], references: [id])
 
+  @@unique([campaignId, idempotencyKey])
   @@index([campaignId])
   @@index([memberId])
   @@index([campaignId, memberId])
@@ -753,25 +996,25 @@ enum CouponDiscountType {
 }
 
 model Coupon {
-  id              String            @id @default(cuid())
-  programId       String
-  code            String
-  mode            CouponMode
-  discountType    CouponDiscountType
-  discountValue   Float?
-  minPurchase     Int?
-  maxUses         Int?
+  id               String             @id @default(cuid())
+  programId        String
+  code             String
+  mode             CouponMode
+  discountType     CouponDiscountType
+  discountValue    Float?
+  minPurchase      Int?
+  maxUses          Int?
   maxUsesPerMember Int?
-  usedCount       Int               @default(0)
-  isStackable     Boolean           @default(false)
-  channels        String[]          @default([])
-  startsAt        DateTime?
-  expiresAt       DateTime?
-  deletedAt       DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  usedCount        Int                @default(0)
+  isStackable      Boolean            @default(false)
+  channels         String[]           @default([])
+  startsAt         DateTime?
+  expiresAt        DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  program     Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program     Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
   redemptions CouponRedemption[]
 
   @@unique([programId, code])
@@ -781,11 +1024,11 @@ model Coupon {
 }
 
 model CouponRedemption {
-  id          String   @id @default(cuid())
-  couponId    String
-  memberId    String
-  redeemedAt  DateTime @default(now())
-  metadata    Json?    @default("{}")
+  id         String   @id @default(cuid())
+  couponId   String
+  memberId   String
+  redeemedAt DateTime @default(now())
+  metadata   Json?    @default("{}")
 
   coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
   member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
@@ -830,7 +1073,7 @@ model TermsTemplate {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  program Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
   batches GiftCardBatch[]
 
   @@unique([programId, name, locale, version])
@@ -881,21 +1124,21 @@ model GiftCard {
 }
 
 model GiftCardTransaction {
-  id                      String         @id @default(cuid())
-  giftCardId              String
-  type                    GiftCardTxType
-  amount                  Decimal        @db.Decimal(12, 2)
-  balanceAfter            Decimal        @db.Decimal(12, 2)
-  memberId                String?
-  orderRef                String?
-  idempotencyKey          String?
-  idempotencyPayloadHash  String?
-  programId               String
-  createdById             String?
-  createdAt               DateTime       @default(now())
+  id                     String         @id @default(cuid())
+  giftCardId             String
+  type                   GiftCardTxType
+  amount                 Decimal        @db.Decimal(12, 2)
+  balanceAfter           Decimal        @db.Decimal(12, 2)
+  memberId               String?
+  orderRef               String?
+  idempotencyKey         String?
+  idempotencyPayloadHash String?
+  programId              String
+  createdById            String?
+  createdAt              DateTime       @default(now())
 
-  giftCard GiftCard       @relation(fields: [giftCardId], references: [id])
-  member   Member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  giftCard GiftCard @relation(fields: [giftCardId], references: [id])
+  member   Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@unique([programId, idempotencyKey])
   @@index([giftCardId, createdAt])
@@ -903,40 +1146,63 @@ model GiftCardTransaction {
 }
 
 model Reward {
-  id          String   @id @default(cuid())
-  programId   String
-  name        String
-  description String?
-  pointsCost  Int
-  stock       Int?
-  imageUrl    String?
-  category    String?
-  tierRequired String?
-  isActive    Boolean  @default(true)
-  deletedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String    @id @default(cuid())
+  programId      String
+  name           String
+  description    String?
+  pointsCost     Int
+  availableFrom  DateTime?
+  availableUntil DateTime?
+  stock          Int?
+  imageUrl       String?
+  category       String?
+  tierRequired   String?
+  isActive       Boolean   @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  program     Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program     Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
   redemptions RewardRedemption[]
+  pointPrices RewardPointPrice[]
 
   @@index([programId])
   @@index([isActive])
 }
 
-model RewardRedemption {
+model RewardPointPrice {
   id          String   @id @default(cuid())
   rewardId    String
-  memberId    String
-  pointsSpent Int
-  fulfillmentStatus RewardFulfillmentStatus @default(PENDING)
-  fulfilledAt DateTime?
-  cancelledAt DateTime?
-  redeemedAt  DateTime @default(now())
-  metadata    Json?    @default("{}")
+  programId   String
+  pointTypeId String
+  amount      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  reward Reward @relation(fields: [rewardId], references: [id], onDelete: Restrict)
-  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  reward    Reward              @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  program   Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([rewardId, pointTypeId])
+  @@index([programId, pointTypeId])
+}
+
+model RewardRedemption {
+  id                 String                  @id @default(cuid())
+  rewardId           String
+  memberId           String
+  pointTypeId        String?
+  pointTransactionId String?                 @unique
+  pointsSpent        Int
+  fulfillmentStatus  RewardFulfillmentStatus @default(PENDING)
+  fulfilledAt        DateTime?
+  cancelledAt        DateTime?
+  redeemedAt         DateTime                @default(now())
+  metadata           Json?                   @default("{}")
+
+  reward    Reward               @relation(fields: [rewardId], references: [id], onDelete: Restrict)
+  member    Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition? @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
 
   @@index([rewardId])
   @@index([memberId])
@@ -952,19 +1218,19 @@ enum BadgeType {
 }
 
 model Badge {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   programId      String
   name           String
   description    String?
   type           BadgeType
   imageUrl       String?
   tierId         String?
-  conditions     Json?    @default("{}")
+  conditions     Json?     @default("{}")
   seriesId       String?
   seriesPosition Int?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   program      Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
   memberBadges MemberBadge[]
@@ -975,13 +1241,13 @@ model Badge {
 }
 
 model MemberBadge {
-  id          String   @id @default(cuid())
-  memberId    String
-  badgeId     String
-  progress    Float    @default(0)
-  unlockedAt  DateTime?
-  notifiedAt  DateTime?
-  createdAt   DateTime @default(now())
+  id         String    @id @default(cuid())
+  memberId   String
+  badgeId    String
+  progress   Float     @default(0)
+  unlockedAt DateTime?
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   badge  Badge  @relation(fields: [badgeId], references: [id], onDelete: Restrict)
@@ -1008,21 +1274,21 @@ enum NotificationStatus {
 }
 
 model NotificationTemplate {
-  id              String              @id @default(cuid())
+  id              String               @id @default(cuid())
   programId       String
   name            String
-  locale          String              @default("es-MX")
+  locale          String               @default("es-MX")
   channel         NotificationChannel
   subject         String?
   bodyHtml        String?
   bodyText        String?
   triggerEvent    String?
-  transactional   Boolean             @default(false)
+  transactional   Boolean              @default(false)
   fallbackChannel NotificationChannel?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
-  program       Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program       Program        @relation(fields: [programId], references: [id], onDelete: Cascade)
   notifications Notification[]
 
   @@unique([programId, name, locale])
@@ -1031,18 +1297,18 @@ model NotificationTemplate {
 }
 
 model Notification {
-  id          String              @id @default(cuid())
-  templateId  String?
-  memberId    String
-  channel     NotificationChannel
-  status      NotificationStatus  @default(PENDING)
-  subject     String?
-  body        String?
-  sentAt      DateTime?
-  readAt      DateTime?
-  error       String?
-  metadata    Json?               @default("{}")
-  createdAt   DateTime            @default(now())
+  id         String              @id @default(cuid())
+  templateId String?
+  memberId   String
+  channel    NotificationChannel
+  status     NotificationStatus  @default(PENDING)
+  subject    String?
+  body       String?
+  sentAt     DateTime?
+  readAt     DateTime?
+  error      String?
+  metadata   Json?               @default("{}")
+  createdAt  DateTime            @default(now())
 
   template NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   member   Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -1070,16 +1336,16 @@ model CoalitionConfig {
 }
 
 model CoalitionAccount {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   memberId        String
   programId       String
-  provider        String   @default("APPRECIO")
+  provider        String    @default("APPRECIO")
   externalId      String
-  externalBalance Int      @default(0)
+  externalBalance Int       @default(0)
   lastSyncedAt    DateTime?
-  metadata        Json?    @default("{}")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  metadata        Json?     @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   member       Member                 @relation(fields: [memberId], references: [id], onDelete: Restrict)
   program      Program                @relation(fields: [programId], references: [id], onDelete: Restrict)
@@ -1090,18 +1356,18 @@ model CoalitionAccount {
 }
 
 model CoalitionTransaction {
-  id               String   @id @default(cuid())
-  accountId        String
-  type             TransactionType
-  amount           Int
-  localTxRef       String
-  externalTxRef    String?
-  status           String   @default("PENDING") // PENDING, CONFIRMED, FAILED, REVERSED
-  attempts         Int      @default(1)
-  lastError        String?
-  metadata         Json?    @default("{}")
-  idempotencyKey   String   @unique
-  createdAt        DateTime @default(now())
+  id             String          @id @default(cuid())
+  accountId      String
+  type           TransactionType
+  amount         Int
+  localTxRef     String
+  externalTxRef  String?
+  status         String          @default("PENDING") // PENDING, CONFIRMED, FAILED, REVERSED
+  attempts       Int             @default(1)
+  lastError      String?
+  metadata       Json?           @default("{}")
+  idempotencyKey String          @unique
+  createdAt      DateTime        @default(now())
 
   account CoalitionAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
@@ -1111,14 +1377,14 @@ model CoalitionTransaction {
 }
 
 model WebhookSubscription {
-  id          String   @id @default(cuid())
-  programId   String
-  url         String
-  events      String[] @default([])
-  secret      String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  programId String
+  url       String
+  events    String[] @default([])
+  secret    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
@@ -1144,13 +1410,31 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  program      Program          @relation(fields: [programId], references: [id], onDelete: Restrict)
-  auditLogs    AuditLog[]
-  sessions     AdminSession[]
+  program         Program         @relation(fields: [programId], references: [id], onDelete: Restrict)
+  auditLogs       AuditLog[]
+  sessions        AdminSession[]
   giftCardBatches GiftCardBatch[]
 
   @@index([programId])
   @@index([email])
+}
+
+/// Capability overrides keep role names understandable while allowing each
+/// program to tune what Owner, Operator and Auditor may actually do.
+model AdminRolePermission {
+  id          String    @id @default(cuid())
+  programId   String
+  role        AdminRole
+  capability  String
+  allowed     Boolean   @default(false)
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, role, capability])
+  @@index([programId, role])
 }
 
 model Session {
@@ -1189,15 +1473,15 @@ model MagicLinkToken {
 }
 
 model ApiKey {
-  id          String   @id @default(cuid())
-  programId   String
-  key         String   @unique
-  scope       String   @default("SERVER") // SERVER or CLIENT
-  name        String?
-  isActive    Boolean  @default(true)
-  expiresAt   DateTime?
-  lastUsedAt  DateTime?
-  createdAt   DateTime @default(now())
+  id         String    @id @default(cuid())
+  programId  String
+  key        String    @unique
+  scope      String    @default("SERVER") // SERVER or CLIENT
+  name       String?
+  isActive   Boolean   @default(true)
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
@@ -1241,18 +1525,18 @@ enum AuditActorType {
 }
 
 model AuditLog {
-  id          String          @id @default(cuid())
+  id          String         @id @default(cuid())
   programId   String
   adminUserId String?
   actorType   AuditActorType @default(API_KEY)
-  actorId     String          @default("legacy-unknown")
+  actorId     String         @default("legacy-unknown")
   action      AuditAction
   entityType  String
   entityId    String?
-  diff        Json?           @default("{}")
+  diff        Json?          @default("{}")
   reason      String?
   ipAddress   String?
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime       @default(now())
 
   program   Program    @relation(fields: [programId], references: [id], onDelete: Restrict)
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
@@ -1271,14 +1555,14 @@ enum DevicePlatform {
 }
 
 model MemberDevice {
-  id        String         @id @default(cuid())
-  memberId  String
-  programId String
-  token     String         @unique
-  platform  DevicePlatform
-  lastSeenAt DateTime      @default(now())
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id         String         @id @default(cuid())
+  memberId   String
+  programId  String
+  token      String         @unique
+  platform   DevicePlatform
+  lastSeenAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   member  Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
@@ -1302,22 +1586,22 @@ model MemberNotificationPreferences {
 }
 
 model Event {
-  id              String   @id @default(cuid())
-  programId       String
-  memberId        String?
-  type            String
-  payload         Json?    @default("{}")
-  idempotencyKey  String   @unique
-  processed       Boolean  @default(false)
-  processedAt     DateTime?
-  error           String?
-  createdAt       DateTime @default(now())
+  id             String    @id @default(cuid())
+  programId      String
+  memberId       String?
+  type           String
+  payload        Json?     @default("{}")
+  idempotencyKey String
+  processed      Boolean   @default(false)
+  processedAt    DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
 
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   member  Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@index([programId, type])
-  @@index([idempotencyKey])
+  @@unique([programId, idempotencyKey])
   @@index([processed])
   @@index([createdAt])
 }

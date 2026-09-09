@@ -1,16 +1,17 @@
 import { BadgesService, TiersService } from "@loyaltyos/badges";
-import { CampaignsService } from "@loyaltyos/campaigns";
-import { PointsService } from "@loyaltyos/core";
+import { CampaignsService, evaluateRules } from "@loyaltyos/campaigns";
 import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
-import { adaptPointsMetrics, getBusinessMetrics } from "../lib/business-metrics.js";
+import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
+import { walletService } from "../lib/wallets.js";
 
-const pointsMetrics = adaptPointsMetrics(getBusinessMetrics());
-const points = new PointsService(prisma, pointsMetrics);
+const points = {
+  earn: (input: Parameters<typeof walletService.earn>[0]) => walletService.earn(input),
+};
 const campaigns = new CampaignsService(prisma, points);
 const badges = new BadgesService(prisma);
 const tiers = new TiersService(prisma);
@@ -26,7 +27,6 @@ async function triggerNotification(
     const member = await prisma.member.findFirst({
       where: { id: memberId },
       include: {
-        pointAccount: true,
         memberTiers: { include: { tier: true } },
       },
     });
@@ -70,15 +70,31 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       const body = eventSchema.parse(request.body);
 
       // Deduplicate the event
+      const programId = request.programId || (request.headers["x-program-id"] as string);
       const existing = await prisma.event.findUnique({
-        where: { idempotencyKey },
+        where: { programId_idempotencyKey: { programId, idempotencyKey } },
       });
       if (existing) {
+        if (existing.type !== body.type || existing.memberId !== (body.memberId ?? null)) {
+          throw new LoyaltyError("EVENT_IDEMPOTENCY_CONFLICT", 409);
+        }
         return reply.send({ data: existing, idempotent: true });
       }
 
+      if (body.memberId) {
+        const member = await prisma.member.findFirst({
+          where: {
+            id: body.memberId,
+            programId,
+            deletedAt: null,
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        });
+        if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      }
+
       // Create event
-      const programId = request.programId || (request.headers["x-program-id"] as string);
       const event = await prisma.event.create({
         data: {
           programId,
@@ -112,17 +128,48 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
                 : 0;
 
             if (amount > 0) {
-              const result = await points.earn({
-                memberId: body.memberId,
-                programId: programId,
-                amount,
-                source: `event:${body.type}`,
-                idempotencyKey: `${idempotencyKey}-earn`,
-                metadata: body.payload,
+              const rules = await prisma.pointRule.findMany({
+                where: {
+                  programId,
+                  eventType: body.type,
+                  isActive: true,
+                  AND: [
+                    { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
+                    { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
+                  ],
+                },
+                orderBy: { createdAt: "asc" },
               });
+              const ruleContext = {
+                type: body.type,
+                memberId: body.memberId,
+                programId,
+                amount,
+                ...(body.payload ?? {}),
+              };
+              const matchingRules = rules.filter((rule) =>
+                evaluateRules(rule.conditions as Record<string, unknown> | null, ruleContext),
+              );
+              const earnResults = [];
+              for (const rule of matchingRules) {
+                const pointsToEarn = Math.floor(amount * rule.multiplier);
+                if (pointsToEarn <= 0) continue;
+                earnResults.push(
+                  await points.earn({
+                    memberId: body.memberId,
+                    programId,
+                    amount: pointsToEarn,
+                    source: `event:${body.type}:rule:${rule.id}`,
+                    idempotencyKey: `${idempotencyKey}-earn-${rule.id}`,
+                    metadata: body.payload,
+                    pointTypeId: rule.pointTypeId ?? undefined,
+                  }),
+                );
+              }
 
               // Evaluate and apply eligible campaigns
               const evaluation = await campaigns.evaluateForEvent({
+                eventId: event.id,
                 type: body.type,
                 memberId: body.memberId,
                 programId: programId,
@@ -136,6 +183,7 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
                   const appResult = await campaigns.applyCampaign(
                     campaign.id,
                     {
+                      eventId: event.id,
                       type: body.type,
                       memberId: body.memberId,
                       programId: programId,
@@ -160,10 +208,10 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
 
               // Fire notification trigger (fire-and-forget)
               void triggerNotification("points.earned", body.memberId, programId, {
-                points: result.amount,
-                balance: result.balanceAfter,
+                points: earnResults.reduce((sum, result) => sum + result.amount, 0),
+                balances: earnResults.map((result) => result.balanceAfter),
                 amount,
-                transactionId: result.transactionId,
+                transactionIds: earnResults.map((result) => result.transactionId),
               });
 
               // Evaluate tier changes (fire-and-forget)
@@ -205,21 +253,43 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
               })();
 
               return reply.status(201).send({
-                data: { event, earnResult: result, appliedCampaigns },
+                data: {
+                  event,
+                  earnResult: earnResults[0] ?? null,
+                  earnResults,
+                  appliedCampaigns,
+                },
               });
             }
           }
 
-          // For "registration" events, grant sign-up bonus
+          // Registration awards are configuration-driven. Without a matching
+          // point rule there is deliberately no hidden hard-coded bonus.
           if (body.type === "registration") {
-            const bonus = 500; // Default signup bonus
-            const result = await points.earn({
-              memberId: body.memberId,
-              programId: programId,
-              amount: bonus,
-              source: "signup_bonus",
-              idempotencyKey: `${idempotencyKey}-bonus`,
+            const registrationRules = await prisma.pointRule.findMany({
+              where: { programId, eventType: "registration", isActive: true },
+              orderBy: { createdAt: "asc" },
             });
+            const rule = registrationRules.find((candidate) =>
+              evaluateRules(candidate.conditions as Record<string, unknown> | null, {
+                type: body.type,
+                memberId: body.memberId,
+                programId,
+                ...(body.payload ?? {}),
+              }),
+            );
+            const bonus = rule ? Math.max(0, Math.floor(rule.multiplier)) : 0;
+            const result =
+              bonus > 0
+                ? await points.earn({
+                    memberId: body.memberId,
+                    programId,
+                    amount: bonus,
+                    source: "event:registration",
+                    idempotencyKey: `${idempotencyKey}-bonus`,
+                    pointTypeId: rule?.pointTypeId ?? undefined,
+                  })
+                : null;
 
             await prisma.event.update({
               where: { id: event.id },
@@ -229,8 +299,8 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
             // Fire notification trigger (fire-and-forget)
             void triggerNotification("registration", body.memberId, programId, {
               bonus,
-              points: result.amount,
-              balance: result.balanceAfter,
+              points: result?.amount ?? 0,
+              balance: result?.balanceAfter,
             });
 
             return reply.status(201).send({ data: { event, earnResult: result } });

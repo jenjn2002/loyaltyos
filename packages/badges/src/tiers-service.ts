@@ -81,11 +81,6 @@ export class TiersService {
    * Returns the evaluation result with upgrade/downgrade info.
    */
   async evaluateMember(memberId: string, programId: string): Promise<TierEvaluationResult> {
-    const aggregate = await this.repo.findMemberAggregate(memberId);
-    if (!aggregate) {
-      throw new Error(`Member not found: ${memberId}`);
-    }
-
     const tiers = await this.repo.findTiersByProgram(programId);
     if (tiers.length === 0) {
       return {
@@ -97,6 +92,15 @@ export class TiersService {
         pointsToNext: null,
         nextTier: null,
       };
+    }
+
+    const qualificationPointTypeId = tiers[0]?.pointTypeId ?? null;
+    if (tiers.some((tier) => tier.pointTypeId !== qualificationPointTypeId)) {
+      throw new Error("All tiers in a program must use the same point type");
+    }
+    const aggregate = await this.repo.findMemberAggregate(memberId, qualificationPointTypeId);
+    if (!aggregate) {
+      throw new Error(`Member not found: ${memberId}`);
     }
 
     // Determine the correct tier based on total earned points

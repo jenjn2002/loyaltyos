@@ -1,4 +1,4 @@
-import type { PointsService } from "@loyaltyos/core";
+import type { EarnInput, EarnResult } from "@loyaltyos/core";
 import type { PrismaClient } from "@prisma/client";
 
 import { assignVariant } from "./ab-testing.js";
@@ -25,9 +25,12 @@ import {
 
 export class CampaignsService {
   private repo: ReturnType<typeof createRepository>;
-  private points: PointsService;
+  private points: { earn(input: EarnInput): Promise<EarnResult> };
 
-  constructor(prisma: PrismaClient, pointsService: PointsService) {
+  constructor(
+    prisma: PrismaClient,
+    pointsService: { earn(input: EarnInput): Promise<EarnResult> },
+  ) {
     this.repo = createRepository(prisma);
     this.points = pointsService;
   }
@@ -128,6 +131,23 @@ export class CampaignsService {
     eventContext: EventContext,
     idempotencyKey?: string,
   ): Promise<ApplyResult> {
+    const applicationKey =
+      idempotencyKey ?? (eventContext.eventId ? `event:${eventContext.eventId}` : undefined);
+    if (applicationKey) {
+      const existing = await this.repo.findApplication(campaignId, applicationKey);
+      if (existing) {
+        if (existing.memberId !== eventContext.memberId)
+          throw new Error("Campaign idempotency key conflicts with another member");
+        return {
+          campaignId,
+          memberId: eventContext.memberId,
+          pointsAwarded: existing.pointsAwarded,
+          variantId: existing.variantId,
+          applicationId: existing.id,
+          idempotent: true,
+        };
+      }
+    }
     const campaign = await this.repo.findById(campaignId);
     if (!campaign) throw new CampaignNotFoundError(campaignId);
 
@@ -179,6 +199,7 @@ export class CampaignsService {
           amount: effectiveAmount,
           source: `campaign:${campaign.id}`,
           idempotencyKey: idempotencyKey ?? `${eventContext.memberId}:${campaign.id}:earn`,
+          pointTypeId: campaign.pointTypeId ?? undefined,
         });
         if (!earnResult.idempotent) {
           pointsAwarded = effectiveAmount;
@@ -195,7 +216,8 @@ export class CampaignsService {
       campaignId,
       variantId,
       memberId: eventContext.memberId,
-      eventId: undefined,
+      eventId: eventContext.eventId,
+      idempotencyKey: applicationKey,
       pointsAwarded,
       metadata: eventContext.payload,
     });

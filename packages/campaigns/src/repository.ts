@@ -2,17 +2,17 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import type { CampaignCreateInput, CampaignUpdateInput, CampaignWithVariants } from "./types.js";
 
-const VALID_CAMPAIGN_TYPES = new Set([
-  "BONUS_POINTS",
-  "SPEND_AND_GET",
-  "FREQUENCY",
-  "MILESTONE",
-  "REFERRAL",
-  "BIRTHDAY",
-  "ANNIVERSARY",
-  "FLASH_SALE",
-  "TIER_UPGRADE_BONUS",
-]);
+function campaignMatchesEvent(campaignType: string, eventType: string): boolean {
+  const event = eventType.toUpperCase();
+  if (["BONUS_POINTS", "FREQUENCY", "MILESTONE"].includes(campaignType)) return true;
+  if (["SPEND_AND_GET", "FLASH_SALE"].includes(campaignType))
+    return ["PURCHASE", "ORDER", "TRANSACTION"].includes(event);
+  if (campaignType === "REFERRAL") return ["REFERRAL", "REFERRED"].includes(event);
+  if (campaignType === "BIRTHDAY") return event === "BIRTHDAY";
+  if (campaignType === "ANNIVERSARY") return event === "ANNIVERSARY";
+  if (campaignType === "TIER_UPGRADE_BONUS") return event === "TIER_UPGRADE";
+  return false;
+}
 
 function asJson(value: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
   return value as Prisma.InputJsonValue | undefined;
@@ -70,12 +70,10 @@ export function createRepository(prisma: PrismaClient) {
       programId: string,
       eventType: string,
     ): Promise<CampaignWithVariants[]> {
-      if (!VALID_CAMPAIGN_TYPES.has(eventType)) return [];
       const now = new Date();
-      return (await prisma.campaign.findMany({
+      const campaigns = await prisma.campaign.findMany({
         where: {
           programId,
-          type: eventType as never,
           isActive: true,
           deletedAt: null,
           OR: [
@@ -86,7 +84,10 @@ export function createRepository(prisma: PrismaClient) {
           ],
         },
         include: { variants: true },
-      })) as unknown as CampaignWithVariants[];
+      });
+      return campaigns.filter((campaign) =>
+        campaignMatchesEvent(campaign.type, eventType),
+      ) as unknown as CampaignWithVariants[];
     },
 
     async getApplicationCount(campaignId: string, memberId: string): Promise<number> {
@@ -103,11 +104,18 @@ export function createRepository(prisma: PrismaClient) {
       return result._sum.pointsAwarded ?? 0;
     },
 
+    async findApplication(campaignId: string, idempotencyKey: string) {
+      return prisma.campaignApplication.findUnique({
+        where: { campaignId_idempotencyKey: { campaignId, idempotencyKey } },
+      });
+    },
+
     async recordApplication(input: {
       campaignId: string;
       variantId?: string | null;
       memberId: string;
       eventId?: string;
+      idempotencyKey?: string;
       pointsAwarded: number;
       metadata?: Record<string, unknown>;
     }): Promise<{ id: string }> {

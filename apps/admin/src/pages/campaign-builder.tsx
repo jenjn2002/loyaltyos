@@ -14,7 +14,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
@@ -37,7 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import type { CampaignEstimate, CampaignType, PaginatedResponse, Segment } from "@/types";
+import type { Campaign, CampaignEstimate, CampaignType, PaginatedResponse, Segment } from "@/types";
 
 const CAMPAIGN_TYPES: {
   value: CampaignType;
@@ -104,6 +104,7 @@ const CAMPAIGN_TYPES: {
 const CHANNELS = ["EMAIL", "SMS", "PUSH", "IN_APP", "WEBHOOK"] as const;
 
 const wizardSchema = z.object({
+  pointTypeId: z.string().min(1, "Point type is required"),
   type: z.enum([
     "BONUS_POINTS",
     "SPEND_AND_GET",
@@ -144,6 +145,7 @@ export function CampaignBuilderPage(): JSX.Element {
   const form = useForm<WizardData>({
     resolver: zodResolver(wizardSchema),
     defaultValues: {
+      pointTypeId: "",
       type: "BONUS_POINTS",
       name: "",
       description: "",
@@ -158,6 +160,50 @@ export function CampaignBuilderPage(): JSX.Element {
     queryKey: ["segments-list"],
     queryFn: () => fetchApi<PaginatedResponse<Segment>>("/admin/segments?pageSize=100"),
   });
+
+  const { data: pointTypes } = useQuery({
+    queryKey: ["point-types", "campaign-builder"],
+    queryFn: () =>
+      fetchApi<
+        {
+          id: string;
+          code: string;
+          name: string;
+          isActive: boolean;
+          archivedAt: string | null;
+        }[]
+      >("/admin/point-types"),
+  });
+  const activePointTypes = (pointTypes ?? []).filter(
+    (pointType) => pointType.isActive && !pointType.archivedAt,
+  );
+
+  const { data: existingCampaign } = useQuery({
+    queryKey: ["campaign", id],
+    queryFn: () => fetchApi<Campaign>(`/admin/campaigns/${id ?? ""}`),
+    enabled: isEdit,
+  });
+
+  useEffect(() => {
+    if (existingCampaign) {
+      form.reset({
+        pointTypeId: existingCampaign.pointTypeId ?? "",
+        type: existingCampaign.type,
+        name: existingCampaign.name,
+        description: existingCampaign.description ?? "",
+        multiplier: existingCampaign.multiplier,
+        maxBudget: existingCampaign.maxBudget ?? undefined,
+        maxUsesPerMember: existingCampaign.maxUsesPerMember ?? undefined,
+        isStackable: existingCampaign.isStackable,
+        abTesting: existingCampaign.abTesting,
+        channels: [],
+        startsAt: existingCampaign.startsAt?.slice(0, 16) ?? "",
+        endsAt: existingCampaign.endsAt?.slice(0, 16) ?? "",
+      });
+    } else if (!isEdit && !form.getValues("pointTypeId") && activePointTypes[0]) {
+      form.setValue("pointTypeId", activePointTypes[0].id);
+    }
+  }, [activePointTypes, existingCampaign, form, isEdit]);
 
   const [estimate, setEstimate] = useState<CampaignEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -194,6 +240,7 @@ export function CampaignBuilderPage(): JSX.Element {
     try {
       const values = form.getValues();
       const payload = {
+        pointTypeId: values.pointTypeId,
         name: values.name,
         description: values.description,
         type: values.type,
@@ -384,6 +431,34 @@ export function CampaignBuilderPage(): JSX.Element {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label
+                htmlFor="campaign-point-type"
+                data-help="Point type awarded by this campaign. This removes any dependency on a hard-coded default wallet."
+              >
+                Award point type
+              </Label>
+              <select
+                id="campaign-point-type"
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={form.watch("pointTypeId")}
+                onChange={(event) => {
+                  form.setValue("pointTypeId", event.target.value, { shouldValidate: true });
+                }}
+              >
+                <option value="">Select point type</option>
+                {activePointTypes.map((pointType) => (
+                  <option key={pointType.id} value={pointType.id}>
+                    {pointType.name} ({pointType.code})
+                  </option>
+                ))}
+              </select>
+              {form.formState.errors.pointTypeId && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.pointTypeId.message}
+                </p>
+              )}
+            </div>
             <div className="space-y-2">
               <Label htmlFor="multiplier">Point Multiplier</Label>
               <Input id="multiplier" type="number" step="0.1" {...form.register("multiplier")} />

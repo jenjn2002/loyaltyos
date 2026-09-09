@@ -9,12 +9,14 @@ const mockPrisma = vi.hoisted(() => ({
     count: vi.fn(),
   },
   campaignApplication: {
+    findUnique: vi.fn(),
     count: vi.fn(),
     aggregate: vi.fn(),
     create: vi.fn(),
   },
   member: {
     count: vi.fn(),
+    findFirst: vi.fn(),
     update: vi.fn(),
   },
   event: {
@@ -41,6 +43,8 @@ const mockPrisma = vi.hoisted(() => ({
   pointRule: {
     findMany: vi.fn(),
   },
+  pointTypeDefinition: { findFirst: vi.fn() },
+  auditLog: { create: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -53,7 +57,7 @@ mockPrisma.apiKey.findUnique.mockResolvedValue({
   id: "key-1",
   programId: "prog-1",
   key: "test-api-key",
-  scope: "admin",
+  scope: "SERVER",
   isActive: true,
   name: "Test Key",
   expiresAt: null,
@@ -83,7 +87,7 @@ beforeEach(async () => {
     id: "key-1",
     programId: "prog-1",
     key: "test-api-key",
-    scope: "admin",
+    scope: "SERVER",
     isActive: true,
     name: "Test Key",
     expiresAt: null,
@@ -93,6 +97,9 @@ beforeEach(async () => {
   });
   mockPrisma.apiKey.update.mockResolvedValue({});
   mockPrisma.pointRule.findMany.mockResolvedValue([]);
+  mockPrisma.member.findFirst.mockResolvedValue({ id: "mem-1" });
+  mockPrisma.pointTypeDefinition.findFirst.mockResolvedValue({ id: "pt-1" });
+  mockPrisma.auditLog.create.mockResolvedValue({});
   mockPrisma.$transaction.mockImplementation((fn: never) => fn(mockPrisma));
   app = await buildApp({ logger: false });
 
@@ -100,7 +107,7 @@ beforeEach(async () => {
   // (auth plugin hooks are encapsulated, so we add a root-level hook)
   app.addHook("onRequest", async (request) => {
     request.programId = (request.headers["x-program-id"] as string) || "prog-1";
-    request.apiKeyScope = (request.headers["x-api-scope"] as string) || "admin";
+    request.apiKeyScope = (request.headers["x-api-scope"] as string) || "SERVER";
   });
 });
 
@@ -108,6 +115,7 @@ function campaignRow(overrides = {}) {
   return {
     id: "camp-1",
     programId: "prog-1",
+    pointTypeId: "pt-1",
     name: "Test Campaign",
     description: null,
     type: "BONUS_POINTS" as const,
@@ -139,7 +147,12 @@ describe("POST /admin/campaigns", () => {
       method: "POST",
       url: adminBase,
       headers: authHeaders,
-      payload: { name: "Double Points", type: "BONUS_POINTS", multiplier: 2 },
+      payload: {
+        pointTypeId: "pt-1",
+        name: "Double Points",
+        type: "BONUS_POINTS",
+        multiplier: 2,
+      },
     });
 
     expect(res.statusCode).toBe(201);
@@ -190,6 +203,7 @@ describe("POST /admin/campaigns", () => {
       url: adminBase,
       headers: authHeaders,
       payload: {
+        pointTypeId: "pt-1",
         name: "AB Test",
         type: "BONUS_POINTS",
         abTesting: true,
@@ -427,7 +441,7 @@ describe("POST /events with campaign integration", () => {
     });
     mockPrisma.pointTransaction.findUnique.mockResolvedValue(null);
 
-    mockPrisma.campaign.findMany.mockResolvedValue([campaignRow()]);
+    mockPrisma.campaign.findMany.mockResolvedValue([]);
     mockPrisma.campaignApplication.aggregate.mockResolvedValue({ _sum: { pointsAwarded: 0 } });
     mockPrisma.campaignApplication.count.mockResolvedValue(0);
     mockPrisma.campaign.findFirst.mockResolvedValue(campaignRow());
@@ -496,7 +510,7 @@ describe("POST /events with campaign integration", () => {
     expect(body.error.code).toBe("MISSING_HEADER");
   });
 
-  it("handles registration events with signup bonus", async () => {
+  it("does not invent a registration bonus without a configured rule", async () => {
     mockPrisma.event.findUnique.mockResolvedValue(null);
     mockPrisma.event.create.mockResolvedValue({
       id: "evt-reg",
@@ -547,6 +561,6 @@ describe("POST /events with campaign integration", () => {
 
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.data.earnResult.amount).toBe(500);
+    expect(body.data.earnResult).toBeNull();
   });
 });
