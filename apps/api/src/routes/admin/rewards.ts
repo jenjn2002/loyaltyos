@@ -247,6 +247,11 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         data: { deletedAt: new Date(), isActive: false },
       });
       if (changed.count !== 1) throw new LoyaltyError("REWARD_NOT_FOUND", 404);
+      await audit(request.programId, request.actor, "UPDATE_REWARD", "reward", id, {
+        operation: "DELETE",
+        deleted: true,
+        mode: "SOFT_DELETE",
+      });
       return reply.status(204).send();
     },
   );

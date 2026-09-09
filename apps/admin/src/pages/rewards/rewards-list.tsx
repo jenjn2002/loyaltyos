@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Grid3X3, List, Pencil, Plus, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Grid3X3, List, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -59,6 +59,7 @@ export function RewardsListPage(): JSX.Element {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery<RewardsResponse>({
     queryKey: ["rewards", page, search],
@@ -67,6 +68,24 @@ export function RewardsListPage(): JSX.Element {
   const visibleRewards = (data?.items ?? []).filter((reward) =>
     reward.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
+  const deleteReward = useMutation({
+    mutationFn: (id: string) =>
+      fetchApi(`/admin/rewards/${id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["rewards"] });
+    },
+  });
+  const handleDelete = (reward: Reward): void => {
+    if (
+      !window.confirm(
+        `Delete “${reward.name}”? It will be removed from the catalog while redemption history is retained.`,
+      )
+    )
+      return;
+    deleteReward.mutate(reward.id);
+  };
 
   return (
     <div className="space-y-6">
@@ -126,6 +145,8 @@ export function RewardsListPage(): JSX.Element {
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
+          onDelete={handleDelete}
+          deletingId={deleteReward.isPending ? deleteReward.variables : null}
         />
       ) : (
         <RewardsGrid
@@ -133,7 +154,15 @@ export function RewardsListPage(): JSX.Element {
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
+          onDelete={handleDelete}
+          deletingId={deleteReward.isPending ? deleteReward.variables : null}
         />
+      )}
+
+      {deleteReward.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          Could not delete the reward. Please try again.
+        </p>
       )}
 
       {data && data.totalPages > 1 && (
@@ -172,9 +201,13 @@ export function RewardsListPage(): JSX.Element {
 function RewardsTable({
   rewards,
   onEdit,
+  onDelete,
+  deletingId,
 }: {
   rewards: Reward[];
   onEdit: (id: string) => void;
+  onDelete: (reward: Reward) => void;
+  deletingId: string | null | undefined;
 }): JSX.Element {
   return (
     <div className="rounded-md border">
@@ -236,6 +269,19 @@ function RewardsTable({
                         <List className="h-4 w-4" />
                       </Link>
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      aria-label={`Delete ${r.name}`}
+                      title="Delete reward"
+                      disabled={deletingId === r.id}
+                      onClick={() => {
+                        onDelete(r);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -250,9 +296,13 @@ function RewardsTable({
 function RewardsGrid({
   rewards,
   onEdit,
+  onDelete,
+  deletingId,
 }: {
   rewards: Reward[];
   onEdit: (id: string) => void;
+  onDelete: (reward: Reward) => void;
+  deletingId: string | null | undefined;
 }): JSX.Element {
   if (rewards.length === 0) {
     return <p className="text-center text-muted-foreground py-12">No rewards found</p>;
@@ -303,6 +353,18 @@ function RewardsGrid({
                   <List className="mr-1 h-3 w-3" />
                   Redemptions ({r.redemptions.length})
                 </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive"
+                disabled={deletingId === r.id}
+                onClick={() => {
+                  onDelete(r);
+                }}
+              >
+                <Trash2 className="mr-1 h-3 w-3" />
+                Delete
               </Button>
             </div>
           </CardContent>
