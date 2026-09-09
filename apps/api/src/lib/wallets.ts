@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   CustomPointTransaction,
+  PointExchangeStatus,
   PointTypeDefinition,
   Prisma,
   PrismaClient,
@@ -27,6 +28,12 @@ export interface LedgerActor {
 type Tx = Prisma.TransactionClient;
 
 const DAY_MS = 86_400_000;
+
+function exchangeDocumentNumber(now = new Date()): string {
+  const date = now.toISOString().slice(0, 10).replaceAll("-", "");
+  const token = randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase();
+  return `EXC-${date}-${token}`;
+}
 
 function json(value: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
   return value as Prisma.InputJsonValue | undefined;
@@ -1555,6 +1562,7 @@ export class WalletService {
       const request = await tx.pointExchangeRequest.create({
         data: {
           programId,
+          documentNumber: exchangeDocumentNumber(),
           memberId,
           pointTypeId: pointType.id,
           amount: input.amount,
@@ -1589,7 +1597,7 @@ export class WalletService {
 
   async exchangeRequests(
     programId: string,
-    input: { status?: string; memberId?: string; page?: number; pageSize?: number },
+    input: { status?: PointExchangeStatus; memberId?: string; page?: number; pageSize?: number },
   ) {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 50;
@@ -1618,9 +1626,9 @@ export class WalletService {
   async updateExchangeRequest(
     programId: string,
     requestId: string,
-    status: "APPROVED" | "PAID" | "CANCELLED" | "REJECTED",
+    status: "APPROVED" | "COMPLETED" | "CANCELLED" | "REJECTED",
     actor: LedgerActor,
-    reason?: string,
+    details: { note?: string; reference?: string; reason?: string } = {},
   ) {
     return this.db.$transaction(async (tx) => {
       const request = await tx.pointExchangeRequest.findFirst({
@@ -1630,15 +1638,17 @@ export class WalletService {
       if (!request) throw new LoyaltyError("POINT_EXCHANGE_REQUEST_NOT_FOUND", 404);
       const transitions: Record<string, string[]> = {
         PENDING: ["APPROVED", "CANCELLED", "REJECTED"],
-        APPROVED: ["PAID", "CANCELLED"],
-        PAID: [],
+        APPROVED: ["COMPLETED", "CANCELLED"],
+        COMPLETED: [],
         CANCELLED: [],
         REJECTED: [],
       };
       if (!transitions[request.status]?.includes(status))
         throw new LoyaltyError("POINT_EXCHANGE_STATUS_INVALID", 409);
-      if ((status === "CANCELLED" || status === "REJECTED") && !reason?.trim())
+      if ((status === "CANCELLED" || status === "REJECTED") && !details.reason?.trim())
         throw new LoyaltyError("POINT_REASON_REQUIRED", 400);
+      if (status === "COMPLETED" && !details.reference?.trim())
+        throw new LoyaltyError("POINT_EXCHANGE_COMPLETION_REFERENCE_REQUIRED", 400);
 
       if (status === "CANCELLED" || status === "REJECTED") {
         const consumedLots =
@@ -1659,7 +1669,7 @@ export class WalletService {
           action: "REVERSAL",
           source: "admin:exchange-cancel",
           idempotencyKey: `exchange-refund:${request.id}`,
-          reason: reason?.trim(),
+          reason: details.reason?.trim(),
           actor,
           exchangeRateId: request.exchangeRateId,
           restoredLots:
@@ -1678,15 +1688,19 @@ export class WalletService {
           status,
           approvedAt: status === "APPROVED" ? new Date() : request.approvedAt,
           approvedBy: status === "APPROVED" ? actor.id : request.approvedBy,
-          fulfilledAt: status === "PAID" ? new Date() : request.fulfilledAt,
-          fulfilledBy: status === "PAID" ? actor.id : request.fulfilledBy,
+          approvalNote: status === "APPROVED" ? details.note?.trim() : request.approvalNote,
+          completedAt: status === "COMPLETED" ? new Date() : request.completedAt,
+          completedBy: status === "COMPLETED" ? actor.id : request.completedBy,
+          completionReference:
+            status === "COMPLETED" ? details.reference?.trim() : request.completionReference,
+          completionNote: status === "COMPLETED" ? details.note?.trim() : request.completionNote,
           cancelledAt:
             status === "CANCELLED" || status === "REJECTED" ? new Date() : request.cancelledAt,
           cancelledBy:
             status === "CANCELLED" || status === "REJECTED" ? actor.id : request.cancelledBy,
           cancellationReason:
             status === "CANCELLED" || status === "REJECTED"
-              ? reason?.trim()
+              ? details.reason?.trim()
               : request.cancellationReason,
         },
       });

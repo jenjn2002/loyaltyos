@@ -26,6 +26,13 @@ interface RecipientRow {
   message: string;
 }
 
+interface ExchangeSubmission {
+  request: {
+    documentNumber: string;
+    status: "PENDING";
+  };
+}
+
 const controlClass =
   "block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm";
 
@@ -186,13 +193,15 @@ export default function Credits(): JSX.Element {
 
   const exchange = useMutation({
     mutationFn: () =>
-      postApi(
+      postApi<ExchangeSubmission>(
         "/credits/exchange",
         { pointTypeId: exchangePointTypeId, amount: Number(exchangeAmount), payoutType },
         { "Idempotency-Key": requestKey() },
       ),
-    onSuccess: async () => {
-      setNotice("Exchange request submitted successfully.");
+    onSuccess: async (result) => {
+      setNotice(
+        `Accounting voucher ${result.request.documentNumber} was created and is pending approval.`,
+      );
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
     },
     onError: (error: Error) => {
@@ -577,6 +586,10 @@ export default function Credits(): JSX.Element {
               {activeRate?.periodLimitPoints
                 ? ` · Limit ${activeRate.periodLimitPoints.toLocaleString()} every ${String(activeRate.periodDays)} days`
                 : ""}
+            </p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Submitting creates a stored accounting voucher in Pending status. Authorized staff
+              review it, approve it and then record completion; no automatic cash payout is made.
             </p>
             <button
               type="button"

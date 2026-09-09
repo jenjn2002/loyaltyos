@@ -23,7 +23,7 @@ const pageSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 
-const exchangeStatusSchema = z.enum(["PENDING", "APPROVED", "PAID", "CANCELLED", "REJECTED"]);
+const exchangeStatusSchema = z.enum(["PENDING", "APPROVED", "COMPLETED", "CANCELLED", "REJECTED"]);
 
 async function memberLocale(memberId: string, programId: string): Promise<string> {
   const member = await prisma.member.findFirst({
@@ -276,6 +276,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             amount: body.amount,
             payoutType: body.payoutType,
             valueMinor: result.request.valueMinor,
+            documentNumber: result.request.documentNumber,
             beforeBalance: result.transaction
               ? result.transaction.balanceAfter + Math.abs(result.transaction.amount)
               : null,
@@ -520,33 +521,68 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     },
   );
 
-  for (const [path, status] of [
-    ["approve", "APPROVED"],
-    ["fulfill", "PAID"],
-  ] as const) {
-    app.post(
-      `/admin/credits/exchange-requests/:id/${path}`,
-      { preHandler: [requireCapability("exchange.manage")] },
-      async (request, reply) => {
-        const { id } = z.object({ id: z.string() }).parse(request.params);
-        const result = await walletService.updateExchangeRequest(
-          request.programId,
-          id,
-          status,
-          request.actor,
-        );
-        await audit(
-          request.programId,
-          request.actor,
-          "CREDIT_EXCHANGE",
-          "point_exchange_request",
-          id,
-          { status },
-        );
-        return reply.send({ data: result });
-      },
-    );
-  }
+  app.post(
+    "/admin/credits/exchange-requests/:id/approve",
+    { preHandler: [requireCapability("exchange.approve")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = z
+        .object({ note: z.string().trim().max(1000).optional() })
+        .default({})
+        .parse(request.body);
+      const result = await walletService.updateExchangeRequest(
+        request.programId,
+        id,
+        "APPROVED",
+        request.actor,
+        { note: body.note },
+      );
+      await audit(
+        request.programId,
+        request.actor,
+        "CREDIT_EXCHANGE",
+        "point_exchange_request",
+        id,
+        { status: "APPROVED", documentNumber: result.documentNumber, note: body.note },
+      );
+      return reply.send({ data: result });
+    },
+  );
+
+  app.post(
+    "/admin/credits/exchange-requests/:id/complete",
+    { preHandler: [requireCapability("exchange.complete")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = z
+        .object({
+          reference: z.string().trim().min(1).max(200),
+          note: z.string().trim().max(1000).optional(),
+        })
+        .parse(request.body);
+      const result = await walletService.updateExchangeRequest(
+        request.programId,
+        id,
+        "COMPLETED",
+        request.actor,
+        { reference: body.reference, note: body.note },
+      );
+      await audit(
+        request.programId,
+        request.actor,
+        "CREDIT_EXCHANGE",
+        "point_exchange_request",
+        id,
+        {
+          status: "COMPLETED",
+          documentNumber: result.documentNumber,
+          reference: body.reference,
+          note: body.note,
+        },
+      );
+      return reply.send({ data: result });
+    },
+  );
 
   app.post(
     "/admin/credits/exchange-requests/:id/cancel",
@@ -564,7 +600,19 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         id,
         body.status,
         request.actor,
-        body.reason,
+        { reason: body.reason },
+      );
+      await audit(
+        request.programId,
+        request.actor,
+        "CREDIT_EXCHANGE",
+        "point_exchange_request",
+        id,
+        {
+          status: body.status,
+          documentNumber: result.documentNumber,
+          reason: body.reason,
+        },
       );
       return reply.send({ data: result });
     },

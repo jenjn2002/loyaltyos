@@ -65,14 +65,25 @@ interface Rate {
 }
 interface ExchangeRequest {
   id: string;
+  documentNumber: string;
   member: { id: string; email: string | null; firstName: string | null; lastName: string | null };
   pointType: { code: string; name: string; unitLabel: string };
   amount: number;
   valueMinor: number;
   currency: string;
+  payoutMechanism: string;
   payoutType: string;
-  status: string;
+  status: "PENDING" | "APPROVED" | "COMPLETED" | "CANCELLED" | "REJECTED";
   requestedAt: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  approvalNote: string | null;
+  completedAt: string | null;
+  completedBy: string | null;
+  completionReference: string | null;
+  completionNote: string | null;
+  cancellationReason: string | null;
+  exchangeRate: { version: number; valueMinorPerPoint: number };
 }
 interface Category {
   id: string;
@@ -312,12 +323,35 @@ export function CreditsManagementPage(): JSX.Element {
     },
   });
   const transitionExchange = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "approve" | "fulfill" | "cancel" }) => {
-      const reason = action === "cancel" ? window.prompt("Cancellation or rejection reason") : null;
-      if (action === "cancel" && !reason) throw new Error("A cancellation reason is required.");
+    mutationFn: ({ id, action }: { id: string; action: "approve" | "complete" | "cancel" }) => {
+      const reason = action === "cancel" ? window.prompt("Cancellation reason") : null;
+      if (action === "cancel" && !reason?.trim())
+        throw new Error("A cancellation reason is required.");
+      const approvalNote = action === "approve" ? window.prompt("Approval note (optional)") : null;
+      const reference =
+        action === "complete" ? window.prompt("Accounting or payment reference (required)") : null;
+      if (action === "complete" && !reference?.trim())
+        throw new Error("An accounting or payment reference is required.");
+      const completionNote =
+        action === "complete" ? window.prompt("Completion note (optional)") : null;
+      const approvalNoteValue = approvalNote?.trim();
+      const completionNoteValue = completionNote?.trim();
       return fetchApi(`/admin/credits/exchange-requests/${id}/${action}`, {
         method: "POST",
-        ...(reason ? { body: JSON.stringify({ status: "CANCELLED", reason }) } : {}),
+        ...(action === "cancel"
+          ? { body: JSON.stringify({ status: "CANCELLED", reason }) }
+          : action === "approve"
+            ? {
+                body: JSON.stringify({
+                  note: approvalNoteValue === "" ? undefined : approvalNoteValue,
+                }),
+              }
+            : {
+                body: JSON.stringify({
+                  reference,
+                  note: completionNoteValue === "" ? undefined : completionNoteValue,
+                }),
+              }),
       });
     },
     onSuccess: async () => {
@@ -939,23 +973,56 @@ export function CreditsManagementPage(): JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle>Exchange requests</CardTitle>
+            <CardTitle>Accounting exchange vouchers</CardTitle>
             <CardDescription>
-              Strict transitions: Pending → Approved → Paid, or cancellation with an automatic
-              wallet refund.
+              Stored accounting documents with strict transitions: Pending → Approved → Completed.
+              Cancellation before completion automatically refunds the member wallet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {(requests.data?.items ?? []).map((item) => (
               <div key={item.id} className="rounded-md border p-3 text-sm">
                 <div className="flex justify-between">
-                  <strong>{displayName(item.member)}</strong>
+                  <div>
+                    <strong>{item.documentNumber}</strong>
+                    <p className="text-muted-foreground">{displayName(item.member)}</p>
+                  </div>
                   <span>{item.status}</span>
                 </div>
-                <p className="text-muted-foreground">
-                  {item.amount.toLocaleString()} {item.pointType.unitLabel} ·{" "}
-                  {(item.valueMinor / 100).toLocaleString()} {item.currency} · {item.payoutType}
-                </p>
+                <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-2">
+                  <p>
+                    Debit: {item.amount.toLocaleString()} {item.pointType.unitLabel}
+                  </p>
+                  <p>
+                    Document value: {(item.valueMinor / 100).toLocaleString()} {item.currency}
+                  </p>
+                  <p>
+                    Rate snapshot: v{item.exchangeRate.version} ·{" "}
+                    {item.exchangeRate.valueMinorPerPoint} minor units/{item.pointType.unitLabel}
+                  </p>
+                  <p>
+                    Method: {item.payoutType} · {item.payoutMechanism}
+                  </p>
+                  <p>Requested: {new Date(item.requestedAt).toLocaleString()}</p>
+                  {item.approvedAt && (
+                    <p>
+                      Approved: {new Date(item.approvedAt).toLocaleString()} · {item.approvedBy}
+                    </p>
+                  )}
+                  {item.completedAt && (
+                    <p>
+                      Completed: {new Date(item.completedAt).toLocaleString()} · {item.completedBy}
+                    </p>
+                  )}
+                  {item.completionReference && <p>Reference: {item.completionReference}</p>}
+                </div>
+                {item.approvalNote && <p className="mt-2">Approval note: {item.approvalNote}</p>}
+                {item.completionNote && (
+                  <p className="mt-2">Completion note: {item.completionNote}</p>
+                )}
+                {item.cancellationReason && (
+                  <p className="mt-2 text-destructive">Cancellation: {item.cancellationReason}</p>
+                )}
                 <div className="mt-2 flex gap-2">
                   {item.status === "PENDING" && (
                     <Button
@@ -971,10 +1038,10 @@ export function CreditsManagementPage(): JSX.Element {
                     <Button
                       size="sm"
                       onClick={() => {
-                        transitionExchange.mutate({ id: item.id, action: "fulfill" });
+                        transitionExchange.mutate({ id: item.id, action: "complete" });
                       }}
                     >
-                      Mark paid
+                      Mark completed
                     </Button>
                   )}
                   {["PENDING", "APPROVED"].includes(item.status) && (

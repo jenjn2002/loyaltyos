@@ -16,6 +16,8 @@ export const ADMIN_CAPABILITIES = [
   "bank.manage",
   "exchange.view",
   "exchange.manage",
+  "exchange.approve",
+  "exchange.complete",
   "reward.view",
   "reward.manage",
   "campaign.view",
@@ -37,11 +39,17 @@ export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
 const readCapabilities = new Set<AdminCapability>(
   ADMIN_CAPABILITIES.filter((capability) => capability.endsWith(".view")),
 );
+const ownerOnlyByDefault = new Set<AdminCapability>([
+  "permission.manage",
+  "point_type.manage",
+  "exchange.approve",
+  "exchange.complete",
+]);
 
 export function defaultCapability(role: AdminRole, capability: AdminCapability): boolean {
   if (role === "SUPER_ADMIN") return true;
   if (role === "ANALYST") return readCapabilities.has(capability);
-  return capability !== "permission.manage" && capability !== "point_type.manage";
+  return !ownerOnlyByDefault.has(capability);
 }
 
 export async function capabilitiesFor(
@@ -111,6 +119,10 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.startsWith("/api/v1/admin/members")) return write ? "member.manage" : "member.view";
   if (url.includes("/credits/audit")) return "audit.view";
   if (url.includes("/credits/bank")) return write ? "bank.manage" : "bank.view";
+  if (url.includes("/credits/exchange-requests/") && url.endsWith("/approve"))
+    return "exchange.approve";
+  if (url.includes("/credits/exchange-requests/") && url.endsWith("/complete"))
+    return "exchange.complete";
   if (url.includes("/credits/exchange")) return write ? "exchange.manage" : "exchange.view";
   if (url.startsWith("/api/v1/admin/credits")) return write ? "wallet.adjust" : "wallet.view";
   if (url.startsWith("/api/v1/admin/rewards") || url.startsWith("/api/v1/admin/giftcards"))

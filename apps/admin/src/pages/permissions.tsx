@@ -58,7 +58,17 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "exchange.manage": {
     label: "Manage exchanges",
-    description: "Version rates and approve, pay, reject or refund requests.",
+    description: "Version rates and cancel, reject or refund requests.",
+  },
+  "exchange.approve": {
+    label: "Approve exchange vouchers",
+    description:
+      "Approve a pending accounting voucher after reviewing its immutable rate snapshot.",
+  },
+  "exchange.complete": {
+    label: "Complete exchange vouchers",
+    description:
+      "Mark an approved voucher completed and record its accounting or payment reference.",
   },
   "reward.view": {
     label: "View rewards",

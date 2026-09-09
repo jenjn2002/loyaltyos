@@ -439,28 +439,40 @@ model PointExchangeRate {
   @@index([programId, pointTypeId, isActive])
 }
 
+enum PointExchangeStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
 model PointExchangeRequest {
-  id                 String    @id @default(cuid())
-  programId          String
-  memberId           String
-  pointTypeId        String
-  amount             Int
-  valueMinor         Int
-  currency           String    @db.Char(3)
-  payoutMechanism    String
-  payoutType         String
-  status             String    @default("PENDING")
-  exchangeRateId     String
-  idempotencyKey     String
-  requestedAt        DateTime  @default(now())
-  approvedAt         DateTime?
-  approvedBy         String?
-  fulfilledAt        DateTime?
-  fulfilledBy        String?
-  cancelledAt        DateTime?
-  cancelledBy        String?
-  cancellationReason String?
-  metadata           Json?     @default("{}")
+  id                  String              @id @default(cuid())
+  programId           String
+  documentNumber      String
+  memberId            String
+  pointTypeId         String
+  amount              Int
+  valueMinor          Int
+  currency            String              @db.Char(3)
+  payoutMechanism     String
+  payoutType          String
+  status              PointExchangeStatus @default(PENDING)
+  exchangeRateId      String
+  idempotencyKey      String
+  requestedAt         DateTime            @default(now())
+  approvedAt          DateTime?
+  approvedBy          String?
+  approvalNote        String?
+  completedAt         DateTime?
+  completedBy         String?
+  completionReference String?
+  completionNote      String?
+  cancelledAt         DateTime?
+  cancelledBy         String?
+  cancellationReason  String?
+  metadata            Json?               @default("{}")
 
   program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
   member       Member                  @relation(fields: [memberId], references: [id], onDelete: Restrict)
@@ -469,6 +481,7 @@ model PointExchangeRequest {
   transaction  CustomPointTransaction?
 
   @@unique([programId, idempotencyKey])
+  @@unique([programId, documentNumber])
   @@index([programId, status, requestedAt])
   @@index([memberId, requestedAt])
 }
@@ -534,7 +547,7 @@ enum MemberStatus {
 enum CreditExchangeStatus {
   PENDING
   APPROVED
-  PAID
+  COMPLETED
   CANCELLED
   REJECTED
 }
@@ -1600,8 +1613,8 @@ model Event {
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   member  Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
-  @@index([programId, type])
   @@unique([programId, idempotencyKey])
+  @@index([programId, type])
   @@index([processed])
   @@index([createdAt])
 }
