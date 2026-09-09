@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { ALLOWED_CATEGORIES } from "./types.js";
-
 export const rewardCreateSchema = z.object({
   programId: z.string().min(1),
   name: z.string().min(1).max(100),
@@ -9,14 +7,14 @@ export const rewardCreateSchema = z.object({
   pointsCost: z.number().int().min(1),
   stock: z.number().int().min(0).optional().nullable(),
   imageUrl: z.string().url().optional().or(z.literal("")),
-  category: z.enum(ALLOWED_CATEGORIES).optional(),
+  category: z.string().trim().min(1).max(80).optional(),
   tierRequired: z.string().optional(),
 });
 
 export const rewardUpdateSchema = rewardCreateSchema.omit({ programId: true }).partial();
 
 export const rewardListQuerySchema = z.object({
-  category: z.enum(ALLOWED_CATEGORIES).optional(),
+  category: z.string().trim().min(1).max(80).optional(),
   isActive: z
     .enum(["true", "false"])
     .optional()

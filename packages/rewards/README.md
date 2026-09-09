@@ -80,14 +80,10 @@ await rewards.softDelete("reward_123");
 
 ## Categories
 
-| Constant             | Description                              |
-| -------------------- | ---------------------------------------- |
-| `DISCOUNT_FUTURE`    | Discount on next purchase                |
-| `PHYSICAL_PRODUCT`   | Physical item with inventory             |
-| `GIFT_CARD`          | Gift card (own or third-party)           |
-| `EXPERIENCE`         | Event, service, or access                |
-| `CHARITY_DONATION`   | Donation to a cause                      |
-| `COALITION_TRANSFER` | Transfer points to an external coalition |
+The built-in suggestions are `DISCOUNT_FUTURE`, `PHYSICAL_PRODUCT`, `GIFT_CARD`,
+`EXPERIENCE`, `CHARITY_DONATION` and `COALITION_TRANSFER`. Programs may also use
+their own category labels such as `food_drinks`; categories are stored as labels,
+not a closed enum.
 
 ## Errors
 

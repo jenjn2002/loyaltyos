@@ -1,4 +1,3 @@
-import { ALLOWED_CATEGORIES } from "@loyaltyos/rewards";
 import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -21,7 +20,7 @@ const rewardInputSchema = z.object({
   pointPrices: z.array(priceSchema).min(1).max(50),
   stock: z.number().int().min(0).nullable().optional(),
   imageUrl: z.string().url().nullable().optional(),
-  category: z.enum(ALLOWED_CATEGORIES).nullable().optional(),
+  category: z.string().trim().min(1).max(80).nullable().optional(),
   tierRequired: z.string().trim().max(120).nullable().optional(),
   availableFrom: z.string().datetime().nullable().optional(),
   availableUntil: z.string().datetime().nullable().optional(),

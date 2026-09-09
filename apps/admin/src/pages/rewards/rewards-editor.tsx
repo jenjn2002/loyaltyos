@@ -229,21 +229,20 @@ export function RewardsEditorPage(): JSX.Element {
             <Label htmlFor="reward-category" data-help="Catalog and reporting category.">
               Category
             </Label>
-            <select
+            <Input
               id="reward-category"
-              className={controlClass}
               value={category}
               onChange={(event) => {
                 setCategory(event.target.value);
               }}
-            >
-              <option value="">None</option>
+              list="reward-category-suggestions"
+              placeholder="e.g. food_drinks"
+            />
+            <datalist id="reward-category-suggestions">
               {CATEGORIES.map((value) => (
-                <option key={value} value={value}>
-                  {value.replaceAll("_", " ")}
-                </option>
+                <option key={value} value={value} />
               ))}
-            </select>
+            </datalist>
           </div>
           <div>
             <Label

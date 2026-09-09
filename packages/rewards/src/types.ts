@@ -11,7 +11,11 @@ export const ALLOWED_CATEGORIES = [
   "COALITION_TRANSFER",
 ] as const;
 
-export type RewardCategory = (typeof ALLOWED_CATEGORIES)[number];
+/**
+ * Categories are program-defined labels. ALLOWED_CATEGORIES is only the
+ * built-in suggestion list retained for backwards-compatible clients.
+ */
+export type RewardCategory = string;
 
 // ── Input / output interfaces ──────────────────────────────────────────────
 
