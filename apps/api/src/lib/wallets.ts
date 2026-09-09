@@ -106,7 +106,12 @@ async function lockLedger(tx: Tx, programId: string): Promise<void> {
   // Serialize the hash chain per program. Without this lock, two concurrent
   // transactions can legitimately read the same previous hash and fork the
   // otherwise append-only chain.
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${programId}))`;
+  // pg_advisory_xact_lock returns PostgreSQL's `void` type. Prisma attempts to
+  // deserialize every selected column, so cast the function result to text
+  // while retaining the same transaction-scoped lock.
+  await tx.$queryRaw<{ locked: string }>`
+    SELECT pg_advisory_xact_lock(hashtext(${programId}))::text AS locked
+  `;
 }
 
 function ledgerHash(input: {

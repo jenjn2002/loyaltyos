@@ -1,24 +1,12 @@
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
-import { z } from "zod";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,16 +20,6 @@ import {
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
 import type { Member, MemberPointWallet, PaginatedResponse, PointTransaction } from "@/types";
-
-const adjustSchema = z.object({
-  amount: z.coerce
-    .number()
-    .int()
-    .refine((v) => v !== 0, "Amount must not be zero"),
-  reason: z.string().min(1, "Reason is required"),
-});
-
-type AdjustFormValues = z.infer<typeof adjustSchema>;
 
 const transactionTypeColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   EARN: "default",
@@ -60,22 +38,9 @@ export function MemberDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   const memberId = id ?? "";
   const queryClient = useQueryClient();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [adjustError, setAdjustError] = useState<string | null>(null);
-  const [adjusting, setAdjusting] = useState(false);
   const [statusReason, setStatusReason] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
-  const [selectedPointTypeId, setSelectedPointTypeId] = useState("");
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<AdjustFormValues>({
-    resolver: zodResolver(adjustSchema),
-  });
 
   const {
     data: member,
@@ -106,28 +71,6 @@ export function MemberDetailPage(): JSX.Element {
     },
     enabled: Boolean(memberId),
   });
-
-  const onSubmit = async (values: AdjustFormValues): Promise<void> => {
-    setAdjusting(true);
-    setAdjustError(null);
-    try {
-      await fetchApi(`/members/${memberId}/adjust`, {
-        method: "POST",
-        body: JSON.stringify({ ...values, pointTypeId: selectedPointTypeId }),
-        headers: {
-          "Idempotency-Key": crypto.randomUUID(),
-        },
-      });
-      setDialogOpen(false);
-      reset();
-      void queryClient.invalidateQueries({ queryKey: ["member-balance", memberId] });
-      void queryClient.invalidateQueries({ queryKey: ["member-transactions", memberId] });
-    } catch (err) {
-      setAdjustError(err instanceof Error ? err.message : "Adjustment failed");
-    } finally {
-      setAdjusting(false);
-    }
-  };
 
   const updateMemberStatus = async (status: "ACTIVE" | "INACTIVE"): Promise<void> => {
     if (!statusReason.trim()) {
@@ -290,9 +233,9 @@ export function MemberDetailPage(): JSX.Element {
         </CardContent>
       </Card>
 
-      {/* Balance + Adjust */}
+      {/* Balance */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>Configured wallets</CardTitle>
           </CardHeader>
@@ -327,77 +270,6 @@ export function MemberDetailPage(): JSX.Element {
                 )}
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Adjust Points</CardTitle>
-            <CardDescription>Manually add or remove points for this member.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="w-full">Adjust Points</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void handleSubmit(onSubmit)();
-                  }}
-                >
-                  <DialogHeader>
-                    <DialogTitle>Adjust Points</DialogTitle>
-                    <DialogDescription>
-                      Enter a positive amount to add points or negative to deduct.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div>
-                      <Label htmlFor="adjust-point-type">Point type</Label>
-                      <select
-                        id="adjust-point-type"
-                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                        value={selectedPointTypeId}
-                        onChange={(event) => {
-                          setSelectedPointTypeId(event.target.value);
-                        }}
-                      >
-                        <option value="">Select point type</option>
-                        {(wallets ?? [])
-                          .filter((wallet) => wallet.allowManualAdjustment !== false)
-                          .map((wallet) => (
-                            <option key={wallet.pointTypeId} value={wallet.pointTypeId}>
-                              {wallet.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label htmlFor="amount">Amount</Label>
-                      <Input id="amount" type="number" {...register("amount")} />
-                      {errors.amount && (
-                        <p className="mt-1 text-sm text-destructive">{errors.amount.message}</p>
-                      )}
-                    </div>
-                    <div>
-                      <Label htmlFor="reason">Reason</Label>
-                      <Input id="reason" {...register("reason")} />
-                      {errors.reason && (
-                        <p className="mt-1 text-sm text-destructive">{errors.reason.message}</p>
-                      )}
-                    </div>
-                    {adjustError && <p className="text-sm text-destructive">{adjustError}</p>}
-                  </div>
-                  <DialogFooter>
-                    <Button type="submit" disabled={adjusting || !selectedPointTypeId}>
-                      {adjusting ? "Submitting..." : "Submit"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
           </CardContent>
         </Card>
       </div>
