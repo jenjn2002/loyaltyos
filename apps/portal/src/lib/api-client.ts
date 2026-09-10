@@ -26,6 +26,7 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
   if (response.status === 401) {
     sessionStorage.removeItem("auth-token");
     sessionStorage.removeItem("member-id");
+    sessionStorage.removeItem("program-id");
     window.dispatchEvent(new CustomEvent("loyaltyos:auth-required"));
     throw new ApiError(401, "Session expired");
   }

@@ -1,3 +1,4 @@
+import { type ReactNode, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AutoFieldHelp } from "./components/auto-field-help";
@@ -13,8 +14,22 @@ import Rewards from "./pages/rewards";
 import Transactions from "./pages/transactions";
 import Verify from "./pages/verify";
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
-  if (!isAuthenticated()) {
+function AuthGuard({ children }: { children: ReactNode }) {
+  const [authenticated, setAuthenticated] = useState(isAuthenticated);
+
+  useEffect(() => {
+    const syncAuthentication = (): void => {
+      setAuthenticated(isAuthenticated());
+    };
+    window.addEventListener("loyaltyos:auth-required", syncAuthentication);
+    window.addEventListener("storage", syncAuthentication);
+    return () => {
+      window.removeEventListener("loyaltyos:auth-required", syncAuthentication);
+      window.removeEventListener("storage", syncAuthentication);
+    };
+  }, []);
+
+  if (!authenticated) {
     return <Navigate to="/profile" replace />;
   }
   return <>{children}</>;

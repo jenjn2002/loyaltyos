@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightLeft, History, Plus, Send, Trash2, WalletCards } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRightLeft,
+  History,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Send,
+  Trash2,
+  WalletCards,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchApi, postApi } from "../lib/api-client";
@@ -83,6 +93,8 @@ export default function Credits(): JSX.Element {
   const wallets = useQuery({
     queryKey: ["credits", "balances"],
     queryFn: () => fetchApi<CreditBalance[]>("/members/me/credits"),
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const rates = useQuery({
     queryKey: ["credits", "rates"],
@@ -157,8 +169,9 @@ export default function Credits(): JSX.Element {
 
   useEffect(() => {
     const options = (rates.data ?? []).filter((rate) => rate.pointTypeId === exchangePointTypeId);
-    if (options.length > 0 && !options.some((rate) => rate.payoutType === payoutType)) {
-      setPayoutType(options[0]!.payoutType);
+    const firstOption = options[0];
+    if (firstOption && !options.some((rate) => rate.payoutType === payoutType)) {
+      setPayoutType(firstOption.payoutType);
     }
   }, [exchangePointTypeId, payoutType, rates.data]);
 
@@ -226,12 +239,65 @@ export default function Credits(): JSX.Element {
     recipients.some((row) => !row.message.trim()),
   );
 
+  const secondaryQueries = [rates, members, categories, history, recognitionFeed, redemptions];
+  const unavailableSections = secondaryQueries.filter((query) => query.isError).length;
+
+  if (wallets.isLoading) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl flex-col items-center justify-center gap-3 px-4 py-10 pb-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p className="text-sm text-[var(--color-text-secondary)]">Loading credit wallets…</p>
+      </div>
+    );
+  }
+
+  if (wallets.isError) {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-4 py-10 pb-20">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-5 w-5" /> Credits could not be loaded
+          </div>
+          <p className="mt-2 text-sm">
+            {wallets.error instanceof Error ? wallets.error.message : "Please try again."}
+          </p>
+          <button
+            type="button"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold"
+            onClick={() => void wallets.refetch()}
+          >
+            <RefreshCw className="h-4 w-4" /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 pb-20">
       <header>
         <p className="text-sm font-medium text-[var(--color-text-secondary)]">Wallets</p>
         <h1 className="mt-1 text-2xl font-bold">Points & recognition</h1>
       </header>
+
+      {unavailableSections > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{unavailableSections} supporting section(s) could not be loaded.</p>
+          <button
+            type="button"
+            className="mt-2 inline-flex items-center gap-1 font-semibold"
+            onClick={() => {
+              secondaryQueries
+                .filter((query) => query.isError)
+                .forEach((query) => {
+                  void query.refetch();
+                });
+            }}
+          >
+            <RefreshCw className="h-4 w-4" /> Retry unavailable sections
+          </button>
+        </div>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2" aria-label="Point balances">
         {(wallets.data ?? []).map((wallet) => (
@@ -257,7 +323,7 @@ export default function Credits(): JSX.Element {
             )}
           </div>
         ))}
-        {!wallets.isLoading && (wallets.data ?? []).length === 0 && (
+        {(wallets.data ?? []).length === 0 && (
           <p className="sm:col-span-2 rounded-xl border border-dashed p-5 text-sm text-[var(--color-text-secondary)]">
             No member-visible point types are currently configured.
           </p>

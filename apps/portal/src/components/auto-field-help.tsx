@@ -109,6 +109,9 @@ export function AutoFieldHelp(): null {
         while (node.firstChild) parent.insertBefore(node.firstChild, node);
         node.remove();
       });
+      document.querySelectorAll<HTMLElement>("[data-field-help-attached]").forEach((node) => {
+        delete node.dataset.fieldHelpAttached;
+      });
     };
   }, []);
   return null;

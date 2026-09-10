@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import i18n from "../lib/i18n";
@@ -31,6 +31,10 @@ describe("Portal", () => {
   beforeEach(() => {
     sessionStorage.clear();
     void i18n.changeLanguage("en-US");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders home page with bottom navigation", () => {
@@ -96,6 +100,21 @@ describe("Portal", () => {
   it("notifications page redirects to profile when not authenticated", () => {
     renderApp("/notifications");
     expect(screen.getByRole("heading", { name: "Profile" })).toBeDefined();
+  });
+
+  it("credits page redirects to profile when not authenticated", () => {
+    renderApp("/credits");
+    expect(screen.getByRole("heading", { name: "Profile" })).toBeDefined();
+  });
+
+  it("credits page shows an immediate loading state while wallets are requested", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+    login();
+    renderApp("/credits");
+    expect(screen.getByText("Loading credit wallets…")).toBeDefined();
   });
 
   it("handles unknown routes with redirect to home", () => {
