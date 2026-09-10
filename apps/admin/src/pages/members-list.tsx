@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Plus } from "lucide-react";
+import { Copy, Eye, Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -128,7 +128,7 @@ export function MembersListPage(): JSX.Element {
         <CardHeader>
           <div className="flex items-center gap-4">
             <Input
-              placeholder={t("members.searchPlaceholder")}
+              placeholder="Search name, email, external ID or member ID"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -165,6 +165,7 @@ export function MembersListPage(): JSX.Element {
                 <TableRow>
                   <TableHead>{t("common.name")}</TableHead>
                   <TableHead>{t("common.email")}</TableHead>
+                  <TableHead>Member ID</TableHead>
                   <TableHead>{t("members.externalId")}</TableHead>
                   <TableHead>{t("members.balance")}</TableHead>
                   <TableHead>{t("members.joinedAt")}</TableHead>
@@ -179,6 +180,9 @@ export function MembersListPage(): JSX.Element {
                     </TableCell>
                     <TableCell>
                       <Skeleton className="h-4 w-40" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-28" />
                     </TableCell>
                     <TableCell>
                       <Skeleton className="h-4 w-20" />
@@ -213,6 +217,7 @@ export function MembersListPage(): JSX.Element {
                   <TableRow>
                     <TableHead>{t("common.name")}</TableHead>
                     <TableHead>{t("common.email")}</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>{t("members.externalId")}</TableHead>
                     <TableHead>{t("members.balance")}</TableHead>
                     <TableHead>{t("members.joinedAt")}</TableHead>
@@ -229,6 +234,23 @@ export function MembersListPage(): JSX.Element {
                           : t("members.na")}
                       </TableCell>
                       <TableCell>{member.email ?? t("members.na")}</TableCell>
+                      <TableCell>
+                        <div className="flex max-w-44 items-center gap-1">
+                          <code className="truncate text-xs" title={member.id}>
+                            {member.id}
+                          </code>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            aria-label={`Copy member ID ${member.id}`}
+                            onClick={() => void navigator.clipboard.writeText(member.id)}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
                       <TableCell>{member.externalId ?? "--"}</TableCell>
                       <TableCell>
                         <div className="text-xs">

@@ -1,4 +1,4 @@
-import { verifyPassword } from "@loyaltyos/core";
+import { hashPassword, verifyPassword } from "@loyaltyos/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -17,6 +17,22 @@ const loginSchema = z.object({
   email: z.string().email().toLowerCase(),
   password: z.string().min(1),
 });
+
+const configurableAdminRoleSchema = z.enum(["OPERATOR", "ANALYST"]);
+const createAdminUserSchema = z.object({
+  email: z.string().email().toLowerCase(),
+  name: z.string().trim().min(1).max(160),
+  password: z.string().min(12).max(200),
+  role: configurableAdminRoleSchema,
+});
+const updateAdminUserSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160).optional(),
+    role: configurableAdminRoleSchema.optional(),
+    isActive: z.boolean().optional(),
+    password: z.string().min(12).max(200).optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, "At least one change is required");
 
 export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   /** POST /admin/login — authenticate an admin user */
@@ -206,6 +222,119 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
           permissions: await capabilitiesFor(request.programId, role),
         },
       });
+    },
+  );
+
+  app.get(
+    "/admin/users",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+      const users = await prisma.adminUser.findMany({
+        where: { programId: request.programId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          locale: true,
+          lastLoginAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ role: "asc" }, { name: "asc" }],
+      });
+      return reply.send({
+        data: users.map((user) => ({ ...user, roleLabel: ADMIN_ROLE_LABELS[user.role] })),
+      });
+    },
+  );
+
+  app.post(
+    "/admin/users",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+      const body = createAdminUserSchema.parse(request.body);
+      const existing = await prisma.adminUser.findUnique({ where: { email: body.email } });
+      if (existing) throw new LoyaltyError("ADMIN_EMAIL_ALREADY_EXISTS", 409);
+      const user = await prisma.adminUser.create({
+        data: {
+          programId: request.programId,
+          email: body.email,
+          name: body.name,
+          role: body.role,
+          passwordHash: await hashPassword(body.password),
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          locale: true,
+          lastLoginAt: true,
+          createdAt: true,
+        },
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "admin_user", user.id, {
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isActive: user.isActive,
+      });
+      return reply.status(201).send({ data: { ...user, roleLabel: ADMIN_ROLE_LABELS[user.role] } });
+    },
+  );
+
+  app.patch(
+    "/admin/users/:id",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+      const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+      const body = updateAdminUserSchema.parse(request.body);
+      const existing = await prisma.adminUser.findFirst({
+        where: { id, programId: request.programId },
+      });
+      if (!existing) throw new LoyaltyError("ADMIN_USER_NOT_FOUND", 404);
+      if (existing.role === "SUPER_ADMIN") throw new LoyaltyError("OWNER_ROLE_IMMUTABLE", 409);
+      if (id === request.adminId && body.isActive === false)
+        throw new LoyaltyError("CANNOT_DEACTIVATE_CURRENT_ADMIN", 409);
+
+      const passwordHash = body.password ? await hashPassword(body.password) : undefined;
+      const user = await prisma.$transaction(async (tx) => {
+        const updated = await tx.adminUser.update({
+          where: { id },
+          data: {
+            ...(body.name !== undefined ? { name: body.name } : {}),
+            ...(body.role !== undefined ? { role: body.role } : {}),
+            ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+            ...(passwordHash ? { passwordHash } : {}),
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            isActive: true,
+            locale: true,
+            lastLoginAt: true,
+            createdAt: true,
+          },
+        });
+        if (body.isActive === false || passwordHash) {
+          await tx.adminSession.deleteMany({ where: { userId: id } });
+        }
+        return updated;
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "admin_user", user.id, {
+        name: user.name,
+        role: user.role,
+        isActive: user.isActive,
+        passwordReset: Boolean(passwordHash),
+      });
+      return reply.send({ data: { ...user, roleLabel: ADMIN_ROLE_LABELS[user.role] } });
     },
   );
 

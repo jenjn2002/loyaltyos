@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck } from "lucide-react";
+import { Plus, ShieldCheck, UserCog } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { fetchApi } from "@/lib/api-client";
@@ -13,6 +14,20 @@ type ConfigurableRole = Exclude<Role, "SUPER_ADMIN">;
 interface PermissionData {
   capabilities: string[];
   roles: { role: Role; label: string; permissions: Record<string, boolean> }[];
+}
+interface AdminAccount {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  roleLabel: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+interface AccountDraft {
+  role: Role;
+  isActive: boolean;
 }
 
 const CAPABILITY_COPY: Record<string, { label: string; description: string }> = {
@@ -107,10 +122,21 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
 export function PermissionsPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, Record<string, boolean>>>({});
+  const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
+  const [newAccount, setNewAccount] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "OPERATOR" as ConfigurableRole,
+  });
   const [notice, setNotice] = useState<string | null>(null);
   const permissions = useQuery({
     queryKey: ["admin", "permissions"],
     queryFn: () => fetchApi<PermissionData>("/admin/permissions"),
+  });
+  const accounts = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => fetchApi<AdminAccount[]>("/admin/users"),
   });
 
   useEffect(() => {
@@ -122,6 +148,18 @@ export function PermissionsPage(): JSX.Element {
     );
   }, [permissions.data]);
 
+  useEffect(() => {
+    if (!accounts.data) return;
+    setAccountDrafts(
+      Object.fromEntries(
+        accounts.data.map((account) => [
+          account.id,
+          { role: account.role, isActive: account.isActive },
+        ]),
+      ),
+    );
+  }, [accounts.data]);
+
   const save = useMutation({
     mutationFn: (role: ConfigurableRole) =>
       fetchApi(`/admin/permissions/${role}`, {
@@ -131,6 +169,36 @@ export function PermissionsPage(): JSX.Element {
     onSuccess: async () => {
       setNotice("Role permissions saved and audit logged.");
       await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const createAccount = useMutation({
+    mutationFn: () =>
+      fetchApi<AdminAccount>("/admin/users", {
+        method: "POST",
+        body: JSON.stringify(newAccount),
+      }),
+    onSuccess: async () => {
+      setNewAccount({ name: "", email: "", password: "", role: "OPERATOR" });
+      setNotice("Administrator account created and audit logged.");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const updateAccount = useMutation({
+    mutationFn: (account: AdminAccount) =>
+      fetchApi<AdminAccount>(`/admin/users/${account.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(accountDrafts[account.id]),
+      }),
+    onSuccess: async () => {
+      setNotice("Administrator role and status saved immediately.");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-me"] });
     },
     onError: (error: Error) => {
       setNotice(error.message);
@@ -158,6 +226,184 @@ export function PermissionsPage(): JSX.Element {
           Only an Owner with permission-management access can open this page.
         </div>
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserCog className="h-5 w-5" /> Administrator accounts
+          </CardTitle>
+          <CardDescription>
+            Assign an administrative role to each back-office user. Member accounts use the Portal
+            and never receive administrative capabilities.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 rounded-md border p-4 md:grid-cols-2 xl:grid-cols-5">
+            <div>
+              <Label htmlFor="admin-name" data-help="Display name for this administrator.">
+                Name
+              </Label>
+              <Input
+                id="admin-name"
+                value={newAccount.name}
+                onChange={(event) => {
+                  setNewAccount((current) => ({ ...current, name: event.target.value }));
+                }}
+              />
+            </div>
+            <div>
+              <Label htmlFor="admin-email" data-help="Unique email used to sign in to Admin.">
+                Email
+              </Label>
+              <Input
+                id="admin-email"
+                type="email"
+                value={newAccount.email}
+                onChange={(event) => {
+                  setNewAccount((current) => ({ ...current, email: event.target.value }));
+                }}
+              />
+            </div>
+            <div>
+              <Label
+                htmlFor="admin-password"
+                data-help="Temporary password with at least 12 characters. Share it outside LoyaltyOS."
+              >
+                Temporary password
+              </Label>
+              <Input
+                id="admin-password"
+                type="password"
+                minLength={12}
+                value={newAccount.password}
+                onChange={(event) => {
+                  setNewAccount((current) => ({ ...current, password: event.target.value }));
+                }}
+              />
+            </div>
+            <div>
+              <Label htmlFor="admin-role" data-help="Role whose capability matrix applies.">
+                Role
+              </Label>
+              <select
+                id="admin-role"
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={newAccount.role}
+                onChange={(event) => {
+                  setNewAccount((current) => ({
+                    ...current,
+                    role: event.target.value as ConfigurableRole,
+                  }));
+                }}
+              >
+                <option value="OPERATOR">Operator</option>
+                <option value="ANALYST">Auditor</option>
+              </select>
+            </div>
+            <Button
+              className="self-end"
+              disabled={
+                createAccount.isPending ||
+                !newAccount.name.trim() ||
+                !newAccount.email.trim() ||
+                newAccount.password.length < 12
+              }
+              onClick={() => {
+                createAccount.mutate();
+              }}
+            >
+              <Plus className="h-4 w-4" /> Create admin
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {accounts.isLoading && <p className="text-sm text-muted-foreground">Loading users…</p>}
+            {accounts.isError && (
+              <p className="text-sm text-destructive">
+                Administrator accounts could not be loaded.
+              </p>
+            )}
+            {(accounts.data ?? []).map((account) => {
+              const immutable = account.role === "SUPER_ADMIN";
+              const draft = accountDrafts[account.id] ?? {
+                role: account.role,
+                isActive: account.isActive,
+              };
+              return (
+                <div
+                  key={account.id}
+                  className="grid items-end gap-3 rounded-md border p-4 md:grid-cols-[minmax(0,2fr)_minmax(10rem,1fr)_auto_auto]"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">{account.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">{account.email}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Last login:{" "}
+                      {account.lastLoginAt
+                        ? new Date(account.lastLoginAt).toLocaleString()
+                        : "Never"}
+                    </p>
+                  </div>
+                  <div>
+                    <Label
+                      htmlFor={`account-role-${account.id}`}
+                      data-help="Changing role applies the selected capability matrix on the next request."
+                    >
+                      Assigned role
+                    </Label>
+                    <select
+                      id={`account-role-${account.id}`}
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60"
+                      value={draft.role}
+                      disabled={immutable}
+                      onChange={(event) => {
+                        setAccountDrafts((current) => ({
+                          ...current,
+                          [account.id]: {
+                            ...draft,
+                            role: event.target.value as ConfigurableRole,
+                          },
+                        }));
+                      }}
+                    >
+                      {immutable && <option value="SUPER_ADMIN">Owner</option>}
+                      <option value="OPERATOR">Operator</option>
+                      <option value="ANALYST">Auditor</option>
+                    </select>
+                  </div>
+                  <div className="flex h-10 items-center gap-2">
+                    <Label
+                      htmlFor={`account-active-${account.id}`}
+                      data-help="Inactive administrators cannot use Admin; their active sessions are revoked."
+                    >
+                      Active
+                    </Label>
+                    <Switch
+                      id={`account-active-${account.id}`}
+                      checked={draft.isActive}
+                      disabled={immutable}
+                      onCheckedChange={(checked) => {
+                        setAccountDrafts((current) => ({
+                          ...current,
+                          [account.id]: { ...draft, isActive: checked },
+                        }));
+                      }}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={immutable || updateAccount.isPending}
+                    onClick={() => {
+                      updateAccount.mutate(account);
+                    }}
+                  >
+                    {immutable ? "Protected" : "Save user"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid gap-6 xl:grid-cols-3">
         {(permissions.data?.roles ?? []).map((role) => {
           const immutable = role.role === "SUPER_ADMIN";

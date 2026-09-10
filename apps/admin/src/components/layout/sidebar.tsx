@@ -2,20 +2,21 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Award,
   BarChart3,
+  ChevronDown,
   Gift,
   LayoutDashboard,
   Link2,
   LogOut,
   Megaphone,
   PieChart,
-  Settings2,
   ShieldCheck,
   Ticket,
   Users,
   WalletCards,
 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +33,10 @@ import { cn } from "@/lib/utils";
 
 export function Sidebar(): JSX.Element {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  const [creditsOpen, setCreditsOpen] = useState(
+    () => location.pathname.startsWith("/credits") || location.pathname.startsWith("/point-types"),
+  );
   const authenticated = isAdminAuthenticated();
   const admin = useQuery({
     queryKey: ["admin-me"],
@@ -49,13 +54,6 @@ export function Sidebar(): JSX.Element {
       capability: "dashboard.view",
     },
     { to: "/members", label: t("navigation.members"), icon: Users, capability: "member.view" },
-    { to: "/credits", label: "Credits", icon: WalletCards, capability: "wallet.view" },
-    {
-      to: "/point-types",
-      label: "Point Types",
-      icon: Settings2,
-      capability: "point_type.view",
-    },
     {
       to: "/permissions",
       label: "Roles & Permissions",
@@ -89,6 +87,21 @@ export function Sidebar(): JSX.Element {
     ({ capability }) =>
       !authenticated || admin.isLoading || admin.data?.capabilities[capability] !== false,
   );
+  const creditLinks = [
+    { to: "/credits/wallets", label: "Wallet adjustments", capability: "wallet.view" },
+    { to: "/credits/banks", label: "Banks & cycles", capability: "bank.view" },
+    { to: "/credits/ledger", label: "Ledger", capability: "wallet.view" },
+    { to: "/credits/exchange", label: "Exchange vouchers", capability: "exchange.view" },
+    { to: "/credits/categories", label: "Recognition categories", capability: "wallet.view" },
+    { to: "/credits/import", label: "Member import", capability: "member.manage" },
+    { to: "/point-types", label: "Point type registry", capability: "point_type.view" },
+    { to: "/point-types/new", label: "Create point type", capability: "point_type.manage" },
+  ].filter(
+    ({ capability }) =>
+      !authenticated || admin.isLoading || admin.data?.capabilities[capability] !== false,
+  );
+  const creditSectionActive =
+    location.pathname.startsWith("/credits") || location.pathname.startsWith("/point-types");
 
   function handleLocaleChange(locale: string): void {
     void i18n.changeLanguage(locale);
@@ -100,8 +113,70 @@ export function Sidebar(): JSX.Element {
       <div className="flex h-14 items-center border-b px-6">
         <span className="text-lg font-semibold">LoyaltyOS</span>
       </div>
-      <nav className="flex-1 space-y-1 p-4">
-        {links.map(({ to, label, icon: Icon, end }) => (
+      <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+        {links.slice(0, 2).map(({ to, label, icon: Icon, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </NavLink>
+        ))}
+        {creditLinks.length > 0 && (
+          <div className="space-y-1">
+            <button
+              type="button"
+              aria-expanded={creditsOpen}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                creditSectionActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+              onClick={() => {
+                setCreditsOpen((open) => !open);
+              }}
+            >
+              <WalletCards className="h-4 w-4" />
+              <span className="flex-1 text-left">Credits & point types</span>
+              <ChevronDown
+                className={cn("h-4 w-4 transition-transform", creditsOpen && "rotate-180")}
+              />
+            </button>
+            {creditsOpen && (
+              <div className="ml-5 space-y-1 border-l pl-3">
+                {creditLinks.map(({ to, label }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={to === "/point-types"}
+                    className={({ isActive }) =>
+                      cn(
+                        "block rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      )
+                    }
+                  >
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {links.slice(2).map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

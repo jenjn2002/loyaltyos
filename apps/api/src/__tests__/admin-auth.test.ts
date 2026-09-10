@@ -146,6 +146,78 @@ describe("POST /admin/logout", () => {
   });
 });
 
+describe("administrator role assignment", () => {
+  it("lets an owner create an administrator and change its role and status", async () => {
+    const ownerEmail = "permission-owner-test@loyaltyos.dev";
+    const accountEmail = "permission-user-test@loyaltyos.dev";
+    await prisma.adminUser.deleteMany({ where: { email: { in: [ownerEmail, accountEmail] } } });
+    await prisma.adminUser.create({
+      data: {
+        email: ownerEmail,
+        name: "Permission Owner",
+        passwordHash: await hashPassword("owner-password-123"),
+        role: "SUPER_ADMIN",
+        programId: "prog_dev",
+      },
+    });
+
+    try {
+      const login = await app.inject({
+        method: "POST",
+        url: "/api/v1/admin/login",
+        payload: { email: ownerEmail, password: "owner-password-123" },
+      });
+      expect(login.statusCode).toBe(200);
+      const session = login.cookies.find((cookie) => cookie.name === "loyaltyos_admin_session");
+      expect(session).toBeDefined();
+      const cookie = `${session!.name}=${session!.value}`;
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/v1/admin/users",
+        headers: { cookie },
+        payload: {
+          email: accountEmail,
+          name: "Permission User",
+          password: "temporary-password-123",
+          role: "OPERATOR",
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      expect(created.json().data).toMatchObject({
+        email: accountEmail,
+        role: "OPERATOR",
+        isActive: true,
+      });
+      expect(created.json().data.passwordHash).toBeUndefined();
+      const accountId = created.json().data.id as string;
+
+      const updated = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/admin/users/${accountId}`,
+        headers: { cookie },
+        payload: { role: "ANALYST", isActive: false },
+      });
+      expect(updated.statusCode).toBe(200);
+      expect(updated.json().data).toMatchObject({ role: "ANALYST", isActive: false });
+
+      const listed = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/users",
+        headers: { cookie },
+      });
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json().data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: accountId, roleLabel: "Auditor", isActive: false }),
+        ]),
+      );
+    } finally {
+      await prisma.adminUser.deleteMany({ where: { email: { in: [ownerEmail, accountEmail] } } });
+    }
+  });
+});
+
 describe("Admin auth rate limiting", () => {
   it("rate-limits login to 5 requests per minute", async () => {
     let hit429 = false;

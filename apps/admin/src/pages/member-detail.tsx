@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Copy } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
@@ -150,6 +150,24 @@ export function MemberDetailPage(): JSX.Element {
             </div>
           ) : (
             <dl className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <dt className="text-sm text-muted-foreground">Member ID</dt>
+                <dd className="flex items-center gap-1">
+                  <code className="break-all text-xs">{member?.id}</code>
+                  {member?.id && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      aria-label="Copy member ID"
+                      onClick={() => void navigator.clipboard.writeText(member.id)}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </dd>
+              </div>
               <div>
                 <dt className="text-sm text-muted-foreground">Email</dt>
                 <dd>{member?.email ?? "N/A"}</dd>

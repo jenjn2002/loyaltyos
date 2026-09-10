@@ -74,8 +74,19 @@ export function App(): JSX.Element {
           <Route index element={<DashboardPage />} />
           <Route path="/members" element={<MembersListPage />} />
           <Route path="/members/:id" element={<MemberDetailPage />} />
-          <Route path="/credits" element={<CreditsManagementPage />} />
-          <Route path="/point-types" element={<PointTypesPage />} />
+          <Route path="/credits" element={<Navigate to="/credits/wallets" replace />} />
+          <Route path="/credits/wallets" element={<CreditsManagementPage section="wallets" />} />
+          <Route path="/credits/banks" element={<CreditsManagementPage section="banks" />} />
+          <Route path="/credits/ledger" element={<CreditsManagementPage section="ledger" />} />
+          <Route path="/credits/exchange" element={<CreditsManagementPage section="exchange" />} />
+          <Route
+            path="/credits/categories"
+            element={<CreditsManagementPage section="categories" />}
+          />
+          <Route path="/credits/import" element={<CreditsManagementPage section="import" />} />
+          <Route path="/point-types" element={<PointTypesPage view="registry" />} />
+          <Route path="/point-types/new" element={<PointTypesPage view="editor" />} />
+          <Route path="/point-types/:id/edit" element={<PointTypesPage view="editor" />} />
           <Route path="/permissions" element={<PermissionsPage />} />
           <Route path="/campaigns" element={<CampaignsListPage />} />
           <Route path="/campaigns/new" element={<CampaignBuilderPage />} />

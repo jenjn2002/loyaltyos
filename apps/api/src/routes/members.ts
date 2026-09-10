@@ -80,6 +80,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
       if (query.search) {
         where.OR = [
+          { id: { contains: query.search } },
           { email: { contains: query.search, mode: "insensitive" } },
           { firstName: { contains: query.search, mode: "insensitive" } },
           { lastName: { contains: query.search, mode: "insensitive" } },
