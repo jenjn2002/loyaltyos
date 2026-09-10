@@ -239,7 +239,7 @@ export function MembersListPage(): JSX.Element {
                               <div key={wallet.pointTypeId}>
                                 {wallet.code}: {wallet.balance.toLocaleString()}
                                 {wallet.allowance
-                                  ? ` · Give ${wallet.allowance.remaining.toLocaleString()}`
+                                  ? ` · Give remaining: ${wallet.allowance.remaining.toLocaleString()}`
                                   : ""}
                               </div>
                             ))

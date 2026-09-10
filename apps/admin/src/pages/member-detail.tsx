@@ -180,7 +180,7 @@ export function MemberDetailPage(): JSX.Element {
                       <span key={wallet.pointTypeId} className="rounded bg-muted px-2 py-1">
                         {wallet.name}: {wallet.balance.toLocaleString()} {wallet.unitLabel}
                         {wallet.allowance
-                          ? ` · Give ${wallet.allowance.remaining.toLocaleString()}`
+                          ? ` · Give remaining: ${wallet.allowance.remaining.toLocaleString()}`
                           : ""}
                       </span>
                     ))

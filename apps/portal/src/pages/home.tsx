@@ -43,7 +43,7 @@ function CreditWalletCard({ wallets }: { wallets: CreditBalance[] }) {
             <p className="text-2xl font-bold">{wallet.balance.toLocaleString()}</p>
             {wallet.allowance && (
               <p className="text-xs text-[var(--color-text-secondary)]">
-                Give: {wallet.allowance.remaining.toLocaleString()}
+                Give remaining: {wallet.allowance.remaining.toLocaleString()}
               </p>
             )}
           </div>
