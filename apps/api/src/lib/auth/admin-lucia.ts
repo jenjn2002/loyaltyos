@@ -2,6 +2,7 @@ import { PrismaAdapter } from "@lucia-auth/adapter-prisma";
 import { Lucia, TimeSpan } from "lucia";
 
 import { prisma } from "../../db.js";
+import { isCookieSecure } from "./cookie-config.js";
 
 const adapter = new PrismaAdapter(prisma.adminSession, prisma.adminUser);
 
@@ -10,7 +11,7 @@ export const adminLucia = new Lucia(adapter, {
   sessionCookie: {
     name: "loyaltyos_admin_session",
     attributes: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isCookieSecure(),
       sameSite: "lax",
       path: "/",
     },

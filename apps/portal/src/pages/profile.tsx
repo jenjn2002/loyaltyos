@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchApi, patchApi, postApi } from "../lib/api-client";
+import { appUrl } from "../lib/app-url";
 import { clearSession, getSession, isAuthenticated, sendMagicLink } from "../lib/auth";
 import { setUserLocale } from "../lib/i18n";
 import { applyTheme } from "../lib/theme";
@@ -28,7 +29,12 @@ export default function Profile() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [profileForm, setProfileForm] = useState({ firstName: "", lastName: "", department: "", photoUrl: "" });
+  const [profileForm, setProfileForm] = useState({
+    firstName: "",
+    lastName: "",
+    department: "",
+    photoUrl: "",
+  });
   const [theme, setTheme] = useState<"light" | "dark" | "auto">(
     () => (sessionStorage.getItem("theme") as "light" | "dark" | "auto" | null) ?? "auto",
   );
@@ -74,8 +80,17 @@ export default function Profile() {
   });
 
   const profileMutation = useMutation({
-    mutationFn: () => patchApi<MemberProfile>("/members/me", { firstName: profileForm.firstName, lastName: profileForm.lastName, department: profileForm.department, photoUrl: profileForm.photoUrl || null }),
-    onSuccess: () => { setEditing(false); void profile.refetch(); },
+    mutationFn: () =>
+      patchApi<MemberProfile>("/members/me", {
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        department: profileForm.department,
+        photoUrl: profileForm.photoUrl || null,
+      }),
+    onSuccess: () => {
+      setEditing(false);
+      void profile.refetch();
+    },
   });
 
   const handleThemeChange = (mode: "light" | "dark" | "auto") => {
@@ -87,7 +102,7 @@ export default function Profile() {
 
   const handleLogout = () => {
     clearSession();
-    window.location.href = "/";
+    window.location.href = appUrl();
   };
 
   return (
@@ -164,7 +179,80 @@ export default function Profile() {
                 </div>
               </dl>
             )}
-            {editing ? <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-4"><input value={profileForm.firstName} onChange={(event) => setProfileForm((form) => ({ ...form, firstName: event.target.value }))} placeholder="First name" className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" /><input value={profileForm.lastName} onChange={(event) => setProfileForm((form) => ({ ...form, lastName: event.target.value }))} placeholder="Last name" className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" /><input value={profileForm.department} onChange={(event) => setProfileForm((form) => ({ ...form, department: event.target.value }))} placeholder="Department" className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" /><input type="url" value={profileForm.photoUrl} onChange={(event) => setProfileForm((form) => ({ ...form, photoUrl: event.target.value }))} placeholder="Photo URL (optional)" className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" /><div className="flex gap-2"><button type="button" onClick={() => profileMutation.mutate()} disabled={profileMutation.isPending} className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white">Save</button><button type="button" onClick={() => setEditing(false)} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm">Cancel</button></div></div> : <button type="button" onClick={() => { setProfileForm({ firstName: profile.data?.firstName ?? "", lastName: profile.data?.lastName ?? "", department: profile.data?.department ?? "", photoUrl: profile.data?.photoUrl ?? "" }); setEditing(true); }} className="mt-4 text-sm font-medium text-[var(--color-primary)]">Edit profile</button>}
+            {editing ? (
+              <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-4">
+                <input
+                  value={profileForm.firstName}
+                  onChange={(event) => {
+                    setProfileForm((form) => ({ ...form, firstName: event.target.value }));
+                  }}
+                  placeholder="First name"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                />
+                <input
+                  value={profileForm.lastName}
+                  onChange={(event) => {
+                    setProfileForm((form) => ({ ...form, lastName: event.target.value }));
+                  }}
+                  placeholder="Last name"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                />
+                <input
+                  value={profileForm.department}
+                  onChange={(event) => {
+                    setProfileForm((form) => ({ ...form, department: event.target.value }));
+                  }}
+                  placeholder="Department"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                />
+                <input
+                  type="url"
+                  value={profileForm.photoUrl}
+                  onChange={(event) => {
+                    setProfileForm((form) => ({ ...form, photoUrl: event.target.value }));
+                  }}
+                  placeholder="Photo URL (optional)"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      profileMutation.mutate();
+                    }}
+                    disabled={profileMutation.isPending}
+                    className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditing(false);
+                    }}
+                    className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileForm({
+                    firstName: profile.data?.firstName ?? "",
+                    lastName: profile.data?.lastName ?? "",
+                    department: profile.data?.department ?? "",
+                    photoUrl: profile.data?.photoUrl ?? "",
+                  });
+                  setEditing(true);
+                }}
+                className="mt-4 text-sm font-medium text-[var(--color-primary)]"
+              >
+                Edit profile
+              </button>
+            )}
             <button
               onClick={handleLogout}
               className="mt-4 flex items-center gap-2 text-sm font-medium text-red-500 transition-colors hover:text-red-600"

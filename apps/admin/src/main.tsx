@@ -23,11 +23,13 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
+const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, "") || undefined;
+
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename}>
           <App />
         </BrowserRouter>
       </I18nextProvider>

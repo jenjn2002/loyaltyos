@@ -4,20 +4,23 @@ import { initTracing } from "@loyaltyos/telemetry";
 await initTracing("loyaltyos-api");
 
 import { buildApp, getBullMQMetrics, prisma } from "./app.js";
+import { bootstrapInitialAdmin } from "./lib/bootstrap.js";
 import { getBusinessMetrics } from "./lib/business-metrics.js";
+import { ensureCreditNotificationTemplates, scheduleCreditExpiry } from "./lib/credit-setup.js";
 import {
   scheduleGiftCardExpiration,
   scheduleOutstandingBalanceRefresh,
 } from "./lib/giftcard-setup.js";
-import { ensureCreditNotificationTemplates, scheduleCreditExpiry } from "./lib/credit-setup.js";
 import { createQueue } from "./lib/queue.js";
+import { startCreditExpiryWorker } from "./workers/credits.js";
 import {
   startGiftCardExpireWorker,
   startGiftCardGenerateWorker,
   startOutstandingBalanceWorker,
 } from "./workers/giftcards.js";
 import { startNotificationsWorker } from "./workers/notifications.js";
-import { startCreditExpiryWorker } from "./workers/credits.js";
+
+await bootstrapInitialAdmin();
 
 const app = await buildApp();
 

@@ -19,11 +19,13 @@ const queryClient = new QueryClient({
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element not found");
 
+const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, "") || undefined;
+
 void bootstrapLocale().then(() => {
   createRoot(rootEl).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename}>
           <App />
         </BrowserRouter>
       </QueryClientProvider>

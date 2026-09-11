@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { AutoFieldHelp } from "@/components/ui/auto-field-help";
@@ -128,9 +128,9 @@ function NotFound(): JSX.Element {
       <div className="text-center">
         <h1 className="text-4xl font-bold">404</h1>
         <p className="mt-2 text-muted-foreground">{t("navigation.pageNotFound")}</p>
-        <a href="/" className="mt-4 inline-block text-primary underline">
+        <Link to="/" className="mt-4 inline-block text-primary underline">
           {t("navigation.backToDashboard")}
-        </a>
+        </Link>
       </div>
     </div>
   );

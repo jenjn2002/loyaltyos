@@ -7,6 +7,8 @@ WORKDIR /app
 
 COPY . .
 RUN pnpm install --frozen-lockfile --ignore-scripts
+ARG VITE_BASE_PATH=/customer/
+ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 RUN pnpm --filter @loyaltyos/portal build
 
 # Stage 2: Serve with nginx + brotli

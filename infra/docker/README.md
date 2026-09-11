@@ -1,116 +1,146 @@
-# Production Docker Setup
+# LoyaltyOS fresh-server Docker installation
 
-## Quick Start
+This profile works without a domain or TLS. After the first boot:
+
+- Customer portal: `http://SERVER_IP/customer/`
+- Admin: `http://SERVER_IP/admin/`
+- API: `http://SERVER_IP/api/`
+- Health: `http://SERVER_IP/healthz`
+
+The root URL redirects to `/customer/`. The default host HTTP port is `80`;
+set `HTTP_PORT` when the server exposes another port.
+
+## Fresh install
+
+Install Docker Engine and the Compose plugin, then run:
 
 ```bash
-# 1. Copy and configure environment variables
+git clone https://github.com/jenjn2002/loyaltyos.git
+cd loyaltyos
 cp infra/docker/.env.production.example infra/docker/.env.production
-# Edit .env.production with your actual secrets and configuration
-
-# 2. Start the production stack
-docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.production up -d
-
-# 3. Verify services are running
-docker compose -f infra/docker/docker-compose.prod.yml ps
-curl -f http://localhost:3002/healthz
 ```
 
-## Services
+Edit `infra/docker/.env.production` and replace every required placeholder.
+At minimum, set:
 
-| Service  | Port (default) | Description                           |
-| -------- | -------------- | ------------------------------------- |
-| postgres | 5432           | PostgreSQL 15 Alpine                  |
-| redis    | 6379           | Redis 7 Alpine                        |
-| api      | 3002           | LoyaltyOS REST API (Fastify + Prisma) |
-| admin    | 5173           | Admin Dashboard (React SPA via nginx) |
-| portal   | 5174           | Customer Portal (React PWA via nginx) |
+- `POSTGRES_PASSWORD`
+- `ADMIN_DEFAULT_EMAIL`, `ADMIN_DEFAULT_NAME`, `ADMIN_DEFAULT_PASSWORD`
+- `JWT_SECRET`, `API_KEY_SALT`, `KMS_MASTER_KEY`, `GIFTCARD_HMAC_SECRET`
+- `PORTAL_URL` to the server's reachable customer URL, without a trailing slash
 
-### Monitoring (--profile monitoring)
-
-| Service        | Port | Description                        |
-| -------------- | ---- | ---------------------------------- |
-| grafana        | 3000 | Dashboards (admin / admin)         |
-| prometheus     | 9090 | Metrics scraper and time-series DB |
-| otel-collector | 4317 | OTLP gRPC and HTTP trace ingestion |
-
-## Volumes
-
-- `pgdata` — PostgreSQL data directory
-- `redisdata` — Redis persistence
-
-## Environment Variables
-
-All configuration is driven by the `.env.production` file. See `.env.production.example` for the complete template with documentation.
-
-### Required Variables
-
-| Variable            | Description                               |
-| ------------------- | ----------------------------------------- |
-| `POSTGRES_PASSWORD` | Database password                         |
-| `JWT_SECRET`        | Secret for JWT token signing              |
-| `API_KEY_SALT`      | Salt for API key hashing                  |
-| `KMS_MASTER_KEY`    | 32-byte hex key for credential encryption |
-
-### Generating Secrets
+Generate random secrets without putting them in Git:
 
 ```bash
-# Generate a secure JWT secret
-openssl rand -hex 64
-
-# Generate an API key salt
-openssl rand -hex 32
-
-# Generate a KMS master key
-openssl rand -hex 32
+openssl rand -hex 64   # JWT_SECRET
+openssl rand -hex 32   # API_KEY_SALT, KMS_MASTER_KEY, GIFTCARD_HMAC_SECRET
 ```
 
-## Building Images Locally
+Start the stack:
 
 ```bash
-# Build all images
-docker build -t loyaltyos-api:dev -f apps/api/Dockerfile .
-docker build -t loyaltyos-admin:dev -f apps/admin/Dockerfile .
-docker build -t loyaltyos-portal:dev -f apps/portal/Dockerfile .
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  --env-file infra/docker/.env.production \
+  up -d --build
 ```
 
-## Architecture Notes
-
-### Brotli Compression
-
-Admin and Portal nginx images (`fholzer/nginx-brotli`) include the brotli module compiled in. Both brotli and gzip are enabled — brotli is preferred by modern browsers that send `Accept-Encoding: br`, with gzip as fallback for older clients.
-
-### Non-Root Users
-
-All container images run as non-root users:
-
-- **API:** `loyaltyos` user with group `loyaltyos`
-- **Admin / Portal:** `app` user with group `app`
-
-### Healthchecks
-
-All services include Docker healthchecks:
-
-- **API:** `curl /healthz` — checks the Fastify health endpoint
-- **Admin / Portal:** `curl /` — checks nginx is serving the SPA
-
-## How to Enable Monitoring Locally
-
-Start the full stack including Prometheus, Grafana, and the OTel Collector with the `monitoring` Compose profile:
+Check containers and the health endpoint:
 
 ```bash
-docker compose -f infra/docker/docker-compose.prod.yml --profile monitoring up -d
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  --env-file infra/docker/.env.production \
+  ps
+curl -f http://SERVER_IP/healthz
 ```
 
-Then open:
+Open `http://SERVER_IP/customer/` for members or
+`http://SERVER_IP/admin/` for administrators. Log in with the initial admin
+credentials from the env file.
 
-- **Grafana:** http://localhost:3000 (credentials: `admin` / `admin`)
-- **Prometheus:** http://localhost:9090
-- **API Metrics:** http://localhost:3002/metrics
+The API container runs `prisma migrate deploy` before starting the server,
+then creates one minimal Program and one `SUPER_ADMIN` from the three
+`ADMIN_DEFAULT_*` values only when no admin exists. It does not run
+`apps/api/prisma/seed.ts`, create demo members, or overwrite existing admins.
 
-Three Grafana dashboards are auto-provisioned:
+## HTTP, ports, and HTTPS
 
-1. **API Overview** — HTTP request rates, latency percentiles, error rate, BullMQ queue depth
-2. **BullMQ Queues** — Per-queue job throughput and failure rate
-3. **Business Metrics** — Points earned/redeemed/adjusted/reversed/expired, coupon redemptions, coalition operations, circuit breaker state, active members
+The tracked Caddyfile uses configurable `CADDY_SITE_ADDRESS` and defaults to
+`:80`. It does not require TLS. Compose publishes `${HTTP_PORT}` to Caddy's
+port 80 and `${HTTPS_PORT}` to port 443; the latter can remain unused for a
+plain HTTP installation.
 
-For details on the observability stack, see `docs/observability.md`.
+For a domain with automatic HTTPS, update the env file:
+
+```dotenv
+PORTAL_URL=https://loyalty.example.com/customer
+CADDY_SITE_ADDRESS=loyalty.example.com
+COOKIE_SECURE=true
+CORS_ORIGINS=https://loyalty.example.com
+```
+
+Point DNS at the server and allow ports 80 and 443 through the firewall. Caddy
+will obtain and renew the certificate. `COOKIE_SECURE=true` must only be used
+when the browser reaches the app through HTTPS; keep it `false` for the
+default HTTP/IP deployment.
+
+## Email and optional integrations
+
+SMTP is optional for the core installation. To enable magic-link and other
+email delivery, configure all of these values:
+
+```dotenv
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-user
+SMTP_PASS=your-smtp-password
+SMTP_FROM=loyalty@example.com
+```
+
+Resend, Twilio, OneSignal, and Apprecio variables are also optional and are
+listed in `.env.production.example`. Leave them blank unless the integration
+is enabled. Never commit `infra/docker/.env.production` or paste its
+contents into issue reports.
+
+## Upgrade an existing installation
+
+Back up PostgreSQL and keep the existing Docker volumes. Then pull the desired
+version and recreate the images:
+
+```bash
+git pull --ff-only
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  --env-file infra/docker/.env.production \
+  up -d --build
+```
+
+Migrations are applied automatically at API startup. The bootstrap is
+idempotent: existing admins and customer data are preserved. Do not use
+`docker compose down -v` during an upgrade because it removes database and
+Redis volumes.
+
+Existing HTTPS installations created before `COOKIE_SECURE` was added infer
+secure cookies from an `https://` `PORTAL_URL`. Still set `COOKIE_SECURE=true`
+explicitly during the upgrade so the intended transport policy is clear.
+
+## Services and volumes
+
+| Service    | Default internal port | Purpose                         |
+| ---------- | --------------------: | ------------------------------- |
+| `postgres` |                  5432 | PostgreSQL 15 database          |
+| `redis`    |                  6379 | BullMQ queues and cache         |
+| `api`      |                  3002 | Fastify API and workers         |
+| `admin`    |                    80 | Admin React SPA                 |
+| `portal`   |                    80 | Customer React SPA              |
+| `caddy`    |              80 / 443 | HTTP routing and optional HTTPS |
+
+Persistent data is stored in the `pgdata`, `redisdata`, `caddy_data`, and
+`caddy_config` Docker volumes. Monitoring services remain opt-in:
+
+```bash
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  --env-file infra/docker/.env.production \
+  --profile monitoring up -d
+```

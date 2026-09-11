@@ -110,7 +110,7 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
           },
         });
 
-        const baseUrl = resolvePortalUrl(member.programId);
+        const baseUrl = resolvePortalUrl(member.programId).replace(/\/+$/, "");
         const magicLinkUrl = `${baseUrl}/verify?token=${rawToken}`;
 
         // Fire and forget with locale in context

@@ -1,69 +1,36 @@
-{
-  email admin@trunglocxoay.store
-}
+# Default is plain HTTP on :80. Set CADDY_SITE_ADDRESS to a domain to enable
+# Caddy's automatic HTTPS (keep HTTPS_PORT published in compose).
+{$CADDY_SITE_ADDRESS} {
+	encode gzip
 
-loyalty.trunglocxoay.store {
-  encode gzip
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:3002
+	}
 
-  @api path /api/*
-  handle @api {
-    reverse_proxy api:3002
-  }
+	handle /healthz {
+		reverse_proxy api:3002
+	}
 
-  handle /healthz {
-    reverse_proxy api:3002
-  }
+	@adminRoot path /admin
+	redir @adminRoot /admin/ 308
 
-  handle {
-    reverse_proxy portal:80
-  }
-}
+	handle_path /admin/* {
+		reverse_proxy admin:80
+	}
 
-adminloyalty.trunglocxoay.store {
-  encode gzip
+	@customerRoot path /customer
+	redir @customerRoot /customer/ 308
 
-  @api path /api/*
-  handle @api {
-    reverse_proxy api:3002
-  }
+	handle_path /customer/* {
+		reverse_proxy portal:80
+	}
 
-  handle /healthz {
-    reverse_proxy api:3002
-  }
+	@root path /
+	redir @root /customer/ 302
 
-  handle {
-    reverse_proxy admin:80
-  }
-}
-
-openloyalty.trunglocxoay.store {
-  encode gzip
-
-  @api path /app_dev.php/api/*
-  handle @api {
-    reverse_proxy open_loyalty_trial_backend:80
-  }
-
-  @customerRoot path /customer
-  redir @customerRoot /customer/ permanent
-
-  @customer path /customer/*
-  handle @customer {
-    uri strip_prefix /customer
-    reverse_proxy open_loyalty_trial_frontend:3001
-  }
-
-  @posRoot path /pos
-  redir @posRoot /pos/ permanent
-
-  @pos path /pos/*
-  header @pos Cache-Control "no-store"
-  handle @pos {
-    uri strip_prefix /pos
-    reverse_proxy open_loyalty_trial_frontend:3002
-  }
-
-  handle {
-    reverse_proxy open_loyalty_trial_frontend:3000
-  }
+	# Unknown paths are sent to the customer entry point.
+	handle {
+		redir /customer/ 302
+	}
 }

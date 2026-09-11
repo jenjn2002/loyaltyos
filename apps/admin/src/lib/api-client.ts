@@ -1,6 +1,12 @@
 const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
 const API_KEY: string = (import.meta.env.VITE_API_KEY as string | undefined) ?? "dev-key";
 const PROGRAM_ID: string = (import.meta.env.VITE_PROGRAM_ID as string | undefined) ?? "prog_dev";
+const APP_BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+export function appUrl(path = "/"): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${APP_BASE_PATH}${suffix}` || "/";
+}
 
 interface RequestOptions extends Omit<RequestInit, "headers"> {
   headers?: Record<string, string>;
@@ -57,7 +63,7 @@ export async function adminLogout(): Promise<void> {
     credentials: "include",
   });
   adminCredentialMode = false;
-  window.location.href = "/login";
+  window.location.href = appUrl("/login");
 }
 
 export async function fetchApi<T>(path: string, options?: RequestOptions): Promise<T> {
@@ -87,7 +93,7 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
     // If admin session expired, redirect to login
     if (response.status === 401 && adminCredentialMode) {
       adminCredentialMode = false;
-      window.location.href = "/login";
+      window.location.href = appUrl("/login");
     }
     throw new Error(body.error?.message ?? `Request failed with status ${String(response.status)}`);
   }
