@@ -371,6 +371,7 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
       const current = await prisma.rewardRedemption.findFirst({
         where: { id, reward: { programId: request.programId } },
         include: {
+          approvalRequest: { select: { status: true } },
           member: {
             select: {
               id: true,
@@ -387,6 +388,12 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
       if (!current) throw new LoyaltyError("REWARD_REDEMPTION_NOT_FOUND", 404);
       if (current.fulfillmentStatus !== "PENDING")
         throw new LoyaltyError("REWARD_FULFILLMENT_STATUS_INVALID", 409);
+      if (
+        body.status === "FULFILLED" &&
+        current.approvalRequest &&
+        current.approvalRequest.status !== "APPROVED"
+      )
+        throw new LoyaltyError("REWARD_APPROVAL_REQUIRED", 409);
       const updated =
         body.status === "CANCELLED"
           ? await walletService.cancelRewardRedemption(

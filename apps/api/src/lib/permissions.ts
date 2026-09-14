@@ -18,6 +18,11 @@ export const ADMIN_CAPABILITIES = [
   "exchange.manage",
   "exchange.approve",
   "exchange.complete",
+  "workflow.view",
+  "workflow.manage",
+  "approval.inbox",
+  "approval.view",
+  "approval.decide",
   "reward.view",
   "reward.manage",
   "campaign.view",
@@ -37,13 +42,17 @@ export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
 };
 
 const readCapabilities = new Set<AdminCapability>(
-  ADMIN_CAPABILITIES.filter((capability) => capability.endsWith(".view")),
+  ADMIN_CAPABILITIES.filter(
+    (capability) => capability.endsWith(".view") || capability.endsWith(".inbox"),
+  ),
 );
 const ownerOnlyByDefault = new Set<AdminCapability>([
   "permission.manage",
   "point_type.manage",
   "exchange.approve",
   "exchange.complete",
+  "workflow.manage",
+  "approval.decide",
 ]);
 
 export function defaultCapability(role: AdminRole, capability: AdminCapability): boolean {
@@ -113,6 +122,12 @@ export function requireCapability(capability: AdminCapability): preHandlerAsyncH
 
 export function capabilityForAdminRequest(method: string, url: string): AdminCapability | null {
   const write = method !== "GET" && method !== "HEAD";
+  if (url.startsWith("/api/v1/admin/workflows"))
+    return write ? "workflow.manage" : "workflow.view";
+  if (url.startsWith("/api/v1/admin/approvals")) {
+    if (url.endsWith("/approve") || url.endsWith("/reject")) return "approval.decide";
+    return url.includes("/inbox") ? "approval.inbox" : "approval.view";
+  }
   if (url.startsWith("/api/v1/admin/permissions")) return "permission.manage";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";

@@ -3,11 +3,16 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
+import {
+  decideApprovalRequest,
+  ensurePointExchangeApprovalRequest,
+} from "../lib/approval-workflows.js";
 import { audit } from "../lib/audit.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
-import { requireCapability } from "../lib/permissions.js";
+import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { walletService } from "../lib/wallets.js";
+import { pointExchangeApprovalHook } from "../lib/workflow-integrations.js";
 
 function idempotencyKey(request: {
   headers: Record<string, string | string[] | undefined>;
@@ -523,13 +528,47 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.post(
     "/admin/credits/exchange-requests/:id/approve",
-    { preHandler: [requireCapability("exchange.approve")] },
+    {
+      preHandler: [requireCapability("exchange.approve")],
+    },
     async (request, reply) => {
       const { id } = z.object({ id: z.string() }).parse(request.params);
       const body = z
         .object({ note: z.string().trim().max(1000).optional() })
         .default({})
         .parse(request.body);
+      const voucher = await prisma.pointExchangeRequest.findFirst({
+        where: { id, programId: request.programId },
+        select: { memberId: true, approvalRequestId: true },
+      });
+      if (!voucher) throw new LoyaltyError("POINT_EXCHANGE_REQUEST_NOT_FOUND", 404);
+      const approval = await ensurePointExchangeApprovalRequest(
+        request.programId,
+        id,
+        voucher.memberId,
+      );
+      if (approval) {
+        await assertCapability(request, "approval.decide");
+        if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+        await decideApprovalRequest(
+          request.programId,
+          approval.id,
+          request.adminId,
+          "APPROVE",
+          body.note,
+          pointExchangeApprovalHook,
+        );
+        const result = await prisma.pointExchangeRequest.findUniqueOrThrow({ where: { id } });
+        await audit(
+          request.programId,
+          request.actor,
+          "CREDIT_EXCHANGE",
+          "point_exchange_request",
+          id,
+          { status: result.status, documentNumber: result.documentNumber, note: body.note },
+        );
+        return reply.send({ data: result });
+      }
       const result = await walletService.updateExchangeRequest(
         request.programId,
         id,

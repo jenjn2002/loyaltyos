@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ShieldCheck, UserCog } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,6 +117,26 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Manage permissions",
     description: "Change the Operator and Auditor capability matrix.",
   },
+  "workflow.view": {
+    label: "View workflows",
+    description: "Review configured approval layers and their assignees.",
+  },
+  "workflow.manage": {
+    label: "Manage workflows",
+    description: "Create, edit, activate and remove program approval workflows.",
+  },
+  "approval.inbox": {
+    label: "View approval inbox",
+    description: "See pending requests assigned to the current administrator.",
+  },
+  "approval.view": {
+    label: "View approval history",
+    description: "Inspect approval request progress, snapshots and decisions.",
+  },
+  "approval.decide": {
+    label: "Decide approvals",
+    description: "Approve or reject the active layer of an assigned request.",
+  },
 };
 
 export function PermissionsPage(): JSX.Element {
@@ -129,6 +149,7 @@ export function PermissionsPage(): JSX.Element {
     password: "",
     role: "OPERATOR" as ConfigurableRole,
   });
+  const [newAccountErrors, setNewAccountErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const permissions = useQuery({
     queryKey: ["admin", "permissions"],
@@ -182,6 +203,7 @@ export function PermissionsPage(): JSX.Element {
       }),
     onSuccess: async () => {
       setNewAccount({ name: "", email: "", password: "", role: "OPERATOR" });
+      setNewAccountErrors({});
       setNotice("Administrator account created and audit logged.");
       await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
@@ -189,6 +211,29 @@ export function PermissionsPage(): JSX.Element {
       setNotice(error.message);
     },
   });
+
+  function validateNewAccount(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (!newAccount.name.trim()) errors.name = "Name is required.";
+    if (!/^\S+@\S+\.\S+$/.test(newAccount.email.trim()))
+      errors.email = "Enter a valid administrator email.";
+    const passwordClasses = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z\d]/].filter((pattern) =>
+      pattern.test(newAccount.password),
+    ).length;
+    if (newAccount.password.length < 12)
+      errors.password = "Use at least 12 characters.";
+    else if (passwordClasses < 3)
+      errors.password = "Use at least 3 of lowercase, uppercase, number and symbol.";
+    return errors;
+  }
+
+  function submitNewAccount(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const errors = validateNewAccount();
+    setNewAccountErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    createAccount.mutate();
+  }
   const updateAccount = useMutation({
     mutationFn: (account: AdminAccount) =>
       fetchApi<AdminAccount>(`/admin/users/${account.id}`, {
@@ -237,7 +282,11 @@ export function PermissionsPage(): JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid gap-3 rounded-md border p-4 md:grid-cols-2 xl:grid-cols-5">
+          <form
+            className="grid gap-3 rounded-md border p-4 md:grid-cols-2 xl:grid-cols-5"
+            onSubmit={submitNewAccount}
+            noValidate
+          >
             <div>
               <Label htmlFor="admin-name" data-help="Display name for this administrator.">
                 Name
@@ -245,10 +294,13 @@ export function PermissionsPage(): JSX.Element {
               <Input
                 id="admin-name"
                 value={newAccount.name}
+                aria-invalid={Boolean(newAccountErrors.name)}
+                aria-describedby={newAccountErrors.name ? "admin-name-error" : undefined}
                 onChange={(event) => {
                   setNewAccount((current) => ({ ...current, name: event.target.value }));
                 }}
               />
+              {newAccountErrors.name && <p id="admin-name-error" className="text-xs text-destructive">{newAccountErrors.name}</p>}
             </div>
             <div>
               <Label htmlFor="admin-email" data-help="Unique email used to sign in to Admin.">
@@ -258,10 +310,13 @@ export function PermissionsPage(): JSX.Element {
                 id="admin-email"
                 type="email"
                 value={newAccount.email}
+                aria-invalid={Boolean(newAccountErrors.email)}
+                aria-describedby={newAccountErrors.email ? "admin-email-error" : undefined}
                 onChange={(event) => {
                   setNewAccount((current) => ({ ...current, email: event.target.value }));
                 }}
               />
+              {newAccountErrors.email && <p id="admin-email-error" className="text-xs text-destructive">{newAccountErrors.email}</p>}
             </div>
             <div>
               <Label
@@ -275,10 +330,16 @@ export function PermissionsPage(): JSX.Element {
                 type="password"
                 minLength={12}
                 value={newAccount.password}
+                aria-invalid={Boolean(newAccountErrors.password)}
+                aria-describedby="admin-password-help"
                 onChange={(event) => {
                   setNewAccount((current) => ({ ...current, password: event.target.value }));
                 }}
               />
+              <p id="admin-password-help" className="text-xs text-muted-foreground">
+                At least 12 characters and 3 character classes.
+              </p>
+              {newAccountErrors.password && <p className="text-xs text-destructive">{newAccountErrors.password}</p>}
             </div>
             <div>
               <Label htmlFor="admin-role" data-help="Role whose capability matrix applies.">
@@ -300,20 +361,13 @@ export function PermissionsPage(): JSX.Element {
               </select>
             </div>
             <Button
+              type="submit"
               className="self-end"
-              disabled={
-                createAccount.isPending ||
-                !newAccount.name.trim() ||
-                !newAccount.email.trim() ||
-                newAccount.password.length < 12
-              }
-              onClick={() => {
-                createAccount.mutate();
-              }}
+              disabled={createAccount.isPending}
             >
-              <Plus className="h-4 w-4" /> Create admin
+              <Plus className="h-4 w-4" /> {createAccount.isPending ? "Creating…" : "Create admin"}
             </Button>
-          </div>
+          </form>
 
           <div className="space-y-3">
             {accounts.isLoading && <p className="text-sm text-muted-foreground">Loading users…</p>}

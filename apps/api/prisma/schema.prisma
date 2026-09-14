@@ -65,6 +65,9 @@ model Program {
   coalitionAccounts             CoalitionAccount[]
   coalitionConfig               CoalitionConfig?
   adminUsers                    AdminUser[]
+  approvalWorkflows             ApprovalWorkflow[]
+  approvalRequests              ApprovalRequest[]
+  approvalDecisions             ApprovalDecision[]
   events                        Event[]
   apiKeys                       ApiKey[]
   webhookSubscriptions          WebhookSubscription[]
@@ -472,13 +475,15 @@ model PointExchangeRequest {
   cancelledAt         DateTime?
   cancelledBy         String?
   cancellationReason  String?
+  approvalRequestId   String?             @unique
   metadata            Json?               @default("{}")
 
-  program      Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
-  member       Member                  @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  pointType    PointTypeDefinition     @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
-  exchangeRate PointExchangeRate       @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
-  transaction  CustomPointTransaction?
+  program         Program                 @relation(fields: [programId], references: [id], onDelete: Restrict)
+  member          Member                  @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  pointType       PointTypeDefinition     @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  exchangeRate    PointExchangeRate       @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+  transaction     CustomPointTransaction?
+  approvalRequest ApprovalRequest?        @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull)
 
   @@unique([programId, idempotencyKey])
   @@unique([programId, documentNumber])
@@ -1206,6 +1211,7 @@ model RewardRedemption {
   memberId           String
   pointTypeId        String?
   pointTransactionId String?                 @unique
+  approvalRequestId  String?                 @unique
   pointsSpent        Int
   fulfillmentStatus  RewardFulfillmentStatus @default(PENDING)
   fulfilledAt        DateTime?
@@ -1213,9 +1219,10 @@ model RewardRedemption {
   redeemedAt         DateTime                @default(now())
   metadata           Json?                   @default("{}")
 
-  reward    Reward               @relation(fields: [rewardId], references: [id], onDelete: Restrict)
-  member    Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  pointType PointTypeDefinition? @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
+  reward          Reward               @relation(fields: [rewardId], references: [id], onDelete: Restrict)
+  member          Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  pointType       PointTypeDefinition? @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
+  approvalRequest ApprovalRequest?     @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull)
 
   @@index([rewardId])
   @@index([memberId])
@@ -1423,13 +1430,182 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  program         Program         @relation(fields: [programId], references: [id], onDelete: Restrict)
-  auditLogs       AuditLog[]
-  sessions        AdminSession[]
-  giftCardBatches GiftCardBatch[]
+  program           Program                    @relation(fields: [programId], references: [id], onDelete: Restrict)
+  auditLogs         AuditLog[]
+  sessions          AdminSession[]
+  giftCardBatches   GiftCardBatch[]
+  workflowAssignees ApprovalWorkflowAssignee[]
+  approvalDecisions ApprovalDecision[]
 
   @@index([programId])
   @@index([email])
+}
+
+enum WorkflowApprovalMode {
+  ANY
+  ALL
+  COUNT
+}
+
+enum WorkflowSelfApprovalPolicy {
+  DENY
+  ALLOW
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalRequestStepStatus {
+  WAITING
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum ApprovalDecisionType {
+  APPROVE
+  REJECT
+}
+
+/// A single reusable workflow per program/action key. CUSTOM keys support
+/// future modules without another schema migration.
+model ApprovalWorkflow {
+  id                 String                     @id @default(cuid())
+  programId          String
+  actionKey          String
+  name               String
+  description        String?
+  priority           Int                        @default(0)
+  scope              Json                       @default("{}")
+  selfApprovalPolicy WorkflowSelfApprovalPolicy @default(DENY)
+  isActive           Boolean                    @default(false)
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  program  Program                @relation(fields: [programId], references: [id], onDelete: Cascade)
+  steps    ApprovalWorkflowStep[]
+  requests ApprovalRequest[]
+
+  @@index([programId, actionKey, isActive, priority])
+  @@index([programId, isActive])
+}
+
+model ApprovalWorkflowStep {
+  id                    String               @id @default(cuid())
+  workflowId            String
+  stepOrder             Int
+  name                  String
+  approvalMode          WorkflowApprovalMode @default(ANY)
+  requiredApprovalCount Int                  @default(1)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  workflow  ApprovalWorkflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  assignees ApprovalWorkflowAssignee[]
+
+  @@unique([workflowId, stepOrder])
+  @@index([workflowId, stepOrder])
+}
+
+model ApprovalWorkflowAssignee {
+  id          String     @id @default(cuid())
+  stepId      String
+  adminUserId String?
+  role        AdminRole?
+  createdAt   DateTime   @default(now())
+
+  step      ApprovalWorkflowStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  adminUser AdminUser?           @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@unique([stepId, adminUserId])
+  @@unique([stepId, role])
+  @@index([adminUserId])
+}
+
+/// Runtime request. The request and child steps contain snapshots so edits to
+/// the workflow definition never rewrite an in-flight or historical decision.
+model ApprovalRequest {
+  id                String                @id @default(cuid())
+  programId         String
+  workflowId        String
+  actionKey         String
+  status            ApprovalRequestStatus @default(PENDING)
+  requestedByType   String
+  requestedById     String
+  requesterAdminId  String?
+  subjectType       String
+  subjectId         String
+  payload           Json                  @default("{}")
+  scopeSnapshot     Json                  @default("{}")
+  workflowSnapshot  Json                  @default("{}")
+  currentStepOrder  Int?
+  idempotencyKey    String?
+  requestedAt       DateTime              @default(now())
+  resolvedAt        DateTime?
+  resolvedBy        String?
+  resolutionComment String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  program          Program               @relation(fields: [programId], references: [id], onDelete: Restrict)
+  workflow         ApprovalWorkflow      @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+  steps            ApprovalRequestStep[]
+  decisions        ApprovalDecision[]
+  pointExchange    PointExchangeRequest?
+  rewardRedemption RewardRedemption?
+
+  @@unique([programId, actionKey, idempotencyKey])
+  @@index([programId, status, requestedAt])
+  @@index([programId, actionKey, subjectType, subjectId])
+  @@index([requesterAdminId])
+}
+
+model ApprovalRequestStep {
+  id                    String                    @id @default(cuid())
+  approvalRequestId     String
+  stepOrder             Int
+  name                  String
+  approvalMode          WorkflowApprovalMode      @default(ANY)
+  requiredApprovalCount Int                       @default(1)
+  assigneesSnapshot     Json                      @default("[]")
+  status                ApprovalRequestStepStatus @default(WAITING)
+  openedAt              DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime                  @default(now())
+
+  approvalRequest ApprovalRequest    @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  decisions       ApprovalDecision[]
+
+  @@unique([approvalRequestId, stepOrder])
+  @@index([approvalRequestId, status])
+}
+
+/// Immutable actor decision. No updatedAt is intentional.
+model ApprovalDecision {
+  id                String               @id @default(cuid())
+  programId         String
+  approvalRequestId String
+  stepId            String
+  approverAdminId   String
+  decision          ApprovalDecisionType
+  comment           String?
+  createdAt         DateTime             @default(now())
+
+  program         Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest     @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  step            ApprovalRequestStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  approver        AdminUser           @relation(fields: [approverAdminId], references: [id], onDelete: Restrict)
+
+  @@unique([stepId, approverAdminId])
+  @@index([programId, approverAdminId, createdAt])
+  @@index([approvalRequestId, createdAt])
 }
 
 /// Capability overrides keep role names understandable while allowing each

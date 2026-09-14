@@ -19,10 +19,17 @@ const loginSchema = z.object({
 });
 
 const configurableAdminRoleSchema = z.enum(["OPERATOR", "ANALYST"]);
+const adminPasswordSchema = z
+  .string()
+  .min(12, "Password must be at least 12 characters")
+  .max(200)
+  .refine((value) => [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z\d]/].filter((pattern) => pattern.test(value)).length >= 3, {
+    message: "Password must use at least 3 of lowercase, uppercase, number and symbol",
+  });
 const createAdminUserSchema = z.object({
   email: z.string().email().toLowerCase(),
   name: z.string().trim().min(1).max(160),
-  password: z.string().min(12).max(200),
+  password: adminPasswordSchema,
   role: configurableAdminRoleSchema,
 });
 const updateAdminUserSchema = z
@@ -30,7 +37,7 @@ const updateAdminUserSchema = z
     name: z.string().trim().min(1).max(160).optional(),
     role: configurableAdminRoleSchema.optional(),
     isActive: z.boolean().optional(),
-    password: z.string().min(12).max(200).optional(),
+    password: adminPasswordSchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, "At least one change is required");
 

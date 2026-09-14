@@ -12,6 +12,34 @@ interface RequestOptions extends Omit<RequestInit, "headers"> {
   headers?: Record<string, string>;
 }
 
+interface ApiErrorBody {
+  message?: string;
+  details?: unknown;
+}
+
+function errorMessage(body: { error?: ApiErrorBody }, fallback: string): string {
+  const details = body.error?.details;
+  if (Array.isArray(details)) {
+    const messages = details
+      .map((detail) => {
+        if (!detail || typeof detail !== "object") return null;
+        const item = detail as { path?: unknown[]; message?: unknown };
+        const path = Array.isArray(item.path) ? item.path.filter(Boolean).join(".") : "field";
+        return typeof item.message === "string" ? `${path}: ${item.message}` : null;
+      })
+      .filter((message): message is string => Boolean(message));
+    if (messages.length) return messages.join("; ");
+  }
+  const message = body.error?.message;
+  if (message && /^[A-Z0-9_]+$/.test(message)) {
+    return message
+      .toLowerCase()
+      .replaceAll("_", " ")
+      .replace(/^./, (character) => character.toUpperCase());
+  }
+  return message ?? fallback;
+}
+
 let adminCredentialMode = false;
 
 export function isAdminAuthenticated(): boolean {
@@ -46,11 +74,11 @@ export async function adminLogin(
 
   const body = (await response.json()) as {
     data?: unknown;
-    error?: { message: string };
+    error?: ApiErrorBody;
   };
 
   if (!response.ok) {
-    return { ok: false, error: body.error?.message ?? "Login failed" };
+    return { ok: false, error: errorMessage(body, "Login failed") };
   }
 
   adminCredentialMode = true;
@@ -86,8 +114,8 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
 
   const contentType = response.headers.get("content-type") ?? "";
   const body = contentType.includes("application/json")
-    ? ((await response.json()) as { error?: { message: string }; data?: T })
-    : ({} as { error?: { message: string }; data?: T });
+    ? ((await response.json()) as { error?: ApiErrorBody; data?: T })
+    : ({} as { error?: ApiErrorBody; data?: T });
 
   if (!response.ok) {
     // If admin session expired, redirect to login
@@ -95,7 +123,7 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
       adminCredentialMode = false;
       window.location.href = appUrl("/login");
     }
-    throw new Error(body.error?.message ?? `Request failed with status ${String(response.status)}`);
+    throw new Error(errorMessage(body, `Request failed with status ${String(response.status)}`));
   }
 
   return body.data as T;

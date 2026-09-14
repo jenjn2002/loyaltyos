@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { AutoFieldHelp } from "@/components/ui/auto-field-help";
 import { HelpTooltipProvider } from "@/components/ui/help-tooltip";
 import { restoreAdminSession } from "@/lib/api-client";
+import { ApprovalsPage } from "@/pages/approvals";
 import { BadgeEditorPage } from "@/pages/badge-editor";
 import { BadgesListPage } from "@/pages/badges-list";
 import { CampaignBuilderPage } from "@/pages/campaign-builder";
@@ -34,6 +35,7 @@ import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
 import { SegmentBuilderPage } from "@/pages/segment-builder";
 import { SegmentsListPage } from "@/pages/segments-list";
 import { TiersListPage } from "@/pages/tiers-list";
+import { WorkflowsPage } from "@/pages/workflows";
 
 function AdminGuard({ children }: { children: ReactNode }): JSX.Element {
   const location = useLocation();
@@ -88,6 +90,8 @@ export function App(): JSX.Element {
           <Route path="/point-types/new" element={<PointTypesPage view="editor" />} />
           <Route path="/point-types/:id/edit" element={<PointTypesPage view="editor" />} />
           <Route path="/permissions" element={<PermissionsPage />} />
+          <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/campaigns" element={<CampaignsListPage />} />
           <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
           <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />

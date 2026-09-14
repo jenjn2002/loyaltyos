@@ -13,6 +13,7 @@ import {
   Ticket,
   Users,
   WalletCards,
+  Workflow,
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -59,6 +60,18 @@ export function Sidebar(): JSX.Element {
       label: "Roles & Permissions",
       icon: ShieldCheck,
       capability: "permission.manage",
+    },
+    {
+      to: "/workflows",
+      label: "Workflows",
+      icon: Workflow,
+      capability: "workflow.view",
+    },
+    {
+      to: "/approvals",
+      label: "Approval inbox",
+      icon: ShieldCheck,
+      capability: "approval.inbox",
     },
     {
       to: "/campaigns",

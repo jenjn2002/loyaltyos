@@ -26,10 +26,22 @@
 		reverse_proxy portal:80
 	}
 
-	@root path /
-	redir @root /customer/ 302
+	@adminDomainRoot {
+		host adminloyalty.trunglocxoay.store
+		path /
+	}
+	redir @adminDomainRoot /admin/ 302
 
-	# Unknown paths are sent to the customer entry point.
+	@customerRootPath path /
+	redir @customerRootPath /customer/ 302
+
+	# Unknown paths on the admin hostname return to Admin; other hostnames
+	# return to the customer entry point.
+	@adminDomain host adminloyalty.trunglocxoay.store
+	handle @adminDomain {
+		redir /admin/ 302
+	}
+
 	handle {
 		redir /customer/ 302
 	}

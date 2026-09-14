@@ -9,6 +9,7 @@ import type {
 } from "@prisma/client";
 
 import { prisma } from "../db.js";
+import { createApprovalRequestWithClient } from "./approval-workflows.js";
 import { LoyaltyError } from "./errors.js";
 
 export const POINT_TYPE_CODES = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
@@ -1596,7 +1597,36 @@ export class WalletService {
           payoutType: request.payoutType,
         },
       });
-      return { request, transaction: debit.transaction, idempotent: false };
+      const approvalRequest = await createApprovalRequestWithClient(tx, {
+        programId,
+        actionKey: "POINT_EXCHANGE",
+        requestedByType: "MEMBER",
+        requestedById: memberId,
+        subjectType: "PointExchangeRequest",
+        subjectId: request.id,
+        payload: {
+          documentNumber: request.documentNumber,
+          memberId,
+          pointTypeId: pointType.id,
+          amount: request.amount,
+          valueMinor: request.valueMinor,
+          currency: request.currency,
+          payoutType: request.payoutType,
+        },
+        idempotencyKey: `point-exchange:${request.id}`,
+        scopeContext: {
+          pointTypeId: pointType.id,
+          amount: request.amount,
+          valueMinor: request.valueMinor,
+        },
+      });
+      const linkedRequest = approvalRequest
+        ? await tx.pointExchangeRequest.update({
+            where: { id: request.id },
+            data: { approvalRequestId: approvalRequest.id },
+          })
+        : request;
+      return { request: linkedRequest, transaction: debit.transaction, idempotent: false };
     });
   }
 
@@ -1635,7 +1665,19 @@ export class WalletService {
     actor: LedgerActor,
     details: { note?: string; reference?: string; reason?: string } = {},
   ) {
-    return this.db.$transaction(async (tx) => {
+    return this.db.$transaction((tx) =>
+      this.updateExchangeRequestWithTransaction(tx, programId, requestId, status, actor, details),
+    );
+  }
+
+  async updateExchangeRequestWithTransaction(
+    tx: Tx,
+    programId: string,
+    requestId: string,
+    status: "APPROVED" | "COMPLETED" | "CANCELLED" | "REJECTED",
+    actor: LedgerActor,
+    details: { note?: string; reference?: string; reason?: string } = {},
+  ) {
       const request = await tx.pointExchangeRequest.findFirst({
         where: { id: requestId, programId },
         include: { pointType: true, transaction: true },
@@ -1709,7 +1751,6 @@ export class WalletService {
               : request.cancellationReason,
         },
       });
-    });
   }
 
   async redeemReward(
@@ -1733,8 +1774,14 @@ export class WalletService {
           throw new LoyaltyError("POINT_IDEMPOTENCY_CONFLICT", 409);
         const redemption = await tx.rewardRedemption.findUnique({
           where: { pointTransactionId: existing.id },
+          include: { approvalRequest: true },
         });
-        return { transaction: existing, redemption, idempotent: true };
+        return {
+          transaction: existing,
+          redemption,
+          approvalRequest: redemption?.approvalRequest ?? null,
+          idempotent: true,
+        };
       }
       const [reward, member, pointType] = await Promise.all([
         tx.reward.findFirst({
@@ -1797,7 +1844,38 @@ export class WalletService {
           metadata: { idempotencyKey },
         },
       });
-      return { transaction: debit.transaction, redemption, idempotent: false };
+      const approvalRequest = await createApprovalRequestWithClient(tx, {
+        programId,
+        actionKey: "REWARD_REDEMPTION",
+        requestedByType: "MEMBER",
+        requestedById: memberId,
+        subjectType: "RewardRedemption",
+        subjectId: redemption.id,
+        payload: {
+          rewardId: reward.id,
+          rewardCategory: reward.category,
+          memberId,
+          pointTypeId: pointType.id,
+          amount: price.amount,
+        },
+        idempotencyKey: `reward-redemption:${redemption.id}`,
+        scopeContext: {
+          rewardId: reward.id,
+          rewardCategory: reward.category,
+        },
+      });
+      const linkedRedemption = approvalRequest
+        ? await tx.rewardRedemption.update({
+            where: { id: redemption.id },
+            data: { approvalRequestId: approvalRequest.id },
+          })
+        : redemption;
+      return {
+        transaction: debit.transaction,
+        redemption: linkedRedemption,
+        approvalRequest,
+        idempotent: false,
+      };
     });
   }
 
@@ -1808,65 +1886,89 @@ export class WalletService {
     reason: string,
   ) {
     if (!reason.trim()) throw new LoyaltyError("POINT_REASON_REQUIRED", 400);
-    return this.db.$transaction(async (tx) => {
-      const redemption = await tx.rewardRedemption.findFirst({
-        where: { id: redemptionId, reward: { programId } },
-        include: { reward: true, pointType: true },
+    return this.db.$transaction((tx) =>
+      this.cancelRewardRedemptionWithTransaction(tx, programId, redemptionId, actor, reason, true),
+    );
+  }
+
+  async cancelRewardRedemptionWithTransaction(
+    tx: Tx,
+    programId: string,
+    redemptionId: string,
+    actor: LedgerActor,
+    reason: string,
+    cancelApprovalRequest: boolean,
+  ) {
+    const redemption = await tx.rewardRedemption.findFirst({
+      where: { id: redemptionId, reward: { programId } },
+      include: { reward: true, pointType: true },
+    });
+    if (!redemption) throw new LoyaltyError("REWARD_REDEMPTION_NOT_FOUND", 404);
+    if (redemption.fulfillmentStatus === "CANCELLED") return redemption;
+    if (redemption.fulfillmentStatus === "FULFILLED")
+      throw new LoyaltyError("REWARD_REDEMPTION_ALREADY_FULFILLED", 409);
+    if (!redemption.pointType || !redemption.pointTransactionId)
+      throw new LoyaltyError("REWARD_REDEMPTION_LEGACY_REFUND_REQUIRED", 409);
+    const original = await tx.customPointTransaction.findUnique({
+      where: { id: redemption.pointTransactionId },
+    });
+    if (!original) throw new LoyaltyError("POINT_TRANSACTION_NOT_FOUND", 404);
+    const consumedLots =
+      original.metadata &&
+      typeof original.metadata === "object" &&
+      !Array.isArray(original.metadata) &&
+      Array.isArray((original.metadata as Record<string, unknown>).consumedLots)
+        ? ((original.metadata as Record<string, unknown>).consumedLots as {
+            amount: number;
+            expiresAt: string | null;
+          }[])
+        : [];
+    await creditWallet(tx, {
+      memberId: redemption.memberId,
+      programId,
+      pointType: redemption.pointType,
+      amount: redemption.pointsSpent,
+      action: "REVERSAL",
+      source: "admin:reward-cancel",
+      idempotencyKey: `reward-refund:${redemption.id}`,
+      reason: reason.trim(),
+      actor,
+      restoredLots:
+        consumedLots.length > 0
+          ? consumedLots.map((lot) => ({
+              amount: lot.amount,
+              expiresAt: lot.expiresAt ? new Date(lot.expiresAt) : null,
+            }))
+          : undefined,
+      metadata: {
+        rewardId: redemption.rewardId,
+        redemptionId: redemption.id,
+        reversedTransactionId: original.id,
+      },
+    });
+    if (redemption.reward.stock != null) {
+      await tx.reward.update({
+        where: { id: redemption.rewardId },
+        data: { stock: { increment: 1 } },
       });
-      if (!redemption) throw new LoyaltyError("REWARD_REDEMPTION_NOT_FOUND", 404);
-      if (redemption.fulfillmentStatus === "CANCELLED") return redemption;
-      if (redemption.fulfillmentStatus === "FULFILLED")
-        throw new LoyaltyError("REWARD_REDEMPTION_ALREADY_FULFILLED", 409);
-      if (!redemption.pointType || !redemption.pointTransactionId)
-        throw new LoyaltyError("REWARD_REDEMPTION_LEGACY_REFUND_REQUIRED", 409);
-      const original = await tx.customPointTransaction.findUnique({
-        where: { id: redemption.pointTransactionId },
-      });
-      if (!original) throw new LoyaltyError("POINT_TRANSACTION_NOT_FOUND", 404);
-      const consumedLots =
-        original.metadata &&
-        typeof original.metadata === "object" &&
-        !Array.isArray(original.metadata) &&
-        Array.isArray((original.metadata as Record<string, unknown>).consumedLots)
-          ? ((original.metadata as Record<string, unknown>).consumedLots as {
-              amount: number;
-              expiresAt: string | null;
-            }[])
-          : [];
-      await creditWallet(tx, {
-        memberId: redemption.memberId,
-        programId,
-        pointType: redemption.pointType,
-        amount: redemption.pointsSpent,
-        action: "REVERSAL",
-        source: "admin:reward-cancel",
-        idempotencyKey: `reward-refund:${redemption.id}`,
-        reason: reason.trim(),
-        actor,
-        restoredLots:
-          consumedLots.length > 0
-            ? consumedLots.map((lot) => ({
-                amount: lot.amount,
-                expiresAt: lot.expiresAt ? new Date(lot.expiresAt) : null,
-              }))
-            : undefined,
-        metadata: {
-          rewardId: redemption.rewardId,
-          redemptionId: redemption.id,
-          reversedTransactionId: original.id,
+    }
+    const updated = await tx.rewardRedemption.update({
+      where: { id: redemption.id },
+      data: { fulfillmentStatus: "CANCELLED", cancelledAt: new Date() },
+    });
+    if (cancelApprovalRequest && redemption.approvalRequestId) {
+      await tx.approvalRequest.updateMany({
+        where: { id: redemption.approvalRequestId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          currentStepOrder: null,
+          resolvedAt: new Date(),
+          resolvedBy: actor.id,
+          resolutionComment: reason.trim(),
         },
       });
-      if (redemption.reward.stock != null) {
-        await tx.reward.update({
-          where: { id: redemption.rewardId },
-          data: { stock: { increment: 1 } },
-        });
-      }
-      return tx.rewardRedemption.update({
-        where: { id: redemption.id },
-        data: { fulfillmentStatus: "CANCELLED", cancelledAt: new Date() },
-      });
-    });
+    }
+    return updated;
   }
 
   async expire(programId: string): Promise<number> {
