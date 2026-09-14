@@ -2,13 +2,13 @@
 
 This profile works without a domain or TLS. After the first boot:
 
-- Customer portal: `http://SERVER_IP/customer/`
-- Admin: `http://SERVER_IP/admin/`
-- API: `http://SERVER_IP/api/`
-- Health: `http://SERVER_IP/healthz`
+- Customer portal: `http://SERVER_IP:8080/customer/`
+- Admin: `http://SERVER_IP:8081/admin/`
+- Health: `http://SERVER_IP:8080/healthz`
 
-The root URL redirects to `/customer/`. The default host HTTP port is `80`;
-set `HTTP_PORT` when the server exposes another port.
+The default stack has no Caddy, HTTPS, Grafana, Prometheus, or OpenTelemetry
+Collector. Set `CUSTOMER_HTTP_PORT` and `ADMIN_HTTP_PORT` to change the two
+public ports.
 
 ## Fresh install
 
@@ -51,11 +51,11 @@ docker compose \
   -f infra/docker/docker-compose.prod.yml \
   --env-file infra/docker/.env.production \
   ps
-curl -f http://SERVER_IP/healthz
+curl -f http://SERVER_IP:8080/healthz
 ```
 
-Open `http://SERVER_IP/customer/` for members or
-`http://SERVER_IP/admin/` for administrators. Log in with the initial admin
+Open `http://SERVER_IP:8080/customer/` for members or
+`http://SERVER_IP:8081/admin/` for administrators. Log in with the initial admin
 credentials from the env file.
 
 The API container runs `prisma migrate deploy` before starting the server,
@@ -63,26 +63,20 @@ then creates one minimal Program and one `SUPER_ADMIN` from the three
 `ADMIN_DEFAULT_*` values only when no admin exists. It does not run
 `apps/api/prisma/seed.ts`, create demo members, or overwrite existing admins.
 
-## HTTP, ports, and HTTPS
+## HTTP ports and external TLS
 
-The tracked Caddyfile uses configurable `CADDY_SITE_ADDRESS` and defaults to
-`:80`. It does not require TLS. Compose publishes `${HTTP_PORT}` to Caddy's
-port 80 and `${HTTPS_PORT}` to port 443; the latter can remain unused for a
-plain HTTP installation.
-
-For a domain with automatic HTTPS, update the env file:
+TLS is intentionally delegated to an external reverse proxy such as Traefik.
+Terminate HTTPS there and route customer traffic to port 8080 and admin traffic
+to port 8081. Then update the env file:
 
 ```dotenv
 PORTAL_URL=https://loyalty.example.com/customer
-CADDY_SITE_ADDRESS=loyalty.example.com
 COOKIE_SECURE=true
 CORS_ORIGINS=https://loyalty.example.com
 ```
 
-Point DNS at the server and allow ports 80 and 443 through the firewall. Caddy
-will obtain and renew the certificate. `COOKIE_SECURE=true` must only be used
-when the browser reaches the app through HTTPS; keep it `false` for the
-default HTTP/IP deployment.
+`COOKIE_SECURE=true` must only be used when the browser reaches the app through
+HTTPS; keep it `false` for the default HTTP/IP deployment.
 
 ## Email and optional integrations
 
@@ -131,16 +125,8 @@ explicitly during the upgrade so the intended transport policy is clear.
 | `postgres` |                  5432 | PostgreSQL 15 database          |
 | `redis`    |                  6379 | BullMQ queues and cache         |
 | `api`      |                  3002 | Fastify API and workers         |
-| `admin`    |                    80 | Admin React SPA                 |
-| `portal`   |                    80 | Customer React SPA              |
-| `caddy`    |              80 / 443 | HTTP routing and optional HTTPS |
+| `admin`    |          8081 → 80 | Admin React SPA and API proxy    |
+| `portal`   |          8080 → 80 | Customer React SPA and API proxy |
 
-Persistent data is stored in the `pgdata`, `redisdata`, `caddy_data`, and
-`caddy_config` Docker volumes. Monitoring services remain opt-in:
-
-```bash
-docker compose \
-  -f infra/docker/docker-compose.prod.yml \
-  --env-file infra/docker/.env.production \
-  --profile monitoring up -d
-```
+Persistent data is stored only in the `pgdata` and `redisdata` Docker volumes.
+Observability services are not part of the default production compose file.
