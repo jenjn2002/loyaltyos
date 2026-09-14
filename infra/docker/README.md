@@ -124,7 +124,7 @@ explicitly during the upgrade so the intended transport policy is clear.
 | ---------- | --------------------: | ------------------------------- |
 | `postgres` |                  5432 | PostgreSQL 15 database          |
 | `redis`    |                  6379 | BullMQ queues and cache         |
-| `api`      |                  3002 | Fastify API and workers         |
+| `api`      |       internal 3002 | Fastify API and workers          |
 | `admin`    |          8081 → 80 | Admin React SPA and API proxy    |
 | `portal`   |          8080 → 80 | Customer React SPA and API proxy |
 
