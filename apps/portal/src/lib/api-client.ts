@@ -1,5 +1,9 @@
 const API_BASE = "/api/v1";
 
+export function configuredProgramId(): string {
+  return sessionStorage.getItem("program-id") ?? "prog_dev";
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -11,7 +15,7 @@ export class ApiError extends Error {
 }
 
 export async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const programId = sessionStorage.getItem("program-id") ?? "prog_001";
+  const programId = configuredProgramId();
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,

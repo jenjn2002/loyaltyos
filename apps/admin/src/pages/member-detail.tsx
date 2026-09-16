@@ -1,12 +1,13 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,6 +42,12 @@ export function MemberDetailPage(): JSX.Element {
   const [statusReason, setStatusReason] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [credentialUsername, setCredentialUsername] = useState("");
+  const [credentialPassword, setCredentialPassword] = useState("");
+  const [credentialMessage, setCredentialMessage] = useState<string | null>(null);
+  const [identitySubject, setIdentitySubject] = useState("");
+  const [identityTenant, setIdentityTenant] = useState("");
+  const [identityEmail, setIdentityEmail] = useState("");
 
   const {
     data: member,
@@ -50,6 +57,96 @@ export function MemberDetailPage(): JSX.Element {
     queryKey: ["member", memberId],
     queryFn: () => fetchApi<Member>(`/members/${memberId}`),
     enabled: Boolean(memberId),
+  });
+
+  const admin = useQuery({
+    queryKey: ["admin-me"],
+    queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
+  });
+
+  useEffect(() => {
+    if (member) setCredentialUsername(member.username ?? "");
+  }, [member]);
+
+  const saveCredentials = useMutation({
+    mutationFn: () =>
+      fetchApi<{ username: string | null; credentialsConfigured: boolean }>(
+        `/admin/members/${memberId}/credentials`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            username: credentialUsername,
+            ...(credentialPassword ? { password: credentialPassword } : {}),
+          }),
+        },
+      ),
+    onSuccess: async () => {
+      setCredentialPassword("");
+      setCredentialMessage(t("members.credentialsSaved"));
+      await queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+    },
+    onError: (error: Error) => {
+      setCredentialMessage(error.message);
+    },
+  });
+
+  const removeCredentials = useMutation({
+    mutationFn: () =>
+      fetchApi<unknown>(`/admin/members/${memberId}/credentials`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setCredentialUsername("");
+      setCredentialPassword("");
+      setCredentialMessage(t("members.credentialsRemoved"));
+      await queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+    },
+    onError: (error: Error) => {
+      setCredentialMessage(error.message);
+    },
+  });
+
+  const identities = useQuery({
+    queryKey: ["member-identities", memberId],
+    queryFn: () =>
+      fetchApi<{ id: string; providerSubject: string; tenantId: string; email: string | null }[]>(
+        `/admin/members/${memberId}/microsoft-identities`,
+      ),
+    enabled: Boolean(memberId) && admin.data?.capabilities["member.credentials.manage"] !== false,
+  });
+
+  const linkIdentity = useMutation({
+    mutationFn: () =>
+      fetchApi(`/admin/members/${memberId}/microsoft-identities`, {
+        method: "POST",
+        body: JSON.stringify({
+          providerSubject: identitySubject,
+          tenantId: identityTenant,
+          ...(identityEmail ? { email: identityEmail } : {}),
+        }),
+      }),
+    onSuccess: async () => {
+      setIdentitySubject("");
+      setIdentityTenant("");
+      setIdentityEmail("");
+      setCredentialMessage(t("members.microsoftIdentityLinked"));
+      await queryClient.invalidateQueries({ queryKey: ["member-identities", memberId] });
+    },
+    onError: (error: Error) => {
+      setCredentialMessage(error.message);
+    },
+  });
+
+  const unlinkIdentity = useMutation({
+    mutationFn: (identityId: string) =>
+      fetchApi<unknown>(`/admin/members/${memberId}/microsoft-identities/${identityId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      setCredentialMessage(t("members.microsoftIdentityUnlinked"));
+      await queryClient.invalidateQueries({ queryKey: ["member-identities", memberId] });
+    },
+    onError: (error: Error) => {
+      setCredentialMessage(error.message);
+    },
   });
 
   const { data: wallets, isLoading: balanceLoading } = useQuery({
@@ -250,6 +347,150 @@ export function MemberDetailPage(): JSX.Element {
           </div>
         </CardContent>
       </Card>
+
+      {admin.data?.capabilities["member.credentials.manage"] !== false && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("members.portalAccess")}</CardTitle>
+            <CardDescription>{t("members.portalAccessDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="credential-username">{t("members.username")}</Label>
+                  <HelpTooltip label={t("members.portalUsernameHelpLabel")}>
+                    {t("members.portalUsernameHelp")}
+                  </HelpTooltip>
+                </div>
+                <Input
+                  id="credential-username"
+                  value={credentialUsername}
+                  onChange={(event) => {
+                    setCredentialUsername(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="credential-password">{t("members.resetPassword")}</Label>
+                  <HelpTooltip label={t("members.resetPasswordHelpLabel")}>
+                    {t("members.resetPasswordHelp")}
+                  </HelpTooltip>
+                </div>
+                <Input
+                  id="credential-password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={10}
+                  value={credentialPassword}
+                  onChange={(event) => {
+                    setCredentialPassword(event.target.value);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                disabled={saveCredentials.isPending || credentialUsername.trim().length < 3}
+                onClick={() => {
+                  saveCredentials.mutate();
+                }}
+              >
+                {t("members.saveCredentials")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={removeCredentials.isPending || !member?.credentialsConfigured}
+                onClick={() => {
+                  removeCredentials.mutate();
+                }}
+              >
+                {t("members.credentialsRemoved")}
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {member?.credentialsConfigured
+                  ? t("members.configured")
+                  : t("members.notConfigured")}
+              </span>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="mb-3 flex items-center gap-2 font-medium">
+                {t("members.microsoftIdentityLinks")}
+                <HelpTooltip label={t("members.microsoftIdentityLinksHelpLabel")}>
+                  {t("members.microsoftIdentityLinksHelp")}
+                </HelpTooltip>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Input
+                  aria-label={t("members.microsoftSubject")}
+                  placeholder={t("members.providerSubject")}
+                  value={identitySubject}
+                  onChange={(event) => {
+                    setIdentitySubject(event.target.value);
+                  }}
+                />
+                <Input
+                  aria-label={t("members.microsoftTenantId")}
+                  placeholder={t("members.tenantId")}
+                  value={identityTenant}
+                  onChange={(event) => {
+                    setIdentityTenant(event.target.value);
+                  }}
+                />
+                <Input
+                  aria-label={t("members.microsoftVerifiedEmail")}
+                  type="email"
+                  placeholder={t("members.verifiedEmailOptional")}
+                  value={identityEmail}
+                  onChange={(event) => {
+                    setIdentityEmail(event.target.value);
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                className="mt-3"
+                variant="outline"
+                disabled={linkIdentity.isPending || !identitySubject || !identityTenant}
+                onClick={() => {
+                  linkIdentity.mutate();
+                }}
+              >
+                {t("members.linkMicrosoftIdentity")}
+              </Button>
+              <div className="mt-3 space-y-2 text-sm">
+                {(identities.data ?? []).map((identity) => (
+                  <div
+                    key={identity.id}
+                    className="flex flex-wrap items-center gap-2 rounded bg-muted p-2"
+                  >
+                    <code>{identity.providerSubject}</code>
+                    <span>{identity.tenantId}</span>
+                    {identity.email && <span>{identity.email}</span>}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        unlinkIdentity.mutate(identity.id);
+                      }}
+                    >
+                      {t("members.unlink")}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {credentialMessage && (
+              <p className="text-sm text-muted-foreground">{credentialMessage}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Balance */}
       <div className="grid gap-6 lg:grid-cols-3">

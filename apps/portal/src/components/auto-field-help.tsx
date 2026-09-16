@@ -52,27 +52,14 @@ function attach(control: HTMLElement): void {
     label?.dataset.help ??
     DEFINITIONS.find(([pattern]) => pattern.test(clean))?.[1] ??
     `Defines how “${clean || "this field"}” is used for this action.`;
-  const marker = document.createElement("span");
-  marker.className = "auto-field-help";
-  marker.dataset.autoFieldHelp = "true";
-  marker.tabIndex = 0;
-  marker.setAttribute("aria-label", `Help: ${clean}`);
-  marker.innerHTML =
-    '<span aria-hidden="true">?</span><span class="auto-field-help__tooltip" role="tooltip"></span>';
-  const tooltip = marker.querySelector<HTMLElement>(".auto-field-help__tooltip");
-  if (tooltip) tooltip.textContent = description;
-  marker.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  if (label?.parentElement) {
-    const wrapper = document.createElement("span");
-    wrapper.className = "auto-field-help-wrapper";
-    wrapper.dataset.autoFieldHelpWrapper = "true";
-    label.parentElement.insertBefore(wrapper, label);
-    wrapper.append(label, marker);
+  // Only decorate React-owned nodes. Re-parenting labels caused intermittent
+  // reconciliation crashes on dynamic forms such as the Credits page.
+  if (label) {
+    label.classList.add("auto-field-help-label");
+    label.dataset.helpDescription = description;
+    label.title = description;
   } else {
-    control.parentElement?.insertBefore(marker, control);
+    control.title = description;
   }
 }
 
@@ -100,17 +87,13 @@ export function AutoFieldHelp(): null {
     observer.observe(document.body, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
-      document.querySelectorAll("[data-auto-field-help]").forEach((node) => {
-        node.remove();
-      });
-      document.querySelectorAll("[data-auto-field-help-wrapper]").forEach((node) => {
-        const parent = node.parentNode;
-        if (!parent) return;
-        while (node.firstChild) parent.insertBefore(node.firstChild, node);
-        node.remove();
-      });
       document.querySelectorAll<HTMLElement>("[data-field-help-attached]").forEach((node) => {
         delete node.dataset.fieldHelpAttached;
+      });
+      document.querySelectorAll<HTMLLabelElement>(".auto-field-help-label").forEach((label) => {
+        label.classList.remove("auto-field-help-label");
+        delete label.dataset.helpDescription;
+        label.removeAttribute("title");
       });
     };
   }, []);

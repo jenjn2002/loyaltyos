@@ -29,6 +29,7 @@ import { adminNotificationsRoutes } from "./routes/admin/notifications.js";
 import { adminProgramsRoutes } from "./routes/admin/programs.js";
 import { adminRewardsRoutes } from "./routes/admin/rewards.js";
 import { adminSegmentsRoutes } from "./routes/admin/segments.js";
+import { adminSettingsRoutes } from "./routes/admin/settings.js";
 import { adminTiersRoutes } from "./routes/admin/tiers.js";
 import { adminWorkflowsRoutes } from "./routes/admin/workflows.js";
 import { authRoutes } from "./routes/auth.js";
@@ -183,6 +184,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(adminCampaignsRoutes, { prefix: "/api/v1" });
   await app.register(statsRoutes, { prefix: "/api/v1" });
   await app.register(adminSegmentsRoutes, { prefix: "/api/v1" });
+  await app.register(adminSettingsRoutes, { prefix: "/api/v1" });
   await app.register(adminBadgesRoutes, { prefix: "/api/v1" });
   await app.register(adminTiersRoutes, { prefix: "/api/v1" });
   await app.register(adminCouponsRoutes, { prefix: "/api/v1" });

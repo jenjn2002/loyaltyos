@@ -8,6 +8,7 @@ export const ADMIN_CAPABILITIES = [
   "dashboard.view",
   "member.view",
   "member.manage",
+  "member.credentials.manage",
   "wallet.view",
   "wallet.adjust",
   "point_type.view",
@@ -31,6 +32,8 @@ export const ADMIN_CAPABILITIES = [
   "notification.manage",
   "audit.view",
   "permission.manage",
+  "settings.view",
+  "settings.manage",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -53,6 +56,8 @@ const ownerOnlyByDefault = new Set<AdminCapability>([
   "exchange.complete",
   "workflow.manage",
   "approval.decide",
+  "settings.manage",
+  "member.credentials.manage",
 ]);
 
 export function defaultCapability(role: AdminRole, capability: AdminCapability): boolean {
@@ -122,13 +127,13 @@ export function requireCapability(capability: AdminCapability): preHandlerAsyncH
 
 export function capabilityForAdminRequest(method: string, url: string): AdminCapability | null {
   const write = method !== "GET" && method !== "HEAD";
-  if (url.startsWith("/api/v1/admin/workflows"))
-    return write ? "workflow.manage" : "workflow.view";
+  if (url.startsWith("/api/v1/admin/workflows")) return write ? "workflow.manage" : "workflow.view";
   if (url.startsWith("/api/v1/admin/approvals")) {
     if (url.endsWith("/approve") || url.endsWith("/reject")) return "approval.decide";
     return url.includes("/inbox") ? "approval.inbox" : "approval.view";
   }
   if (url.startsWith("/api/v1/admin/permissions")) return "permission.manage";
+  if (url.startsWith("/api/v1/admin/settings")) return write ? "settings.manage" : "settings.view";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";
   if (url.startsWith("/api/v1/admin/members")) return write ? "member.manage" : "member.view";

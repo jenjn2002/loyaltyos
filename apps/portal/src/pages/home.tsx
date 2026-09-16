@@ -1,11 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Award, ChevronRight, Gift, Star, TrendingUp } from "lucide-react";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Award, ChevronRight, Gift, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
+import { MemberLoginForm } from "../components/member-login-form";
 import { fetchApi } from "../lib/api-client";
-import { isAuthenticated, sendMagicLink } from "../lib/auth";
+import { isAuthenticated } from "../lib/auth";
 import type { BadgeProgress, Balance, CreditBalance, Reward, TierStatus } from "../types";
 
 function BalanceCard({ balance }: { balance: Balance }) {
@@ -185,15 +185,6 @@ function BadgePreview({ badges }: { badges: BadgeProgress[] }) {
 export default function Home() {
   const { t } = useTranslation();
   const authed = isAuthenticated();
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-
-  const magicLinkMutation = useMutation({
-    mutationFn: () => sendMagicLink(email),
-    onSuccess: () => {
-      setSent(true);
-    },
-  });
 
   const balance = useQuery({
     queryKey: ["balance"],
@@ -236,36 +227,9 @@ export default function Home() {
             aria-hidden="true"
           />
           <p className="mt-4 text-lg font-medium">{t("login")}</p>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("checkEmail")}</p>
-          <form
-            className="mt-6 space-y-3 text-left"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (email) magicLinkMutation.mutate();
-            }}
-          >
-            <label className="block">
-              <span className="text-sm font-medium">{t("email")}</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                }}
-                className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={magicLinkMutation.isPending || !email}
-              className="w-full rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              <TrendingUp className="mr-2 inline h-4 w-4" />
-              {t("sendLink")}
-            </button>
-          </form>
-          {sent && <p className="mt-3 text-sm text-green-700">{t("checkEmail")}</p>}
+          <div className="mt-6 text-left">
+            <MemberLoginForm />
+          </div>
         </div>
       ) : (
         <>

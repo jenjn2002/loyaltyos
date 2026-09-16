@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bell,
-  CheckCircle,
   Download,
   Globe,
   LogOut,
@@ -14,9 +13,10 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { MemberLoginForm } from "../components/member-login-form";
 import { fetchApi, patchApi, postApi } from "../lib/api-client";
 import { appUrl } from "../lib/app-url";
-import { clearSession, getSession, isAuthenticated, sendMagicLink } from "../lib/auth";
+import { clearSession, getSession, isAuthenticated } from "../lib/auth";
 import { setUserLocale } from "../lib/i18n";
 import { applyTheme } from "../lib/theme";
 import type { MemberProfile } from "../types";
@@ -26,8 +26,6 @@ export default function Profile() {
   const authed = isAuthenticated();
   const session = getSession();
 
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState({
     firstName: "",
@@ -52,13 +50,6 @@ export default function Profile() {
     queryFn: () =>
       fetchApi<{ channel: string; optedIn: boolean }[]>(`/members/${memberId ?? ""}/preferences`),
     enabled: authed && !!memberId,
-  });
-
-  const magicLinkMutation = useMutation({
-    mutationFn: () => sendMagicLink(email, i18n.language),
-    onSuccess: () => {
-      setSent(true);
-    },
   });
 
   const gdprExportMutation = useMutation({
@@ -112,43 +103,7 @@ export default function Profile() {
       {!authed ? (
         <div className="space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
           <h2 className="text-lg font-semibold">{t("login")}</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (email) magicLinkMutation.mutate();
-            }}
-            className="space-y-3"
-          >
-            <label className="block">
-              <span className="text-sm font-medium">{t("email")}</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
-                className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={magicLinkMutation.isPending || !email}
-              className="w-full rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
-            >
-              <Mail className="mr-2 inline h-4 w-4" />
-              {t("sendLink")}
-            </button>
-          </form>
-          {sent && (
-            <div
-              className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800"
-              role="alert"
-            >
-              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{t("checkEmail")}</p>
-            </div>
-          )}
+          <MemberLoginForm />
         </div>
       ) : (
         <>

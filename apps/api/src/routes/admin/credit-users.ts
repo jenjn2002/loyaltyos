@@ -4,7 +4,8 @@ import { z } from "zod";
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
-import { requireCapability } from "../../lib/permissions.js";
+import { hashMemberPassword, validateMemberUsername } from "../../lib/member-auth.js";
+import { assertCapability, requireCapability } from "../../lib/permissions.js";
 import { walletService } from "../../lib/wallets.js";
 
 const bulkBodySchema = z.object({
@@ -23,6 +24,8 @@ interface ImportRow {
   department?: string;
   photoUrl?: string;
   status?: "ACTIVE" | "INACTIVE";
+  username?: string;
+  password?: string;
   points: Record<string, { amount: number; expiresAt?: string }>;
   validationErrors: string[];
 }
@@ -111,6 +114,8 @@ function normalizeRow(row: Record<string, unknown>): ImportRow {
     department: stringValue("department"),
     photoUrl: stringValue("photoUrl", "photo_url"),
     status: rawStatus === "ACTIVE" || rawStatus === "INACTIVE" ? rawStatus : undefined,
+    username: stringValue("username", "portal_username"),
+    password: stringValue("password", "initial_password"),
     points,
     validationErrors,
   };
@@ -154,6 +159,9 @@ export function adminCreditUsersRoutes(
       const body = bulkBodySchema.parse(request.body);
       const rows = await parseRows(body);
       if (rows.length === 0) throw new LoyaltyError("BULK_ROWS_REQUIRED", 400);
+      if (rows.some((row) => row.username ?? row.password)) {
+        await assertCapability(request, "member.credentials.manage");
+      }
       const pointTypes = await prisma.pointTypeDefinition.findMany({
         where: { programId: request.programId, archivedAt: null, isActive: true },
       });
@@ -176,6 +184,11 @@ export function adminCreditUsersRoutes(
             throw new LoyaltyError(row.validationErrors.join("; "), 400);
           if (!row.email && !row.externalId)
             throw new LoyaltyError("BULK_EMAIL_OR_EXTERNAL_ID_REQUIRED", 400);
+          const normalizedUsername = row.username ? validateMemberUsername(row.username) : null;
+          if (row.password && !normalizedUsername)
+            throw new LoyaltyError("USERNAME_REQUIRED_FOR_PASSWORD", 400);
+          if (normalizedUsername && row.password && row.password.length < 10)
+            throw new LoyaltyError("PASSWORD_TOO_SHORT", 400);
           if (row.status === "INACTIVE" && Object.keys(row.points).length > 0)
             throw new LoyaltyError("BULK_INACTIVE_MEMBER_CANNOT_RECEIVE_POINTS", 400);
           for (const [code, value] of Object.entries(row.points)) {
@@ -234,6 +247,43 @@ export function adminCreditUsersRoutes(
                     deletedAt: row.status === "INACTIVE" ? now : null,
                   },
                 });
+
+            if (normalizedUsername ?? row.password) {
+              const currentCredential = await tx.memberCredential.findUnique({
+                where: { memberId: member.id },
+              });
+              const username = normalizedUsername ?? currentCredential?.username;
+              if (!username) throw new LoyaltyError("USERNAME_REQUIRED", 400);
+              const passwordHash = row.password
+                ? await hashMemberPassword(row.password)
+                : undefined;
+              await tx.memberCredential.upsert({
+                where: { memberId: member.id },
+                create: {
+                  programId: request.programId,
+                  memberId: member.id,
+                  username: row.username?.trim() ?? username,
+                  usernameNormalized: username,
+                  passwordHash: passwordHash ?? null,
+                  passwordChangedAt: passwordHash ? new Date() : null,
+                },
+                update: {
+                  username: row.username?.trim() ?? username,
+                  usernameNormalized: username,
+                  ...(passwordHash ? { passwordHash, passwordChangedAt: new Date() } : {}),
+                },
+              });
+              await audit(
+                request.programId,
+                request.actor,
+                "CONFIG_CHANGE",
+                "member_credentials",
+                member.id,
+                { username, passwordReset: Boolean(passwordHash), batchId: batch.id },
+                undefined,
+                tx,
+              );
+            }
 
             const rowReason = `Bulk member import ${batch.id}, row ${String(index + 2)}`;
             const transactions = [];

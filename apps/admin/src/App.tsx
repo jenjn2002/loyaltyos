@@ -34,6 +34,7 @@ import { RewardsListPage } from "@/pages/rewards/rewards-list";
 import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
 import { SegmentBuilderPage } from "@/pages/segment-builder";
 import { SegmentsListPage } from "@/pages/segments-list";
+import { SettingsPage } from "@/pages/settings";
 import { TiersListPage } from "@/pages/tiers-list";
 import { WorkflowsPage } from "@/pages/workflows";
 
@@ -90,6 +91,7 @@ export function App(): JSX.Element {
           <Route path="/point-types/new" element={<PointTypesPage view="editor" />} />
           <Route path="/point-types/:id/edit" element={<PointTypesPage view="editor" />} />
           <Route path="/permissions" element={<PermissionsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/campaigns" element={<CampaignsListPage />} />

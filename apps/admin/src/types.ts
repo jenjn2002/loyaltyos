@@ -25,6 +25,9 @@ export interface Member {
   updatedAt: string;
   status?: "ACTIVE" | "INACTIVE";
   deactivatedAt?: string | null;
+  username?: string | null;
+  credentialsConfigured?: boolean;
+  passwordChangedAt?: string | null;
   pointWallets?: MemberPointWallet[];
 }
 

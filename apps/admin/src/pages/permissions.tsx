@@ -43,6 +43,10 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Manage members",
     description: "Create, edit, import, reactivate and offboard members.",
   },
+  "member.credentials.manage": {
+    label: "Manage member sign-in",
+    description: "Provision portal passwords and link or unlink Microsoft identities.",
+  },
   "wallet.view": {
     label: "View wallet ledger",
     description: "Read wallet transactions and recognition categories.",
@@ -137,6 +141,14 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Decide approvals",
     description: "Approve or reject the active layer of an assigned request.",
   },
+  "settings.view": {
+    label: "View settings",
+    description: "View program integration settings and masked configuration status.",
+  },
+  "settings.manage": {
+    label: "Manage settings",
+    description: "Configure and test Microsoft 365 sign-in for the program.",
+  },
 };
 
 export function PermissionsPage(): JSX.Element {
@@ -220,8 +232,7 @@ export function PermissionsPage(): JSX.Element {
     const passwordClasses = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z\d]/].filter((pattern) =>
       pattern.test(newAccount.password),
     ).length;
-    if (newAccount.password.length < 12)
-      errors.password = "Use at least 12 characters.";
+    if (newAccount.password.length < 12) errors.password = "Use at least 12 characters.";
     else if (passwordClasses < 3)
       errors.password = "Use at least 3 of lowercase, uppercase, number and symbol.";
     return errors;
@@ -300,7 +311,11 @@ export function PermissionsPage(): JSX.Element {
                   setNewAccount((current) => ({ ...current, name: event.target.value }));
                 }}
               />
-              {newAccountErrors.name && <p id="admin-name-error" className="text-xs text-destructive">{newAccountErrors.name}</p>}
+              {newAccountErrors.name && (
+                <p id="admin-name-error" className="text-xs text-destructive">
+                  {newAccountErrors.name}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="admin-email" data-help="Unique email used to sign in to Admin.">
@@ -316,7 +331,11 @@ export function PermissionsPage(): JSX.Element {
                   setNewAccount((current) => ({ ...current, email: event.target.value }));
                 }}
               />
-              {newAccountErrors.email && <p id="admin-email-error" className="text-xs text-destructive">{newAccountErrors.email}</p>}
+              {newAccountErrors.email && (
+                <p id="admin-email-error" className="text-xs text-destructive">
+                  {newAccountErrors.email}
+                </p>
+              )}
             </div>
             <div>
               <Label
@@ -339,7 +358,9 @@ export function PermissionsPage(): JSX.Element {
               <p id="admin-password-help" className="text-xs text-muted-foreground">
                 At least 12 characters and 3 character classes.
               </p>
-              {newAccountErrors.password && <p className="text-xs text-destructive">{newAccountErrors.password}</p>}
+              {newAccountErrors.password && (
+                <p className="text-xs text-destructive">{newAccountErrors.password}</p>
+              )}
             </div>
             <div>
               <Label htmlFor="admin-role" data-help="Role whose capability matrix applies.">
@@ -360,11 +381,7 @@ export function PermissionsPage(): JSX.Element {
                 <option value="ANALYST">Auditor</option>
               </select>
             </div>
-            <Button
-              type="submit"
-              className="self-end"
-              disabled={createAccount.isPending}
-            >
+            <Button type="submit" className="self-end" disabled={createAccount.isPending}>
               <Plus className="h-4 w-4" /> {createAccount.isPending ? "Creating…" : "Create admin"}
             </Button>
           </form>

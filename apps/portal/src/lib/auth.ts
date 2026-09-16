@@ -1,4 +1,4 @@
-import { fetchApi, postApi } from "./api-client";
+import { configuredProgramId, fetchApi, postApi } from "./api-client";
 
 interface AuthSession {
   token: string;
@@ -30,6 +30,36 @@ export function clearSession(): void {
 
 export function isAuthenticated(): boolean {
   return sessionStorage.getItem("member-id") !== null;
+}
+
+export interface AuthMethods {
+  password: boolean;
+  microsoft: boolean;
+}
+
+export async function getAuthMethods(): Promise<AuthMethods> {
+  return fetchApi<AuthMethods>("/auth/methods");
+}
+
+export async function loginWithPassword(username: string, password: string): Promise<AuthSession> {
+  const result = await postApi<{
+    sessionId: string;
+    expiresAt: string;
+    member: { id: string; programId: string };
+  }>("/auth/login", { username, password });
+  const session = {
+    token: result.sessionId,
+    memberId: result.member.id,
+    programId: result.member.programId,
+  };
+  setSession(session);
+  return session;
+}
+
+export function startMicrosoftLogin(): void {
+  window.location.assign(
+    `/api/v1/auth/microsoft?programId=${encodeURIComponent(configuredProgramId())}`,
+  );
 }
 
 export async function sendMagicLink(email: string, locale = "es-MX"): Promise<void> {

@@ -4,6 +4,7 @@ import {
   Banknote,
   Download,
   History,
+  Pencil,
   RefreshCw,
   Upload,
   WalletCards,
@@ -207,13 +208,14 @@ export function CreditsManagementPage({
   const [ledgerPage, setLedgerPage] = useState(1);
   const [rateTypeId, setRateTypeId] = useState("");
   const [ratePayout, setRatePayout] = useState<"CASH" | "NON_CASH">("NON_CASH");
-  const [rateValue, setRateValue] = useState("100");
+  const [rateValue, setRateValue] = useState("1");
   const [rateCurrency, setRateCurrency] = useState("USD");
   const [rateMechanism, setRateMechanism] = useState("Gift card");
   const [rateMin, setRateMin] = useState("1");
   const [rateMax, setRateMax] = useState("");
   const [ratePeriodLimit, setRatePeriodLimit] = useState("");
   const [ratePeriodDays, setRatePeriodDays] = useState("30");
+  const [sourceRate, setSourceRate] = useState<Rate | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
   const [cycleTypeId, setCycleTypeId] = useState("");
@@ -355,7 +357,7 @@ export function CreditsManagementPage({
         method: "POST",
         body: JSON.stringify({
           pointTypeId: rateTypeId,
-          valueMinorPerPoint: Number(rateValue),
+          valueMinorPerPoint: Math.round(Number(rateValue) * 100),
           currency: rateCurrency,
           payoutMechanism: rateMechanism,
           payoutType: ratePayout,
@@ -367,12 +369,31 @@ export function CreditsManagementPage({
       }),
     onSuccess: async () => {
       setNotice("New exchange-rate version activated.");
+      setSourceRate(null);
       await refresh();
     },
     onError: (error: Error) => {
       setNotice(error.message);
     },
   });
+
+  const editRateAsNewVersion = (rate: Rate): void => {
+    setSourceRate(rate);
+    setRateTypeId(rate.pointTypeId);
+    setRatePayout(rate.payoutType);
+    setRateValue(String(rate.valueMinorPerPoint / 100));
+    setRateCurrency(rate.currency);
+    setRateMechanism(rate.payoutMechanism);
+    setRateMin(String(rate.minPoints));
+    setRateMax(rate.maxPoints == null ? "" : String(rate.maxPoints));
+    setRatePeriodLimit(
+      rate.periodLimitPoints == null ? "" : String(rate.periodLimitPoints),
+    );
+    setRatePeriodDays(String(rate.periodDays));
+    setNotice(
+      `Version ${String(rate.version)} loaded. Saving will create a new version and preserve voucher history.`,
+    );
+  };
   const transitionExchange = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "approve" | "complete" | "cancel" }) => {
       const reason = action === "cancel" ? window.prompt("Cancellation reason") : null;
@@ -889,6 +910,12 @@ export function CreditsManagementPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {sourceRate && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  Editing from {sourceRate.pointType.name} · {sourceRate.payoutType} · v
+                  {sourceRate.version}. The original version remains unchanged for accounting history.
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <Field
                   id="rate-type"
@@ -939,13 +966,14 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-value"
-                  label="Minor currency units per point"
-                  help="Integer payout in minor units; 100 means 1.00 for a two-decimal currency."
+                  label="Currency value per point"
+                  help="Enter the normal currency amount; 1 means 1.00 per point."
                 >
                   <Input
                     id="rate-value"
                     type="number"
-                    min="1"
+                    min="0.01"
+                    step="0.01"
                     value={rateValue}
                     onChange={(event) => {
                       setRateValue(event.target.value);
@@ -1036,26 +1064,60 @@ export function CreditsManagementPage({
                   />
                 </Field>
               </div>
-              <Button
-                disabled={!rateTypeId || !rateMechanism || createRate.isPending}
-                onClick={() => {
-                  createRate.mutate();
-                }}
-              >
-                Activate new rate version
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={
+                    !rateTypeId ||
+                    !rateMechanism ||
+                    !Number.isFinite(Number(rateValue)) ||
+                    Number(rateValue) < 0.01 ||
+                    createRate.isPending
+                  }
+                  onClick={() => {
+                    createRate.mutate();
+                  }}
+                >
+                  {sourceRate ? "Save as new rate version" : "Activate new rate version"}
+                </Button>
+                {sourceRate && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setSourceRate(null);
+                    }}
+                  >
+                    Cancel editing
+                  </Button>
+                )}
+              </div>
               <div className="space-y-2">
                 {(rates.data ?? []).map((rate) => (
                   <div
                     key={rate.id}
-                    className={`flex justify-between rounded-md border p-3 text-sm ${rate.isActive ? "" : "opacity-50"}`}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${rate.isActive ? "" : "bg-muted/40 text-muted-foreground"}`}
                   >
-                    <span>
-                      {rate.pointType.name} · {rate.payoutType} · v{rate.version}
-                    </span>
-                    <span>
-                      {rate.valueMinorPerPoint} {rate.currency} / {rate.pointType.unitLabel}
-                    </span>
+                    <div>
+                      <span>
+                        {rate.pointType.name} · {rate.payoutType} · v{rate.version}
+                      </span>
+                      <span className="ml-2 rounded-full border px-2 py-0.5 text-xs">
+                        {rate.isActive ? "Active" : "Historical"}
+                      </span>
+                      <p className="mt-1 text-xs">
+                        {(rate.valueMinorPerPoint / 100).toFixed(2)} {rate.currency} / {rate.pointType.unitLabel} · {rate.payoutMechanism}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        editRateAsNewVersion(rate);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" /> Edit as new version
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -1089,7 +1151,8 @@ export function CreditsManagementPage({
                     </p>
                     <p>
                       Rate snapshot: v{item.exchangeRate.version} ·{" "}
-                      {item.exchangeRate.valueMinorPerPoint} minor units/{item.pointType.unitLabel}
+                      {(item.exchangeRate.valueMinorPerPoint / 100).toFixed(2)} {item.currency}/
+                      {item.pointType.unitLabel}
                     </p>
                     <p>
                       Method: {item.payoutType} · {item.payoutMechanism}

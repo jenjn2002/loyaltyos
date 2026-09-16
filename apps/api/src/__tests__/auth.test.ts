@@ -12,6 +12,22 @@ const mockPrisma = vi.hoisted(() => ({
     name: "Member",
     findFirst: vi.fn(),
     findUnique: vi.fn(),
+    update: vi.fn(),
+    findMany: vi.fn(),
+  },
+  memberCredential: {
+    findFirst: vi.fn(),
+  },
+  microsoftAuthConfig: {
+    findUnique: vi.fn(),
+  },
+  memberExternalIdentity: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+  },
+  auditLog: {
+    create: vi.fn(),
   },
   magicLinkToken: {
     create: vi.fn(),
@@ -96,9 +112,74 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mockApiKeyValid();
   mockPrisma.pointRule.findMany.mockResolvedValue([]);
+  mockPrisma.member.update.mockResolvedValue(memberFixture);
+  mockPrisma.auditLog.create.mockResolvedValue({});
   // Default: notification's findFirst gets a safe fallback
   mockPrisma.member.findFirst.mockResolvedValue(memberWithTiers);
   app = await buildApp({ logger: false });
+});
+
+describe("POST /auth/login", () => {
+  it("authenticates an active member by case-insensitive program username", async () => {
+    const { hashPassword } = await import("@loyaltyos/core");
+    mockPrisma.memberCredential.findFirst.mockResolvedValue({
+      id: "credential-1",
+      programId: "prog_dev",
+      memberId: "mem-1",
+      username: "Carlos.M",
+      usernameNormalized: "carlos.m",
+      passwordHash: await hashPassword("member-password"),
+      passwordChangedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      member: memberFixture,
+    });
+    mockPrisma.session.create.mockResolvedValue({
+      id: "member-session",
+      userId: "mem-1",
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      headers: { "x-program-id": "prog_dev" },
+      payload: { username: " CARLOS.M ", password: "member-password" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.member.id).toBe("mem-1");
+    expect(body.data.member.passwordHash).toBeUndefined();
+    expect(mockPrisma.memberCredential.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { programId: "prog_dev", usernameNormalized: "carlos.m" },
+      }),
+    );
+  });
+
+  it("returns the same generic error for missing credentials and inactive members", async () => {
+    mockPrisma.memberCredential.findFirst.mockResolvedValue(null);
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      headers: { "x-program-id": "prog_dev" },
+      payload: { username: "unknown", password: "wrong-password" },
+    });
+    expect(missing.statusCode).toBe(401);
+    expect(JSON.parse(missing.body).error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("does not expose Microsoft sign-in when it is disabled or unconfigured", async () => {
+    mockPrisma.microsoftAuthConfig.findUnique.mockResolvedValue({ enabled: false });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/auth/methods",
+      headers: { "x-program-id": "prog_dev" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toEqual({ password: true, microsoft: false });
+  });
 });
 
 // ── POST /auth/magic-link ──────────────────────────────────

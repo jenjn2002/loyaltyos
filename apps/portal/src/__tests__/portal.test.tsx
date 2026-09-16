@@ -59,8 +59,10 @@ describe("Portal", () => {
 
   it("profile page renders login form when not authenticated", () => {
     renderApp("/profile");
-    expect(screen.getByLabelText("Email")).toBeDefined();
-    expect(screen.getByRole("button", { name: /Send Magic Link/i })).toBeDefined();
+    expect(screen.getByLabelText("Username")).toBeDefined();
+    expect(screen.getByLabelText("Password")).toBeDefined();
+    expect(screen.getByRole("button", { name: /^Sign in$/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Microsoft 365/i })).toBeNull();
   });
 
   it("profile page shows sign out when authenticated", () => {

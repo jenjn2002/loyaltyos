@@ -71,6 +71,25 @@ function displayAmount(item: RecognitionFeedItem): number {
   return -amount;
 }
 
+export function formatExchangeValue(amount: number, currency: string): string {
+  const configuredCurrency = currency.trim();
+  const currencyAliases: Record<string, string> = {
+    "VNĐ": "VND",
+    VND: "VND",
+  };
+  const isoCurrency = currencyAliases[configuredCurrency.toUpperCase()] ?? configuredCurrency;
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: isoCurrency,
+    }).format(amount);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return `${new Intl.NumberFormat().format(amount)} ${configuredCurrency}`.trim();
+  }
+}
+
 export default function Credits(): JSX.Element {
   const queryClient = useQueryClient();
   const [sourcePointTypeId, setSourcePointTypeId] = useState("");
@@ -644,10 +663,7 @@ export default function Credits(): JSX.Element {
             <p className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm text-[var(--color-text-secondary)]">
               Preview:{" "}
               {activeRate
-                ? new Intl.NumberFormat(undefined, {
-                    style: "currency",
-                    currency: activeRate.currency,
-                  }).format(exchangeValueMinor / 100)
+                ? formatExchangeValue(exchangeValueMinor / 100, activeRate.currency)
                 : "Rate not configured"}
               {activeRate?.periodLimitPoints
                 ? ` · Limit ${activeRate.periodLimitPoints.toLocaleString()} every ${String(activeRate.periodDays)} days`

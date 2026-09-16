@@ -65,6 +65,9 @@ model Program {
   coalitionAccounts             CoalitionAccount[]
   coalitionConfig               CoalitionConfig?
   adminUsers                    AdminUser[]
+  memberCredentials             MemberCredential[]
+  memberExternalIdentities      MemberExternalIdentity[]
+  microsoftAuthConfig           MicrosoftAuthConfig?
   approvalWorkflows             ApprovalWorkflow[]
   approvalRequests              ApprovalRequest[]
   approvalDecisions             ApprovalDecision[]
@@ -117,6 +120,8 @@ model Member {
   events                         Event[]
   sessions                       Session[]
   magicLinkTokens                MagicLinkToken[]
+  credential                     MemberCredential?
+  externalIdentities             MemberExternalIdentity[]
   giftCardTransactions           GiftCardTransaction[]
   exchangeRequests               CreditExchangeRequest[]
   pointWallets                   CustomPointWallet[]
@@ -130,6 +135,65 @@ model Member {
   @@index([programId])
   @@index([email])
   @@index([deletedAt])
+}
+
+/// Optional portal credentials. Existing members without a row remain valid
+/// members but cannot sign in until an administrator provisions credentials.
+model MemberCredential {
+  id                 String    @id @default(cuid())
+  programId          String
+  memberId           String    @unique
+  username           String
+  usernameNormalized String
+  passwordHash       String?
+  passwordChangedAt  DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  member  Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, usernameNormalized])
+  @@index([programId, username])
+}
+
+/// Explicit external identities are scoped to a program and tenant. No
+/// provider token is stored; the identity is only used after OIDC validation.
+model MemberExternalIdentity {
+  id              String   @id @default(cuid())
+  programId       String
+  memberId        String
+  provider        String
+  providerSubject String
+  tenantId        String
+  email           String?
+  displayName     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  member  Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, provider, providerSubject, tenantId])
+  @@unique([programId, provider, tenantId, memberId])
+  @@index([programId, memberId])
+}
+
+/// Program-scoped Microsoft OIDC configuration. The client secret is always
+/// encrypted before persistence and is never returned by API responses.
+model MicrosoftAuthConfig {
+  id                    String   @id @default(cuid())
+  programId             String   @unique
+  enabled               Boolean  @default(false)
+  tenantId              String?
+  clientId              String?
+  encryptedClientSecret String?
+  scopes                String[] @default(["openid", "profile", "email"])
+  autoProvisionMembers  Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 }
 
 model PointAccount {

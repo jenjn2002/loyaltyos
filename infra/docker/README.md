@@ -58,6 +58,12 @@ Open `http://SERVER_IP:8080/customer/` for members or
 `http://SERVER_IP:8081/admin/` for administrators. Log in with the initial admin
 credentials from the env file.
 
+For Microsoft 365 sign-in, the Admin Settings page shows the exact callback URI.
+With `PORTAL_URL=http://SERVER_IP:8080/customer`, add
+`http://SERVER_IP:8080/api/v1/auth/microsoft/callback` as a Web redirect URI in
+the Azure App Registration. The URI is derived from the configured portal
+origin, not from request headers.
+
 The API container runs `prisma migrate deploy` before starting the server,
 then creates one minimal Program and one `SUPER_ADMIN` from the three
 `ADMIN_DEFAULT_*` values only when no admin exists. It does not run
@@ -120,13 +126,13 @@ explicitly during the upgrade so the intended transport policy is clear.
 
 ## Services and volumes
 
-| Service    | Default internal port | Purpose                         |
-| ---------- | --------------------: | ------------------------------- |
-| `postgres` |                  5432 | PostgreSQL 15 database          |
-| `redis`    |                  6379 | BullMQ queues and cache         |
-| `api`      |       internal 3002 | Fastify API and workers          |
-| `admin`    |          8081 → 80 | Admin React SPA and API proxy    |
-| `portal`   |          8080 → 80 | Customer React SPA and API proxy |
+| Service    | Default internal port | Purpose                          |
+| ---------- | --------------------: | -------------------------------- |
+| `postgres` |                  5432 | PostgreSQL 15 database           |
+| `redis`    |                  6379 | BullMQ queues and cache          |
+| `api`      |         internal 3002 | Fastify API and workers          |
+| `admin`    |             8081 → 80 | Admin React SPA and API proxy    |
+| `portal`   |             8080 → 80 | Customer React SPA and API proxy |
 
 Persistent data is stored only in the `pgdata` and `redisdata` Docker volumes.
 Observability services are not part of the default production compose file.

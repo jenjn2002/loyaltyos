@@ -4,9 +4,20 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
+import { audit } from "../lib/audit.js";
 import { LoyaltyError } from "../lib/errors.js";
+import {
+  hashMemberPassword,
+  memberCredentialSummary,
+  validateMemberUsername,
+} from "../lib/member-auth.js";
+import {
+  isMicrosoftTenantId,
+  MICROSOFT_PROVIDER,
+  normalizeMicrosoftTenantId,
+} from "../lib/microsoft-auth.js";
 import { notificationsService } from "../lib/notifications-setup.js";
-import { requireCapability } from "../lib/permissions.js";
+import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { walletService } from "../lib/wallets.js";
 
 const badges = new BadgesService(prisma);
@@ -22,6 +33,8 @@ const createMemberSchema = z.object({
   photoUrl: z.string().url().optional(),
   metadata: z.record(z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
+  username: z.string().trim().min(3).max(120).optional(),
+  password: z.string().min(10).max(1024).optional(),
 });
 
 const adjustSchema = z.object({
@@ -45,13 +58,55 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     { preHandler: [requireCapability("member.manage")] },
     async (request, reply) => {
       const body = createMemberSchema.parse(request.body);
-      const member = await prisma.member.create({
-        data: {
-          ...body,
-          metadata: body.metadata as Prisma.InputJsonValue,
-          programId: request.programId,
-        },
+      if (body.password && !body.username) {
+        throw new LoyaltyError("USERNAME_REQUIRED_FOR_PASSWORD", 400);
+      }
+      if (body.username ?? body.password)
+        await assertCapability(request, "member.credentials.manage");
+      const normalizedUsername = body.username ? validateMemberUsername(body.username) : null;
+      const passwordHash = body.password ? await hashMemberPassword(body.password) : null;
+      const member = await prisma.$transaction(async (tx) => {
+        const created = await tx.member.create({
+          data: {
+            externalId: body.externalId,
+            email: body.email,
+            phone: body.phone,
+            firstName: body.firstName,
+            lastName: body.lastName,
+            department: body.department,
+            photoUrl: body.photoUrl,
+            metadata: body.metadata as Prisma.InputJsonValue,
+            tags: body.tags,
+            programId: request.programId,
+          },
+        });
+        if (normalizedUsername) {
+          await tx.memberCredential.create({
+            data: {
+              programId: request.programId,
+              memberId: created.id,
+              username: body.username?.trim() ?? normalizedUsername,
+              usernameNormalized: normalizedUsername,
+              passwordHash,
+              passwordChangedAt: passwordHash ? new Date() : null,
+            },
+          });
+        }
+        return created;
       });
+      if (normalizedUsername) {
+        await audit(
+          request.programId,
+          request.actor,
+          "CONFIG_CHANGE",
+          "member_credentials",
+          member.id,
+          {
+            username: normalizedUsername,
+            passwordSet: Boolean(passwordHash),
+          },
+        );
+      }
       return reply.status(201).send({ data: member });
     },
   );
@@ -91,6 +146,9 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       const [members, total] = await Promise.all([
         prisma.member.findMany({
           where,
+          include: {
+            credential: { select: { username: true, passwordHash: true, passwordChangedAt: true } },
+          },
           skip: (query.page - 1) * query.pageSize,
           take: query.pageSize,
           orderBy: { createdAt: "desc" },
@@ -98,10 +156,14 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         prisma.member.count({ where }),
       ]);
       const items = await Promise.all(
-        members.map(async (member) => ({
-          ...member,
-          pointWallets: await walletService.memberWallets(member.id, request.programId, true),
-        })),
+        members.map(async (member) => {
+          const { credential, ...safeMember } = member;
+          return {
+            ...safeMember,
+            ...memberCredentialSummary(credential),
+            pointWallets: await walletService.memberWallets(member.id, request.programId, true),
+          };
+        }),
       );
 
       return reply.send({
@@ -235,6 +297,9 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
       const member = await prisma.member.findFirst({
         where: { id, programId: request.programId },
+        include: {
+          credential: { select: { username: true, passwordHash: true, passwordChangedAt: true } },
+        },
       });
       if (!member) {
         return reply
@@ -243,7 +308,10 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       }
       return reply.send({
         data: {
-          ...member,
+          ...(() => {
+            const { credential, ...safeMember } = member;
+            return { ...safeMember, ...memberCredentialSummary(credential) };
+          })(),
           pointWallets: await walletService.memberWallets(member.id, request.programId, true),
         },
       });
@@ -287,6 +355,219 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         data: data as Prisma.MemberUpdateInput,
       });
       return reply.send({ data: member });
+    },
+  );
+
+  const credentialsSchema = z.object({
+    username: z.string().trim().min(3).max(120).optional(),
+    password: z.string().min(10).max(1024).optional(),
+  });
+
+  app.put(
+    "/admin/members/:id/credentials",
+    { preHandler: [requireCapability("member.credentials.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = credentialsSchema.parse(request.body);
+      const member = await prisma.member.findFirst({
+        where: { id, programId: request.programId },
+        select: { id: true },
+      });
+      if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      const current = await prisma.memberCredential.findUnique({ where: { memberId: id } });
+      if (!current && !body.username) throw new LoyaltyError("USERNAME_REQUIRED", 400);
+      if (!current && !body.password) throw new LoyaltyError("PASSWORD_REQUIRED", 400);
+      const username = body.username ?? current?.username;
+      if (!username) throw new LoyaltyError("USERNAME_REQUIRED", 400);
+      const normalizedUsername = validateMemberUsername(username);
+      const passwordHash = body.password ? await hashMemberPassword(body.password) : undefined;
+      const credential = await prisma.$transaction(async (tx) => {
+        const updated = await tx.memberCredential.upsert({
+          where: { memberId: id },
+          create: {
+            programId: request.programId,
+            memberId: id,
+            username: username.trim(),
+            usernameNormalized: normalizedUsername,
+            passwordHash: passwordHash ?? null,
+            passwordChangedAt: passwordHash ? new Date() : null,
+          },
+          update: {
+            username: username.trim(),
+            usernameNormalized: normalizedUsername,
+            ...(passwordHash ? { passwordHash, passwordChangedAt: new Date() } : {}),
+          },
+        });
+        if (passwordHash) await tx.session.deleteMany({ where: { userId: id } });
+        return updated;
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "member_credentials", id, {
+        username: credential.username,
+        passwordReset: Boolean(passwordHash),
+      });
+      return reply.send({ data: memberCredentialSummary(credential) });
+    },
+  );
+
+  app.delete(
+    "/admin/members/:id/credentials",
+    { preHandler: [requireCapability("member.credentials.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const deleted = await prisma.$transaction(async (tx) => {
+        const removed = await tx.memberCredential.deleteMany({
+          where: { memberId: id, programId: request.programId },
+        });
+        if (removed.count > 0) await tx.session.deleteMany({ where: { userId: id } });
+        return removed;
+      });
+      if (deleted.count === 0) throw new LoyaltyError("CREDENTIALS_NOT_CONFIGURED", 404);
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "member_credentials", id, {
+        credentialsRemoved: true,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  const identitySchema = z.object({
+    providerSubject: z.string().trim().min(1).max(300),
+    tenantId: z.string().trim().min(1).max(120),
+    email: z.string().email().optional(),
+    displayName: z.string().trim().max(200).optional(),
+  });
+
+  app.get(
+    "/admin/members/:id/microsoft-identities",
+    { preHandler: [requireCapability("member.credentials.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const identities = await prisma.memberExternalIdentity.findMany({
+        where: { memberId: id, programId: request.programId },
+        select: {
+          id: true,
+          provider: true,
+          providerSubject: true,
+          tenantId: true,
+          email: true,
+          displayName: true,
+          createdAt: true,
+        },
+      });
+      return reply.send({ data: identities });
+    },
+  );
+
+  app.post(
+    "/admin/members/:id/microsoft-identities",
+    { preHandler: [requireCapability("member.credentials.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = identitySchema.parse(request.body);
+      if (!isMicrosoftTenantId(body.tenantId))
+        throw new LoyaltyError("MICROSOFT_TENANT_ID_INVALID", 400);
+      const tenantId = normalizeMicrosoftTenantId(body.tenantId);
+      const member = await prisma.member.findFirst({
+        where: { id, programId: request.programId },
+        select: { id: true, email: true },
+      });
+      if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      if (body.email && member.email?.toLowerCase() !== body.email.toLowerCase()) {
+        throw new LoyaltyError("IDENTITY_EMAIL_MISMATCH", 409);
+      }
+      const existing = await prisma.memberExternalIdentity.findFirst({
+        where: {
+          programId: request.programId,
+          provider: MICROSOFT_PROVIDER,
+          tenantId,
+          providerSubject: body.providerSubject,
+        },
+      });
+      if (existing && existing.memberId !== id)
+        throw new LoyaltyError("IDENTITY_ALREADY_LINKED", 409);
+      const memberTenantIdentity = await prisma.memberExternalIdentity.findFirst({
+        where: {
+          programId: request.programId,
+          memberId: id,
+          provider: MICROSOFT_PROVIDER,
+          tenantId,
+        },
+      });
+      if (memberTenantIdentity && memberTenantIdentity.providerSubject !== body.providerSubject) {
+        throw new LoyaltyError("MEMBER_MICROSOFT_IDENTITY_EXISTS", 409);
+      }
+      const identity = existing
+        ? await prisma.memberExternalIdentity.update({
+            where: { id: existing.id },
+            data: {
+              email: body.email?.toLowerCase() ?? member.email,
+              displayName: body.displayName,
+            },
+          })
+        : await prisma.memberExternalIdentity.create({
+            data: {
+              programId: request.programId,
+              memberId: id,
+              provider: MICROSOFT_PROVIDER,
+              providerSubject: body.providerSubject,
+              tenantId,
+              email: body.email?.toLowerCase() ?? member.email,
+              displayName: body.displayName,
+            },
+          });
+      await audit(
+        request.programId,
+        request.actor,
+        "CONFIG_CHANGE",
+        "member_external_identity",
+        identity.id,
+        {
+          provider: identity.provider,
+          tenantId: identity.tenantId,
+          memberId: identity.memberId,
+          email: identity.email,
+          linked: true,
+        },
+      );
+      return reply.status(existing ? 200 : 201).send({
+        data: {
+          id: identity.id,
+          provider: identity.provider,
+          providerSubject: identity.providerSubject,
+          tenantId: identity.tenantId,
+          email: identity.email,
+          displayName: identity.displayName,
+          createdAt: identity.createdAt,
+        },
+      });
+    },
+  );
+
+  app.delete(
+    "/admin/members/:id/microsoft-identities/:identityId",
+    { preHandler: [requireCapability("member.credentials.manage")] },
+    async (request, reply) => {
+      const { id, identityId } = z
+        .object({ id: z.string(), identityId: z.string() })
+        .parse(request.params);
+      const identity = await prisma.memberExternalIdentity.findFirst({
+        where: { id: identityId, memberId: id, programId: request.programId },
+      });
+      if (!identity) throw new LoyaltyError("IDENTITY_NOT_FOUND", 404);
+      await prisma.memberExternalIdentity.delete({ where: { id: identity.id } });
+      await audit(
+        request.programId,
+        request.actor,
+        "CONFIG_CHANGE",
+        "member_external_identity",
+        identity.id,
+        {
+          provider: identity.provider,
+          tenantId: identity.tenantId,
+          memberId: id,
+          unlinked: true,
+        },
+      );
+      return reply.status(204).send();
     },
   );
 

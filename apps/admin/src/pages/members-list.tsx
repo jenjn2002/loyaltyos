@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,6 +35,8 @@ interface NewMemberForm {
   firstName: string;
   lastName: string;
   externalId: string;
+  username: string;
+  password: string;
 }
 
 const emptyMemberForm: NewMemberForm = {
@@ -41,6 +44,8 @@ const emptyMemberForm: NewMemberForm = {
   firstName: "",
   lastName: "",
   externalId: "",
+  username: "",
+  password: "",
 };
 
 export function MembersListPage(): JSX.Element {
@@ -95,6 +100,8 @@ export function MembersListPage(): JSX.Element {
           ...(form.firstName ? { firstName: form.firstName } : {}),
           ...(form.lastName ? { lastName: form.lastName } : {}),
           ...(form.externalId ? { externalId: form.externalId } : {}),
+          ...(form.username ? { username: form.username } : {}),
+          ...(form.password ? { password: form.password } : {}),
         }),
       }),
     onSuccess: () => {
@@ -372,6 +379,43 @@ export function MembersListPage(): JSX.Element {
                   setNewMember((current) => ({ ...current, externalId: event.target.value }));
                 }}
               />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="member-username">{t("members.username")}</Label>
+                  <HelpTooltip label={t("members.portalUsernameHelpLabel")}>
+                    Unique case-insensitively within this program. Leave blank to provision the
+                    member without portal login.
+                  </HelpTooltip>
+                </div>
+                <Input
+                  id="member-username"
+                  autoComplete="off"
+                  value={newMember.username}
+                  onChange={(event) => {
+                    setNewMember((current) => ({ ...current, username: event.target.value }));
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="member-password">{t("members.passwordOptional")}</Label>
+                  <HelpTooltip label={t("members.resetPasswordHelpLabel")}>
+                    {t("members.passwordHelp")}
+                  </HelpTooltip>
+                </div>
+                <Input
+                  id="member-password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={10}
+                  value={newMember.password}
+                  onChange={(event) => {
+                    setNewMember((current) => ({ ...current, password: event.target.value }));
+                  }}
+                />
+              </div>
             </div>
             {createMutation.isError && (
               <p className="text-sm text-destructive">

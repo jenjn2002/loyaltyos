@@ -34,6 +34,9 @@ export async function bootstrapInitialAdmin(): Promise<void> {
           (await tx.program.findFirst({ orderBy: { createdAt: "asc" } })) ??
           (await tx.program.create({
             data: {
+              // Align fresh installs with the Admin, Portal, API tests and seed
+              // convention. Existing programs are never renamed.
+              id: "prog_dev",
               name: "LoyaltyOS",
               description: "Default loyalty program created during first installation",
               pointsUnit: "PTS",
