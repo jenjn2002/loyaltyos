@@ -1,25 +1,35 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-alpine AS toolchain
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
+    pnpm add --global turbo@2.0.6 --store-dir=/pnpm/store
+
 # Stage 1: Prune monorepo to the minimal workspace for @loyaltyos/api
-FROM node:20-alpine AS pruner
-RUN corepack enable && corepack prepare pnpm@9 --activate
+FROM toolchain AS pruner
 WORKDIR /app
 COPY . .
-RUN pnpm dlx turbo@2 prune --scope=@loyaltyos/api --docker
+RUN turbo prune @loyaltyos/api --docker
 
 # Stage 2: Install dependencies and build
-FROM node:20-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@9 --activate
+FROM toolchain AS builder
 WORKDIR /app
 
 # Install all dependencies (including devDependencies for build)
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
 # Copy source and build
 COPY --from=pruner /app/out/full/ .
 COPY --from=pruner /app/tsconfig.base.json ./tsconfig.base.json
-RUN cd apps/api && npx prisma generate
-RUN pnpm turbo build --filter=@loyaltyos/api
+RUN --mount=type=cache,id=loyaltyos-prisma-cache,target=/root/.cache/prisma \
+    pnpm --filter @loyaltyos/api exec prisma generate
+RUN --mount=type=cache,id=loyaltyos-api-turbo,target=/app/.turbo \
+    turbo build --filter=@loyaltyos/api
 
 # Save generated prisma client (contains the query engine and generated types).
 # The engine was downloaded by `prisma generate` respecting binaryTargets.
@@ -30,9 +40,10 @@ RUN PRISMA_PKG_DIR=$(find node_modules/.pnpm -maxdepth 1 -name '@prisma+client@*
 # --ignore-scripts skips the prisma postinstall which would download all platform
 # engines (~31 MB). The prisma CLI auto-downloads the schema-engine on first
 # `prisma migrate deploy` at container startup (entrypoint.sh).
-RUN rm -rf node_modules && \
+RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
+    rm -rf node_modules && \
     node -e "const p=require('./package.json'); delete p.scripts.prepare; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))" && \
-    pnpm install --frozen-lockfile --prod --ignore-scripts
+    pnpm install --frozen-lockfile --prod --ignore-scripts --store-dir=/pnpm/store
 
 # Restore generated prisma client into the freshly installed @prisma/client
 RUN PRISMA_PKG_DIR=$(find node_modules/.pnpm -maxdepth 1 -name '@prisma+client@*' -type d | head -1) && \

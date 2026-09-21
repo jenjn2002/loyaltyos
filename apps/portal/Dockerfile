@@ -1,12 +1,29 @@
-# Stage 1: Build static assets from the complete pnpm workspace.
-# The portal app imports workspace packages, so copying only apps/portal
-# (as the original Dockerfile did) makes pnpm fail with WORKSPACE_PKG_NOT_FOUND.
-FROM node:20-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@9 --activate
-WORKDIR /app
+# syntax=docker/dockerfile:1.7
 
+FROM node:20-alpine AS toolchain
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
+    pnpm add --global turbo@2.0.6 --store-dir=/pnpm/store
+
+# Keep only the portal and the workspace packages it actually imports.
+FROM toolchain AS pruner
+WORKDIR /app
 COPY . .
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN turbo prune @loyaltyos/portal --docker
+
+# Stage 1: Build static assets. Dependency manifests are copied before source,
+# so normal source changes reuse the expensive pnpm install layer.
+FROM toolchain AS builder
+WORKDIR /app
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts --store-dir=/pnpm/store
+
+COPY --from=pruner /app/out/full/ .
+COPY --from=pruner /app/tsconfig.base.json ./tsconfig.base.json
 ARG VITE_BASE_PATH=/customer/
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 RUN pnpm --filter @loyaltyos/portal build
