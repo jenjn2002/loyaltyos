@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
@@ -29,6 +29,25 @@ function hashToken(token: string): string {
 
 function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
+}
+
+function requestSessionIds(request: FastifyRequest): string[] {
+  const sessionIds: string[] = [];
+  const cookieHeader = request.headers.cookie;
+  if (cookieHeader) {
+    const cookieSessionId = lucia.readSessionCookie(cookieHeader);
+    if (cookieSessionId) sessionIds.push(cookieSessionId);
+  }
+
+  const authorization = request.headers.authorization;
+  if (authorization?.startsWith("Bearer ")) {
+    const bearerSessionId = authorization.slice("Bearer ".length).trim();
+    if (bearerSessionId && !sessionIds.includes(bearerSessionId)) {
+      sessionIds.push(bearerSessionId);
+    }
+  }
+
+  return sessionIds;
 }
 
 const magicLinkSchema = z.object({
@@ -384,12 +403,8 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
 
   /** POST /auth/logout — invalidate current session */
   app.post("/auth/logout", async (request, reply) => {
-    const cookieHeader = request.headers.cookie;
-    if (cookieHeader) {
-      const sessionId = lucia.readSessionCookie(cookieHeader);
-      if (sessionId) {
-        await lucia.invalidateSession(sessionId);
-      }
+    for (const sessionId of requestSessionIds(request)) {
+      await lucia.invalidateSession(sessionId);
     }
 
     const blankCookie = lucia.createBlankSessionCookie();
@@ -400,22 +415,22 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
 
   /** GET /auth/me — return the currently authenticated member */
   app.get("/auth/me", async (request, reply) => {
-    const cookieHeader = request.headers.cookie;
-    if (!cookieHeader) {
-      throw new LoyaltyError("UNAUTHORIZED", 401);
+    let authenticatedSession: Awaited<ReturnType<typeof lucia.validateSession>> | null = null;
+    for (const sessionId of requestSessionIds(request)) {
+      const result = await lucia.validateSession(sessionId);
+      if (result.user) {
+        authenticatedSession = result;
+        break;
+      }
     }
 
-    const sessionId = lucia.readSessionCookie(cookieHeader);
-    if (!sessionId) {
-      throw new LoyaltyError("UNAUTHORIZED", 401);
-    }
-
-    const { session, user } = await lucia.validateSession(sessionId);
-    if (!user) {
+    if (!authenticatedSession?.user) {
       const blankCookie = lucia.createBlankSessionCookie();
       void reply.header("Set-Cookie", blankCookie.serialize());
       throw new LoyaltyError("UNAUTHORIZED", 401);
     }
+
+    const { session, user } = authenticatedSession;
 
     // Sliding expiration: refresh cookie if session is fresh (close to expiry)
     if (session.fresh) {

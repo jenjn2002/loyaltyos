@@ -41,7 +41,30 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       return;
     }
 
-    // 1. Try admin session first (cookie)
+    // 1. An explicit member bearer token takes precedence over cookies. The
+    // admin and customer apps can run on different ports of the same host,
+    // which means the browser sends both cookies to both apps. Checking the
+    // admin cookie first would incorrectly turn a customer request into an
+    // admin request and leave request.memberId empty.
+    const authorization = request.headers.authorization;
+    if (authorization?.startsWith("Bearer ")) {
+      const sessionId = authorization.slice("Bearer ".length).trim();
+      if (sessionId) {
+        const { user } = await lucia.validateSession(sessionId);
+        if (user) {
+          if (user.status !== "ACTIVE") {
+            throw Object.assign(new Error("Member account is inactive"), { statusCode: 403 });
+          }
+          request.memberId = user.id;
+          request.programId = user.programId;
+          request.apiKeyScope = "MEMBER";
+          request.actor = { type: "MEMBER", id: user.id };
+          return;
+        }
+      }
+    }
+
+    // 2. Try admin session (cookie)
     const cookieHeader = request.headers.cookie;
     if (cookieHeader) {
       const adminSessionId = adminLucia.readSessionCookie(cookieHeader);
@@ -57,7 +80,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 2. Try member session cookie
+    // 3. Try member session cookie
     if (cookieHeader) {
       const sessionId = lucia.readSessionCookie(cookieHeader);
       if (sessionId) {
@@ -77,7 +100,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 3. Fall back to API key
+    // 4. Fall back to API key
     const apiKey = request.headers["x-api-key"] as string | undefined;
     const programId = request.headers["x-program-id"] as string | undefined;
 
