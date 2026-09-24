@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { audit } from "../lib/audit.js";
+import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { requireCapability } from "../lib/permissions.js";
 import {
@@ -29,7 +30,9 @@ const pointTypeInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   unitLabel: z.string().trim().min(1).max(40),
   description: z.string().trim().max(500).nullable(),
-  icon: z.string().trim().max(80).nullable(),
+  // Preset names and symbols are short, while uploaded icons are stored as
+  // resized data URLs so the admin form can use the same storage path.
+  icon: z.string().trim().max(500_000).nullable(),
   color: z.string().trim().max(32).nullable(),
   expiryMode: z.enum(POINT_EXPIRY_MODES),
   expiryDays: z.number().int().positive().nullable(),
@@ -253,7 +256,18 @@ export function pointTypesRoutes(app: FastifyInstance, _opts: unknown, done: () 
     "/admin/point-types",
     { preHandler: [requireCapability("point_type.view")] },
     async (request, reply) => {
-      return reply.send({ data: await walletService.pointTypes(request.programId, true) });
+      const pointTypes = await walletService.pointTypes(request.programId, true);
+      const creators = await createdByForEntities(
+        request.programId,
+        "point_type_definition",
+        pointTypes.map((pointType) => pointType.id),
+      );
+      return reply.send({
+        data: pointTypes.map((pointType) => ({
+          ...pointType,
+          createdBy: creators.get(pointType.id) ?? null,
+        })),
+      });
     },
   );
 

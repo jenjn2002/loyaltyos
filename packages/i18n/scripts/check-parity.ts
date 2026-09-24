@@ -21,7 +21,7 @@ function getAllKeys(obj: NestedJson, prefix = ""): string[] {
 }
 
 function main(): void {
-  const baseLocale = "es-MX";
+  const baseLocale = "vi-VN";
   const basePath = join(LOCALES_DIR, `${baseLocale}.json`);
   const baseKeys = getAllKeys(JSON.parse(readFileSync(basePath, "utf-8")) as NestedJson).sort();
 

@@ -6,6 +6,12 @@ function configuredPublicUrl(): string {
   return "http://localhost:5176";
 }
 
+function configuredAdminPublicUrl(): string {
+  const adminUrl = process.env.ADMIN_URL?.trim();
+  if (adminUrl) return adminUrl;
+  return "http://localhost:5175";
+}
+
 export function resolvePortalUrl(): string {
   const configured = configuredPublicUrl();
   try {
@@ -30,6 +36,31 @@ export function resolvePortalOrigin(): string {
 
 export function microsoftRedirectUri(): string {
   return `${resolvePortalOrigin()}/api/v1/auth/microsoft/callback`;
+}
+
+export function resolveAdminUrl(): string {
+  const configured = configuredAdminPublicUrl();
+  try {
+    return new URL(configured).toString().replace(/\/$/, "");
+  } catch {
+    return "http://localhost:5175";
+  }
+}
+
+export function resolveAdminOrigin(): string {
+  try {
+    return new URL(configuredAdminPublicUrl()).origin;
+  } catch {
+    return "http://localhost:5175";
+  }
+}
+
+export function adminMicrosoftRedirectUri(): string {
+  return `${resolveAdminOrigin()}/api/v1/admin/auth/microsoft/callback`;
+}
+
+export function adminHomeUrl(): string {
+  return `${resolveAdminUrl()}/`;
 }
 
 export function portalHomeUrl(): string {

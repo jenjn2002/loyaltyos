@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { audit } from "../lib/audit.js";
+import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import {
   hashMemberPassword,
@@ -17,6 +18,7 @@ import {
   normalizeMicrosoftTenantId,
 } from "../lib/microsoft-auth.js";
 import { notificationsService } from "../lib/notifications-setup.js";
+import { issueOnboardingForMember } from "../lib/occasion-issuance.js";
 import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { walletService } from "../lib/wallets.js";
 
@@ -94,6 +96,10 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         }
         return created;
       });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "member", member.id, {
+        created: true,
+        email: member.email,
+      });
       if (normalizedUsername) {
         await audit(
           request.programId,
@@ -107,6 +113,9 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           },
         );
       }
+      void issueOnboardingForMember(request.programId, member.id).catch((error: unknown) => {
+        request.log.error({ err: error, memberId: member.id }, "Failed to issue onboarding campaigns");
+      });
       return reply.status(201).send({ data: member });
     },
   );
@@ -155,11 +164,17 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         }),
         prisma.member.count({ where }),
       ]);
+      const creators = await createdByForEntities(
+        request.programId,
+        "member",
+        members.map((member) => member.id),
+      );
       const items = await Promise.all(
         members.map(async (member) => {
           const { credential, ...safeMember } = member;
           return {
             ...safeMember,
+            createdBy: creators.get(member.id) ?? null,
             ...memberCredentialSummary(credential),
             pointWallets: await walletService.memberWallets(member.id, request.programId, true),
           };
@@ -319,10 +334,13 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   );
 
   const patchMemberSchema = z.object({
-    locale: z.enum(["es-MX", "en-US"]).nullable().optional(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    department: z.string().max(120).optional(),
+    locale: z.enum(["vi-VN", "en-US"]).nullable().optional(),
+    email: z.string().email().nullable().optional(),
+    externalId: z.string().trim().max(255).nullable().optional(),
+    phone: z.string().trim().max(80).nullable().optional(),
+    firstName: z.string().trim().max(120).nullable().optional(),
+    lastName: z.string().trim().max(120).nullable().optional(),
+    department: z.string().trim().max(120).nullable().optional(),
     photoUrl: z.string().url().nullable().optional(),
     metadata: z.record(z.unknown()).optional(),
     tags: z.array(z.string()).optional(),
@@ -338,6 +356,9 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
       const data: Record<string, unknown> = {};
       if (body.locale !== undefined) data.locale = body.locale;
+      if (body.email !== undefined) data.email = body.email;
+      if (body.externalId !== undefined) data.externalId = body.externalId;
+      if (body.phone !== undefined) data.phone = body.phone;
       if (body.firstName !== undefined) data.firstName = body.firstName;
       if (body.lastName !== undefined) data.lastName = body.lastName;
       if (body.department !== undefined) data.department = body.department;
@@ -579,13 +600,28 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .status(401)
         .send({ error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
-    const wallets = await walletService.memberWallets(memberId, request.programId);
+    const [wallets, pendingClaims] = await Promise.all([
+      walletService.memberWallets(memberId, request.programId),
+      prisma.campaignClaim.aggregate({
+        where: {
+          memberId,
+          status: "PENDING",
+          campaign: { programId: request.programId, deletedAt: null },
+        },
+        _sum: { pointsAwarded: true },
+      }),
+    ]);
+    // The program now supports multiple configurable credit wallets. The old
+    // balance card used to read only the primary wallet, which made a member
+    // with a non-primary balance appear to have zero points.
+    const confirmed = wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
+    const pending = pendingClaims._sum.pointsAwarded ?? 0;
     const primary = wallets.find((wallet) => wallet.isPrimary) ?? wallets[0];
     return reply.send({
       data: {
-        confirmed: primary?.balance ?? 0,
-        pending: 0,
-        total: primary?.balance ?? 0,
+        confirmed,
+        pending,
+        total: confirmed + pending,
         pointTypeId: primary?.pointTypeId ?? null,
         wallets,
       },
@@ -799,6 +835,30 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       .parse(request.query);
     const result = await notificationsService.getMemberNotifications(request.memberId, query);
     return reply.send({ data: result });
+  });
+
+  app.get("/members/me/notifications/unread-count", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const unreadCount = await notificationsService.getMemberUnreadNotificationCount(request.memberId);
+    return reply.send({ data: { unreadCount } });
+  });
+
+  app.patch("/members/me/notifications/:id", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = z.object({ read: z.boolean() }).parse(request.body);
+    const notification = await notificationsService.setMemberNotificationRead(
+      request.memberId,
+      id,
+      body.read,
+    );
+    return reply.send({ data: notification });
+  });
+
+  app.post("/members/me/notifications/read-all", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const markedRead = await notificationsService.markMemberNotificationsRead(request.memberId);
+    return reply.send({ data: { markedRead } });
   });
 
   const preferenceUpdateSchema = z.object({

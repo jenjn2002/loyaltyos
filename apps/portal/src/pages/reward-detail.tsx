@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle, Gift, ShoppingCart, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -105,9 +106,7 @@ export default function RewardDetail() {
         </p>
       )}
 
-      <label className="block text-sm font-medium">
-        Pay with wallet
-        <select
+      <label className="block text-sm font-medium">{ui("Pay with wallet")}<select
           value={pointTypeId}
           onChange={(event) => {
             setPointTypeId(event.target.value);

@@ -47,8 +47,8 @@ import { lucia } from "../lib/auth/lucia.js";
 let app: FastifyInstance;
 
 const programFixture = {
-  defaultLocale: "es-MX",
-  supportedLocales: ["es-MX", "en-US"],
+  defaultLocale: "vi-VN",
+  supportedLocales: ["vi-VN", "en-US"],
 };
 
 const memberFixture = {
@@ -139,7 +139,7 @@ describe("POST /auth/magic-link — locale persistence", () => {
   it("does not overwrite locale when member already has one", async () => {
     mockPrisma.member.findFirst.mockResolvedValueOnce({
       ...memberFixture,
-      locale: "es-MX",
+      locale: "vi-VN",
       program: programFixture,
     });
     mockPrisma.magicLinkToken.create.mockResolvedValue({
@@ -165,7 +165,7 @@ describe("POST /auth/magic-link — locale persistence", () => {
     mockPrisma.member.findFirst.mockResolvedValueOnce({
       ...memberFixture,
       locale: null,
-      program: { ...programFixture, supportedLocales: ["es-MX"] },
+      program: { ...programFixture, supportedLocales: ["vi-VN"] },
     });
     mockPrisma.magicLinkToken.create.mockResolvedValue({
       id: "tok-3",
@@ -240,8 +240,8 @@ describe("GET /auth/me — locale and program info", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.data.locale).toBe("en-US");
-    expect(body.data.program.defaultLocale).toBe("es-MX");
-    expect(body.data.program.supportedLocales).toEqual(["es-MX", "en-US"]);
+    expect(body.data.program.defaultLocale).toBe("vi-VN");
+    expect(body.data.program.supportedLocales).toEqual(["vi-VN", "en-US"]);
   });
 
   it("returns locale null when member has no override", async () => {
@@ -315,7 +315,7 @@ describe("PATCH /members/me", () => {
     });
     mockPrisma.member.findUnique.mockResolvedValue({
       ...memberFixture,
-      program: { ...programFixture, supportedLocales: ["es-MX"] },
+      program: { ...programFixture, supportedLocales: ["vi-VN"] },
     });
 
     const res = await app.inject({
@@ -381,22 +381,22 @@ describe("Accept-Language error localization", () => {
     expect(body.error.message).not.toBe("INVALID_TOKEN");
   });
 
-  it("returns Spanish message with Accept-Language: es-MX", async () => {
+  it("returns Vietnamese message with Accept-Language: vi-VN", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/auth/verify-magic-link",
-      headers: { "accept-language": "es-MX" },
+      headers: { "accept-language": "vi-VN" },
       payload: { token: "bad-token" },
     });
 
     expect(res.statusCode).toBe(401);
     const body = JSON.parse(res.body);
     expect(body.error.code).toBe("INVALID_TOKEN");
-    // Should be the Spanish translation
+    // Should be the Vietnamese translation
     expect(body.error.message).not.toBe("INVALID_TOKEN");
   });
 
-  it("returns Spanish by default with no Accept-Language header", async () => {
+  it("returns Vietnamese by default with no Accept-Language header", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/auth/verify-magic-link",

@@ -28,6 +28,21 @@ export const ADMIN_CAPABILITIES = [
   "reward.manage",
   "campaign.view",
   "campaign.manage",
+  "campaign.execute",
+  "segment.view",
+  "segment.manage",
+  "tier.view",
+  "tier.manage",
+  "badge.view",
+  "badge.manage",
+  "coupon.view",
+  "coupon.manage",
+  "event.view",
+  "event.manage",
+  "issuance.view",
+  "issuance.manage",
+  "recognition.view",
+  "recognition.manage",
   "notification.view",
   "notification.manage",
   "audit.view",
@@ -136,6 +151,14 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.startsWith("/api/v1/admin/settings")) return write ? "settings.manage" : "settings.view";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";
+  if (url.startsWith("/api/v1/admin/issuance-rules"))
+    return write ? "issuance.manage" : "issuance.view";
+  if (url.startsWith("/api/v1/admin/issuance-proposals")) return "wallet.adjust";
+  if (url.startsWith("/api/v1/admin/member-fields"))
+    return write ? "member.manage" : "member.view";
+  if (url.startsWith("/api/v1/admin/logs")) return "audit.view";
+  if (url.startsWith("/api/v1/admin/event-definitions"))
+    return write ? "event.manage" : "event.view";
   if (url.startsWith("/api/v1/admin/members")) return write ? "member.manage" : "member.view";
   if (url.includes("/credits/audit")) return "audit.view";
   if (url.includes("/credits/bank")) return write ? "bank.manage" : "bank.view";
@@ -144,17 +167,24 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.includes("/credits/exchange-requests/") && url.endsWith("/complete"))
     return "exchange.complete";
   if (url.includes("/credits/exchange")) return write ? "exchange.manage" : "exchange.view";
+  if (url.startsWith("/api/v1/admin/credits/categories"))
+    return write ? "recognition.manage" : "recognition.view";
   if (url.startsWith("/api/v1/admin/credits")) return write ? "wallet.adjust" : "wallet.view";
   if (url.startsWith("/api/v1/admin/rewards") || url.startsWith("/api/v1/admin/giftcards"))
     return write ? "reward.manage" : "reward.view";
-  if (
-    url.startsWith("/api/v1/admin/campaigns") ||
-    url.startsWith("/api/v1/admin/segments") ||
-    url.startsWith("/api/v1/admin/coupons") ||
-    url.startsWith("/api/v1/admin/badges") ||
-    url.startsWith("/api/v1/admin/tiers") ||
-    url.startsWith("/api/v1/admin/coalition")
-  )
+  if (url.startsWith("/api/v1/admin/campaigns/") && url.endsWith("/run-now"))
+    return "campaign.execute";
+  if (url.startsWith("/api/v1/admin/campaigns"))
+    return write ? "campaign.manage" : "campaign.view";
+  if (url.startsWith("/api/v1/admin/segments"))
+    return write ? "segment.manage" : "segment.view";
+  if (url.startsWith("/api/v1/admin/coupons"))
+    return write ? "coupon.manage" : "coupon.view";
+  if (url.startsWith("/api/v1/admin/badges"))
+    return write ? "badge.manage" : "badge.view";
+  if (url.startsWith("/api/v1/admin/tiers"))
+    return write ? "tier.manage" : "tier.view";
+  if (url.startsWith("/api/v1/admin/coalition"))
     return write ? "campaign.manage" : "campaign.view";
   if (url.startsWith("/api/v1/admin/notification") || url.startsWith("/api/v1/admin/webhooks"))
     return write ? "notification.manage" : "notification.view";

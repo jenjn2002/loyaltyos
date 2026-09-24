@@ -6,7 +6,7 @@ import type { WidgetLocale } from "../../types.js";
 
 @customElement("loy-spinner")
 export class LoySpinner extends LitElement {
-  @property({ type: String }) locale: WidgetLocale = "es-MX";
+  @property({ type: String }) locale: WidgetLocale = "vi-VN";
 
   static override styles = css`
     :host {

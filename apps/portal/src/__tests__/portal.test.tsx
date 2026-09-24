@@ -80,7 +80,7 @@ describe("Portal", () => {
   it("language selector changes value", async () => {
     renderApp("/profile");
     const select = screen.getByRole("combobox", { name: /Language/ });
-    await userEvent.selectOptions(select, "es-MX");
+    await userEvent.selectOptions(select, "vi-VN");
     expect(screen.getByRole("combobox", { name: /Idioma/ })).toBeDefined();
   });
 

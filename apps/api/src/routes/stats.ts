@@ -13,33 +13,46 @@ export function statsRoutes(app: FastifyInstance, _opts: unknown, done: () => vo
       const lastThirtyDays = new Date(Date.now() - 30 * 86_400_000);
       const [
         activeMembers,
-        issued,
-        redeemed,
-        exchanged,
+        inactiveMembers,
+        newMembers,
+        issuedRows,
+        redeemedRows,
+        exchangedRows,
         recentTransactions,
-        giveRows,
+        recognitionRowsAllTime,
+        recognitionRows,
         bankRows,
         bankTransactions,
         topRewardRows,
-        recognitionRows,
+        pointTypes,
+        walletBalanceRows,
       ] = await Promise.all([
         prisma.member.count({
           where: { programId, deletedAt: null, status: "ACTIVE" },
         }),
-        prisma.customPointTransaction.aggregate({
+        prisma.member.count({
+          where: { programId, deletedAt: null, status: "INACTIVE" },
+        }),
+        prisma.member.count({
+          where: { programId, deletedAt: null, createdAt: { gte: lastThirtyDays } },
+        }),
+        prisma.customPointTransaction.groupBy({
           where: {
             programId,
             amount: { gt: 0 },
             action: { in: ["EARN", "GRANT", "ADJUSTMENT"] },
           },
+          by: ["pointTypeId"],
           _sum: { amount: true },
         }),
-        prisma.customPointTransaction.aggregate({
+        prisma.customPointTransaction.groupBy({
           where: { programId, action: "REDEEM", amount: { lt: 0 } },
+          by: ["pointTypeId"],
           _sum: { amount: true },
         }),
-        prisma.customPointTransaction.aggregate({
+        prisma.customPointTransaction.groupBy({
           where: { programId, action: "EXCHANGE", amount: { lt: 0 } },
+          by: ["pointTypeId"],
           _sum: { amount: true },
         }),
         prisma.customPointTransaction.count({
@@ -47,7 +60,11 @@ export function statsRoutes(app: FastifyInstance, _opts: unknown, done: () => vo
         }),
         prisma.customPointTransaction.findMany({
           where: { programId, action: "GIVE_IN" },
-          select: { amount: true },
+          select: { amount: true, pointTypeId: true },
+        }),
+        prisma.customPointTransaction.findMany({
+          where: { programId, action: "GIVE_IN", createdAt: { gte: lastThirtyDays } },
+          select: { createdAt: true },
         }),
         prisma.pointBank.findMany({
           where: { programId },
@@ -67,14 +84,43 @@ export function statsRoutes(app: FastifyInstance, _opts: unknown, done: () => vo
           take: 500,
           select: { reward: { select: { name: true } } },
         }),
-        prisma.customPointTransaction.findMany({
-          where: { programId, action: "GIVE_IN", createdAt: { gte: lastThirtyDays } },
-          select: { createdAt: true },
+        prisma.pointTypeDefinition.findMany({
+          where: { programId, isActive: true, archivedAt: null },
+          select: { id: true, code: true, name: true, unitLabel: true, color: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.customPointWallet.groupBy({
+          where: { programId, member: { deletedAt: null } },
+          by: ["pointTypeId"],
+          _sum: { balance: true },
         }),
       ]);
 
-      const totalIssued = issued._sum.amount ?? 0;
-      const totalRedeemed = Math.abs(redeemed._sum.amount ?? 0);
+      const sumAmounts = (rows: { _sum: { amount: number | null } }[]): number =>
+        rows.reduce((sum, row) => sum + (row._sum.amount ?? 0), 0);
+      const totalIssued = sumAmounts(issuedRows);
+      const totalRedeemed = Math.abs(sumAmounts(redeemedRows));
+      const totalExchanged = Math.abs(sumAmounts(exchangedRows));
+      const issuedByType = new Map(issuedRows.map((row) => [row.pointTypeId, row._sum.amount ?? 0]));
+      const redeemedByType = new Map(redeemedRows.map((row) => [row.pointTypeId, Math.abs(row._sum.amount ?? 0)]));
+      const exchangedByType = new Map(exchangedRows.map((row) => [row.pointTypeId, Math.abs(row._sum.amount ?? 0)]));
+      const recognitionByType = new Map<string, { count: number; volume: number }>();
+      for (const row of recognitionRowsAllTime) {
+        const current = recognitionByType.get(row.pointTypeId) ?? { count: 0, volume: 0 };
+        current.count += 1;
+        current.volume += row.amount;
+        recognitionByType.set(row.pointTypeId, current);
+      }
+      const balanceByType = new Map(walletBalanceRows.map((row) => [row.pointTypeId, row._sum.balance ?? 0]));
+      const pointTypeMetrics = pointTypes.map((pointType) => ({
+        pointType,
+        balance: balanceByType.get(pointType.id) ?? 0,
+        issued: issuedByType.get(pointType.id) ?? 0,
+        redeemed: redeemedByType.get(pointType.id) ?? 0,
+        exchanged: exchangedByType.get(pointType.id) ?? 0,
+        recognition: recognitionByType.get(pointType.id) ?? { count: 0, volume: 0 },
+      }));
+      const recognitionVolume = recognitionRowsAllTime.reduce((sum, row) => sum + row.amount, 0);
       const bankMetrics = bankRows.map((bank) => {
         const rows = bankTransactions.filter(
           (transaction) => transaction.pointTypeId === bank.pointTypeId,
@@ -82,15 +128,15 @@ export function statsRoutes(app: FastifyInstance, _opts: unknown, done: () => vo
         const issuedAmount = rows
           .filter((transaction) => transaction.type === "ISSUANCE")
           .reduce((sum, transaction) => sum + transaction.amount, 0);
-        const allocated = rows
-          .filter((transaction) => ["ALLOCATION", "GIVE_ALLOCATION"].includes(transaction.type))
+        const debited = rows
+          .filter((transaction) => transaction.amount < 0)
           .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
         const returned = rows
           .filter((transaction) => transaction.type === "RETURN")
           .reduce((sum, transaction) => sum + transaction.amount, 0);
         return {
           pointType: bank.pointType,
-          used: Math.max(allocated - returned, 0),
+          used: Math.max(debited - returned, 0),
           unused: bank.balance,
           issued: issuedAmount,
         };
@@ -121,11 +167,15 @@ export function statsRoutes(app: FastifyInstance, _opts: unknown, done: () => vo
           totalPointsRedeemed: totalRedeemed,
           redemptionRatio: totalIssued > 0 ? totalRedeemed / totalIssued : 0,
           recentTransactions,
+          inactiveMembers,
+          newMembersLast30Days: newMembers,
           pointIssued: totalIssued,
           pointRedeemed: totalRedeemed,
-          pointExchanged: Math.abs(exchanged._sum.amount ?? 0),
-          recognitionCount: giveRows.length,
-          recognitionVolume: giveRows.reduce((sum, row) => sum + row.amount, 0),
+          pointExchanged: totalExchanged,
+          recognitionCount: recognitionRowsAllTime.length,
+          recognitionVolume,
+          currentPointBalance: pointTypeMetrics.reduce((sum, row) => sum + row.balance, 0),
+          pointTypeMetrics,
           pointBanks: bankMetrics,
           topRewards,
           recognitionOverTime,

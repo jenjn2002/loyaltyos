@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, FlaskConical, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -22,6 +23,7 @@ interface MicrosoftSettings {
   autoProvisionMembers: boolean;
   configured: boolean;
   redirectUri: string;
+  adminRedirectUri: string;
 }
 
 const DEFAULT_SCOPES = ["openid", "profile", "email"];
@@ -93,6 +95,7 @@ export function SettingsPage(): JSX.Element {
   });
 
   const redirectUri = settings.data?.redirectUri ?? "";
+  const adminRedirectUri = settings.data?.adminRedirectUri ?? "";
 
   function toggleScope(scope: string): void {
     setForm((current) => {
@@ -170,7 +173,7 @@ export function SettingsPage(): JSX.Element {
                 onChange={(event) => {
                   setForm((current) => ({ ...current, clientId: event.target.value }));
                 }}
-                placeholder="Application client ID"
+                placeholder={ui("Application client ID")}
               />
             </div>
           </div>
@@ -254,7 +257,7 @@ export function SettingsPage(): JSX.Element {
 
           <div className="rounded-md bg-muted p-4 text-sm">
             <div className="mb-2 flex items-center gap-2 font-medium">
-              {t("settings.microsoft.redirectUri")}
+              {t("settings.microsoft.customerRedirectUri")}
               <HelpTooltip label={t("settings.microsoft.redirectUriHelpLabel")}>
                 {t("settings.microsoft.redirectUriHelp")}
               </HelpTooltip>
@@ -273,6 +276,29 @@ export function SettingsPage(): JSX.Element {
               >
                 <Copy className="mr-1 h-3.5 w-3.5" /> {t("settings.microsoft.copy")}
               </Button>
+            </div>
+            <div className="mt-4 border-t pt-4">
+              <div className="mb-2 flex items-center gap-2 font-medium">
+                {t("settings.microsoft.adminRedirectUri")}
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 break-all text-xs">
+                  {adminRedirectUri || t("settings.microsoft.loading")}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (adminRedirectUri) void navigator.clipboard.writeText(adminRedirectUri);
+                  }}
+                >
+                  <Copy className="mr-1 h-3.5 w-3.5" /> {t("settings.microsoft.copy")}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("settings.microsoft.adminRedirectUriHelp")}
+              </p>
             </div>
           </div>
 

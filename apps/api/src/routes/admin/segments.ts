@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
 
 const segments = new SegmentsService(prisma);
 
@@ -50,6 +52,10 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
       ...body,
       programId,
     } as Parameters<typeof segments.create>[0]);
+    await audit(programId, request.actor, "CONFIG_CHANGE", "segment", segment.id, {
+      created: true,
+      name: segment.name,
+    });
     return reply.status(201).send({ data: segment });
   });
 
@@ -63,6 +69,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
         isActive: z
           .enum(["true", "false"])
           .optional()
+          .default("true")
           .transform((v) => {
             if (v === "true") return true;
             if (v === "false") return false;
@@ -74,7 +81,20 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
 
     const programId = request.programId || (request.headers["x-program-id"] as string);
     const result = await segments.list(programId, query);
-    return reply.send({ data: result });
+    const creators = await createdByForEntities(
+      programId,
+      "segment",
+      result.items.map((segment) => segment.id),
+    );
+    return reply.send({
+      data: {
+        ...result,
+        items: result.items.map((segment) => ({
+          ...segment,
+          createdBy: creators.get(segment.id) ?? null,
+        })),
+      },
+    });
   });
 
   // POST /admin/segments/estimate — Estimate segment member count before creation
@@ -97,6 +117,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
     const segment = await segments.update(id, body as Parameters<typeof segments.update>[1]);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, body);
     return reply.send({ data: segment });
   });
 
@@ -104,6 +125,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   app.delete("/admin/segments/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     await segments.delete(id);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, { isActive: false });
     return reply.status(204).send();
   });
 

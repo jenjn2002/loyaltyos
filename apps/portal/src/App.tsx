@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AutoFieldHelp } from "./components/auto-field-help";
 import AppLayout from "./components/layout/app-layout";
-import { isAuthenticated } from "./lib/auth";
+import { bootstrapSession, isAuthenticated } from "./lib/auth";
 import Badges from "./pages/badges";
 import Credits from "./pages/credits";
 import Home from "./pages/home";
@@ -36,6 +36,22 @@ function AuthGuard({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const [authReady, setAuthReady] = useState(isAuthenticated);
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      setAuthReady(true);
+      return;
+    }
+    void bootstrapSession().finally(() => {
+      setAuthReady(true);
+    });
+  }, []);
+
+  if (!authReady) {
+    return <div className="min-h-screen bg-[var(--color-surface)]" />;
+  }
+
   return (
     <>
       <AutoFieldHelp />

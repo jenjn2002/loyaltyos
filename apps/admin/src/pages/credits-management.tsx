@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRightLeft,
@@ -5,7 +6,6 @@ import {
   Download,
   History,
   Pencil,
-  RefreshCw,
   Upload,
   WalletCards,
 } from "lucide-react";
@@ -48,9 +48,16 @@ interface LedgerItem {
   balanceAfter: number;
   reason: string | null;
   message: string | null;
+  actorType: string | null;
+  actorId: string | null;
   createdAt: string;
   pointType: { code: string; name: string; unitLabel: string };
-  member?: { email: string | null; firstName: string | null; lastName: string | null };
+  member?: {
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  };
 }
 interface Page<T> {
   items: T[];
@@ -72,6 +79,7 @@ interface Rate {
   periodDays: number;
   isActive: boolean;
   pointType: { code: string; name: string; unitLabel: string };
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 interface ExchangeRequest {
   id: string;
@@ -100,6 +108,7 @@ interface Category {
   name: string;
   description: string | null;
   isActive: boolean;
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 interface Cycle {
   id: string;
@@ -111,7 +120,22 @@ interface Cycle {
   allocated: number;
   closing: number;
   pointType: { code: string; name: string };
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
+interface BankTransaction {
+  id: string;
+  pointTypeId: string;
+  amount: number;
+  balanceAfter: number;
+  type: string;
+  reason: string;
+  actorId: string;
+  cycleId: string | null;
+  createdAt: string;
+  pointType: { id: string; code: string; name: string; unitLabel: string };
+  cycle: { id: string; startsAt: string; endsAt: string; status: string } | null;
+}
+type LedgerSource = "wallet" | "bank";
 interface BulkBatch {
   id: string;
   totalRows: number;
@@ -122,6 +146,53 @@ interface BulkBatch {
 }
 
 export type CreditsSection = "wallets" | "banks" | "ledger" | "exchange" | "categories" | "import";
+
+const BULK_REQUIRED_FIELDS = ["email", "externalId"] as const;
+const BULK_OPTIONAL_MEMBER_FIELDS = [
+  "memberId",
+  "phone",
+  "firstName",
+  "lastName",
+  "department",
+  "photoUrl",
+  "status",
+  "username",
+  "password",
+] as const;
+const LEGACY_BULK_HEADER = "email,firstName,lastName,status";
+
+function buildBulkHeader(types: PointType[], selectedFields: string[] = [...BULK_REQUIRED_FIELDS]): string {
+  return [
+    ...selectedFields,
+    ...types.flatMap((type) => {
+      const point = `point_${type.code}`;
+      const expiry = `expiry_${type.code}`;
+      return selectedFields.includes(point) || selectedFields.includes(expiry) ? [point, expiry].filter((field) => selectedFields.includes(field)) : [];
+    }),
+  ].join(",");
+}
+
+function importFieldLabel(field: string, types: PointType[]): string {
+  const [prefix, code] = field.split("_");
+  const pointType = types.find((type) => type.code.toLowerCase() === code?.toLowerCase());
+  if (prefix === "point" && pointType) return `${pointType.name} · ${ui("Point adjustment")}`;
+  if (prefix === "balance" && pointType) return `${pointType.name} · ${ui("Target balance")}`;
+  if (prefix === "expiry" && pointType) return `${pointType.name} · ${ui("Expiry date")}`;
+  const labels: Record<string, string> = {
+    memberId: "Member ID",
+    email: "Email",
+    externalId: "External ID",
+    phone: "Phone",
+    firstName: "First name",
+    lastName: "Last name",
+    department: "Department",
+    photoUrl: "Photo URL",
+    status: "Status",
+    username: "Username",
+    password: "Password",
+  };
+  return ui(labels[field] ?? field);
+}
 
 const SECTION_COPY: Record<CreditsSection, { title: string; description: string }> = {
   wallets: {
@@ -187,6 +258,16 @@ function displayName(member: ExchangeRequest["member"] | LedgerItem["member"]): 
   return member.email ?? "Unknown member";
 }
 
+function isBankTransaction(item: LedgerItem | BankTransaction): item is BankTransaction {
+  return "cycle" in item && "type" in item;
+}
+
+function actorLabel(item: LedgerItem | BankTransaction): string {
+  if (isBankTransaction(item)) return item.actorId || "—";
+  if (!item.actorId) return item.actorType ?? "—";
+  return `${item.actorType ?? "—"}: ${item.actorId}`;
+}
+
 export function CreditsManagementPage({
   section = "wallets",
 }: {
@@ -199,12 +280,14 @@ export function CreditsManagementPage({
   const [bankReason, setBankReason] = useState("");
   const [adjustMemberId, setAdjustMemberId] = useState("");
   const [adjustTypeId, setAdjustTypeId] = useState("");
+  const [adjustDirection, setAdjustDirection] = useState<"ADD" | "REMOVE">("ADD");
   const [adjustAmount, setAdjustAmount] = useState("100");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustExpiry, setAdjustExpiry] = useState("");
   const [ledgerTypeId, setLedgerTypeId] = useState("");
   const [ledgerMemberId, setLedgerMemberId] = useState("");
   const [ledgerAction, setLedgerAction] = useState("");
+  const [ledgerSource, setLedgerSource] = useState<LedgerSource>("wallet");
   const [ledgerPage, setLedgerPage] = useState(1);
   const [rateTypeId, setRateTypeId] = useState("");
   const [ratePayout, setRatePayout] = useState<"CASH" | "NON_CASH">("NON_CASH");
@@ -223,7 +306,8 @@ export function CreditsManagementPage({
   const [cycleEnd, setCycleEnd] = useState("");
   const [cycleNote, setCycleNote] = useState("");
   const [bulkFormat, setBulkFormat] = useState<"csv" | "xlsx">("csv");
-  const [bulkContent, setBulkContent] = useState("email,firstName,lastName,status\n");
+  const [bulkSelectedFields, setBulkSelectedFields] = useState<string[]>([...BULK_REQUIRED_FIELDS]);
+  const [bulkContent, setBulkContent] = useState(`${buildBulkHeader([], [...BULK_REQUIRED_FIELDS])}\n`);
   const [bulkSourceName, setBulkSourceName] = useState("members.csv");
   const [bulkResult, setBulkResult] = useState<BulkBatch | null>(null);
 
@@ -234,6 +318,18 @@ export function CreditsManagementPage({
   const activeTypes = useMemo(
     () => (pointTypes.data ?? []).filter((type) => type.isActive && !type.archivedAt),
     [pointTypes.data],
+  );
+  const importFieldOptions = useMemo(
+    () => [
+      ...BULK_REQUIRED_FIELDS.map((key) => ({ key, mandatory: true })),
+      ...BULK_OPTIONAL_MEMBER_FIELDS.map((key) => ({ key, mandatory: false })),
+      ...activeTypes.flatMap((type) => [
+        { key: `point_${type.code}`, mandatory: false },
+        { key: `balance_${type.code}`, mandatory: false },
+        ...(type.expiryMode === "PER_GRANT" ? [{ key: `expiry_${type.code}`, mandatory: false }] : []),
+      ]),
+    ],
+    [activeTypes],
   );
   const banks = useQuery({
     queryKey: ["credits", "banks"],
@@ -261,11 +357,25 @@ export function CreditsManagementPage({
     queryFn: () => fetchApi<Cycle[]>("/admin/credits/bank/cycles"),
     enabled: section === "banks",
   });
-  const ledger = useQuery({
-    queryKey: ["credits", "ledger", ledgerPage, ledgerTypeId, ledgerMemberId, ledgerAction],
+  const ledger = useQuery<Page<LedgerItem | BankTransaction>>({
+    queryKey: [
+      "credits",
+      "ledger",
+      ledgerSource,
+      ledgerPage,
+      ledgerTypeId,
+      ledgerMemberId,
+      ledgerAction,
+    ],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(ledgerPage), pageSize: "25" });
       if (ledgerTypeId) params.set("pointTypeId", ledgerTypeId);
+      if (ledgerSource === "bank") {
+        if (ledgerAction) params.set("type", ledgerAction);
+        return fetchApi<Page<BankTransaction>>(
+          `/admin/credits/bank/transactions?${params.toString()}`,
+        );
+      }
       if (ledgerMemberId) params.set("memberId", ledgerMemberId);
       if (ledgerAction) params.set("action", ledgerAction);
       return fetchApi<Page<LedgerItem>>(`/admin/credits/transactions?${params.toString()}`);
@@ -284,10 +394,10 @@ export function CreditsManagementPage({
   }, [activeTypes, adjustTypeId, bankTypeId, cycleTypeId, rateTypeId]);
 
   useEffect(() => {
-    if (bulkContent !== "email,firstName,lastName,status\n" || activeTypes.length === 0) return;
-    setBulkContent(
-      `email,firstName,lastName,status,${activeTypes.map((type) => `point_${type.code},expiry_${type.code}`).join(",")}\n`,
-    );
+    const currentHeader = bulkContent.split(/\r?\n/, 1)[0] ?? "";
+    if (currentHeader !== LEGACY_BULK_HEADER) return;
+    setBulkSelectedFields([...BULK_REQUIRED_FIELDS]);
+    setBulkContent(`${buildBulkHeader(activeTypes, [...BULK_REQUIRED_FIELDS])}\n`);
   }, [activeTypes, bulkContent]);
 
   const refresh = async (): Promise<void> => {
@@ -309,7 +419,7 @@ export function CreditsManagementPage({
         }),
       }),
     onSuccess: async () => {
-      setNotice("Bank funded.");
+      setNotice(ui("Bank funded."));
       setBankReason("");
       await refresh();
     },
@@ -325,7 +435,10 @@ export function CreditsManagementPage({
         body: JSON.stringify({
           memberId: adjustMemberId,
           pointTypeId: adjustTypeId,
-          amount: Number(adjustAmount),
+          amount:
+            adjustDirection === "REMOVE"
+              ? -Math.abs(Number(adjustAmount))
+              : Math.abs(Number(adjustAmount)),
           reason: adjustReason,
           ...(adjustExpiry
             ? { expiresAt: new Date(`${adjustExpiry}T23:59:59.999Z`).toISOString() }
@@ -333,18 +446,12 @@ export function CreditsManagementPage({
         }),
       }),
     onSuccess: async () => {
-      setNotice("Member wallet adjusted.");
+      setNotice(
+        adjustDirection === "REMOVE"
+          ? ui("Points removed and returned to the admin bank.")
+          : ui("Member wallet adjusted."),
+      );
       setAdjustReason("");
-      await refresh();
-    },
-    onError: (error: Error) => {
-      setNotice(error.message);
-    },
-  });
-  const expire = useMutation({
-    mutationFn: () => fetchApi<{ expired: number }>("/admin/credits/expire", { method: "POST" }),
-    onSuccess: async (result) => {
-      setNotice(`${String(result.expired)} expired lot(s) processed.`);
       await refresh();
     },
     onError: (error: Error) => {
@@ -368,7 +475,7 @@ export function CreditsManagementPage({
         }),
       }),
     onSuccess: async () => {
-      setNotice("New exchange-rate version activated.");
+      setNotice(ui("New exchange-rate version activated."));
       setSourceRate(null);
       await refresh();
     },
@@ -391,21 +498,21 @@ export function CreditsManagementPage({
     );
     setRatePeriodDays(String(rate.periodDays));
     setNotice(
-      `Version ${String(rate.version)} loaded. Saving will create a new version and preserve voucher history.`,
+      `${ui("Version")} ${String(rate.version)} ${ui("loaded. Saving will create a new version and preserve voucher history.")}`,
     );
   };
   const transitionExchange = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "approve" | "complete" | "cancel" }) => {
-      const reason = action === "cancel" ? window.prompt("Cancellation reason") : null;
+      const reason = action === "cancel" ? window.prompt(ui("Cancellation reason")) : null;
       if (action === "cancel" && !reason?.trim())
-        throw new Error("A cancellation reason is required.");
-      const approvalNote = action === "approve" ? window.prompt("Approval note (optional)") : null;
+        throw new Error(ui("A cancellation reason is required."));
+      const approvalNote = action === "approve" ? window.prompt(ui("Approval note (optional)")) : null;
       const reference =
-        action === "complete" ? window.prompt("Accounting or payment reference (required)") : null;
+        action === "complete" ? window.prompt(ui("Accounting or payment reference (required)")) : null;
       if (action === "complete" && !reference?.trim())
-        throw new Error("An accounting or payment reference is required.");
+        throw new Error(ui("An accounting or payment reference is required."));
       const completionNote =
-        action === "complete" ? window.prompt("Completion note (optional)") : null;
+        action === "complete" ? window.prompt(ui("Completion note (optional)")) : null;
       const approvalNoteValue = approvalNote?.trim();
       const completionNoteValue = completionNote?.trim();
       return fetchApi(`/admin/credits/exchange-requests/${id}/${action}`, {
@@ -427,7 +534,7 @@ export function CreditsManagementPage({
       });
     },
     onSuccess: async () => {
-      setNotice("Exchange request updated.");
+      setNotice(ui("Exchange request updated."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -443,7 +550,7 @@ export function CreditsManagementPage({
     onSuccess: async () => {
       setCategoryName("");
       setCategoryDescription("");
-      setNotice("Category created.");
+      setNotice(ui("Category created."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -457,7 +564,7 @@ export function CreditsManagementPage({
         ...(remove ? {} : { body: JSON.stringify({ isActive: !category.isActive }) }),
       }),
     onSuccess: async () => {
-      setNotice("Category updated.");
+      setNotice(ui("Category updated."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -478,7 +585,7 @@ export function CreditsManagementPage({
         }),
       }),
     onSuccess: async () => {
-      setNotice("Bank cycle opened.");
+      setNotice(ui("Bank cycle opened."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -487,15 +594,15 @@ export function CreditsManagementPage({
   });
   const clearCycle = useMutation({
     mutationFn: (id: string) => {
-      const reason = window.prompt("Reason for closing this bank cycle");
-      if (!reason) throw new Error("A reason is required.");
+      const reason = window.prompt(ui("Reason for closing this bank cycle"));
+      if (!reason) throw new Error(ui("A reason is required."));
       return fetchApi(`/admin/credits/bank/cycles/${id}/clear`, {
         method: "POST",
         body: JSON.stringify({ reason }),
       });
     },
     onSuccess: async () => {
-      setNotice("Cycle closed; unused bank value was retained.");
+      setNotice(ui("Cycle closed; unused bank value was retained."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -509,13 +616,14 @@ export function CreditsManagementPage({
         body: JSON.stringify({
           format: bulkFormat,
           content: bulkContent,
+          selectedFields: bulkSelectedFields,
           sourceName: bulkSourceName,
         }),
       }),
     onSuccess: async (result) => {
       setBulkResult(result);
       setNotice(
-        `Bulk import ${result.status.toLowerCase()}: ${String(result.successRows)} succeeded, ${String(result.failedRows)} failed.`,
+        `${ui("Bulk import")} ${result.status.toLowerCase()}: ${String(result.successRows)} ${ui("succeeded")}, ${String(result.failedRows)} ${ui("failed")}.`,
       );
       await refresh();
     },
@@ -531,22 +639,43 @@ export function CreditsManagementPage({
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result ?? "");
-      setBulkContent(isXlsx ? (result.split(",")[1] ?? "") : result);
+      const content = isXlsx ? (result.split(",")[1] ?? "") : result;
+      setBulkContent(content);
+      if (!isXlsx) {
+        const headers = content
+          .split(/\r?\n/)
+          .map((line) => line.split(",").map((value) => value.trim()))
+          .find((line) => line.some((value) => value === "email" || value === "externalId" || value === "memberId"));
+        if (headers?.length) {
+          const known = new Set(importFieldOptions.map((option) => option.key));
+          setBulkSelectedFields([
+            ...BULK_REQUIRED_FIELDS,
+            ...headers.filter((header) => known.has(header) && !BULK_REQUIRED_FIELDS.includes(header as (typeof BULK_REQUIRED_FIELDS)[number])),
+          ]);
+        }
+      }
     };
     if (isXlsx) reader.readAsDataURL(file);
     else reader.readAsText(file);
   };
 
   const downloadImportTemplate = (): void => {
-    const header = bulkContent.split(/\r?\n/, 1)[0] ?? "email,firstName,lastName,status";
+    const header = buildBulkHeader(activeTypes, bulkSelectedFields);
     const example = header
       .split(",")
       .map((column) => {
         if (column === "email") return "sample.member@example.com";
+        if (column === "externalId") return "external-001";
+        if (column === "phone") return "+84123456789";
         if (column === "firstName") return "Sample";
         if (column === "lastName") return "Member";
+        if (column === "department") return "Sales";
+        if (column === "photoUrl") return "https://example.com/avatar.jpg";
         if (column === "status") return "ACTIVE";
+        if (column === "username") return "sample.member";
+        if (column === "password") return "";
         if (column.startsWith("point_")) return "";
+        if (column.startsWith("expiry_")) return "";
         return "";
       })
       .join(",");
@@ -564,9 +693,9 @@ export function CreditsManagementPage({
     <div className="space-y-6 pb-10">
       <div>
         <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <WalletCards /> {SECTION_COPY[section].title}
+          <WalletCards /> {ui(SECTION_COPY[section].title)}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{SECTION_COPY[section].description}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{ui(SECTION_COPY[section].description)}</p>
       </div>
       {notice && (
         <div role="status" className="rounded-md border bg-muted p-3 text-sm">
@@ -580,11 +709,8 @@ export function CreditsManagementPage({
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Banknote /> Credit bank
-                </CardTitle>
-                <CardDescription>
-                  Fund governed issuance pools. Each point type has an independent bank.
-                </CardDescription>
+                  <Banknote />{ui("Credit bank")}</CardTitle>
+                <CardDescription>{ui("Fund governed issuance pools. Each point type has an independent bank.")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -602,8 +728,8 @@ export function CreditsManagementPage({
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="bank-type"
-                    label="Point type"
-                    help="Only point types with bank governance enabled appear here."
+                    label={ui("Point type")}
+                    help={ui("Only point types with bank governance enabled appear here.")}
                   >
                     <select
                       id="bank-type"
@@ -624,8 +750,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="bank-amount"
-                    label="Funding amount"
-                    help="Positive amount added to the selected central bank."
+                    label={ui("Funding amount")}
+                    help={ui("Positive amount added to the selected central bank.")}
                   >
                     <Input
                       id="bank-amount"
@@ -639,8 +765,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="bank-reason"
-                    label="Funding reason"
-                    help="Mandatory audit reason for creating bank value."
+                    label={ui("Funding reason")}
+                    help={ui("Mandatory audit reason for creating bank value.")}
                   >
                     <Input
                       id="bank-reason"
@@ -656,9 +782,7 @@ export function CreditsManagementPage({
                     onClick={() => {
                       issueBank.mutate();
                     }}
-                  >
-                    Fund bank
-                  </Button>
+                  >{ui("Fund bank")}</Button>
                 </div>
               </CardContent>
             </Card>
@@ -667,16 +791,14 @@ export function CreditsManagementPage({
           {section === "wallets" && (
             <Card>
               <CardHeader>
-                <CardTitle>Member adjustment</CardTitle>
-                <CardDescription>
-                  Add or remove value. Bank-enabled positive adjustments consume bank funds.
-                </CardDescription>
+                <CardTitle>{ui("Member adjustment")}</CardTitle>
+                <CardDescription>{ui("Add or remove value. Positive adjustments consume bank funds; removed points return to the admin bank.")}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <Field
                   id="adjust-member"
-                  label="Member ID"
-                  help="Exact member whose wallet will be adjusted."
+                  label={ui("Member ID")}
+                  help={ui("Exact member whose wallet will be adjusted.")}
                 >
                   <Input
                     id="adjust-member"
@@ -688,11 +810,9 @@ export function CreditsManagementPage({
                   <Link
                     to="/members"
                     className="mt-1 inline-block text-xs font-medium text-primary hover:underline"
-                  >
-                    Find and copy a Member ID
-                  </Link>
+                  >{ui("Find and copy a Member ID")}</Link>
                 </Field>
-                <Field id="adjust-type" label="Point type" help="Configured wallet to adjust.">
+                <Field id="adjust-type" label={ui("Point type")} help={ui("Configured wallet to adjust.")}>
                   <select
                     id="adjust-type"
                     className={selectClass}
@@ -709,13 +829,32 @@ export function CreditsManagementPage({
                   </select>
                 </Field>
                 <Field
+                  id="adjust-direction"
+                  label={ui("Adjustment direction")}
+                  help={ui("Choose whether to add points to the member or remove them and return them to the admin bank.")}
+                >
+                  <select
+                    id="adjust-direction"
+                    className={selectClass}
+                    value={adjustDirection}
+                    onChange={(event) => {
+                      setAdjustDirection(event.target.value as "ADD" | "REMOVE");
+                    }}
+                  >
+                    <option value="ADD">{ui("Add points to member")}</option>
+                    <option value="REMOVE">{ui("Remove points and return to bank")}</option>
+                  </select>
+                </Field>
+                <Field
                   id="adjust-amount"
-                  label="Signed amount"
-                  help="Positive adds value; negative removes value."
+                  label={ui("Amount")}
+                  help={ui("Enter a positive amount. The selected direction controls whether it is added or removed.")}
                 >
                   <Input
                     id="adjust-amount"
                     type="number"
+                    min="1"
+                    step="1"
                     value={adjustAmount}
                     onChange={(event) => {
                       setAdjustAmount(event.target.value);
@@ -724,8 +863,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="adjust-expiry"
-                  label="Grant expiry override"
-                  help="Optional explicit expiry, especially for Per grant point types."
+                  label={ui("Grant expiry override")}
+                  help={ui("Optional explicit expiry, especially for Per grant point types.")}
                 >
                   <Input
                     id="adjust-expiry"
@@ -738,8 +877,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="adjust-reason"
-                  label="Adjustment reason"
-                  help="Mandatory business reason retained in ledger and audit log."
+                  label={ui("Adjustment reason")}
+                  help={ui("Mandatory business reason retained in ledger and audit log.")}
                 >
                   <Input
                     id="adjust-reason"
@@ -750,20 +889,18 @@ export function CreditsManagementPage({
                   />
                 </Field>
                 <Button
-                  className="self-end"
+                  className="self-end sm:col-span-2"
                   disabled={
                     !adjustMemberId ||
                     !adjustTypeId ||
                     !adjustReason ||
-                    Number(adjustAmount) === 0 ||
+                    Number(adjustAmount) <= 0 ||
                     adjust.isPending
                   }
                   onClick={() => {
                     adjust.mutate();
                   }}
-                >
-                  Apply adjustment
-                </Button>
+                >{ui("Apply adjustment")}</Button>
               </CardContent>
             </Card>
           )}
@@ -774,15 +911,30 @@ export function CreditsManagementPage({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <History /> Unified ledger
-            </CardTitle>
-            <CardDescription>
-              Filter the immutable signed transaction stream across all point types.
-            </CardDescription>
+              <History />{ui("Unified ledger")}</CardTitle>
+            <CardDescription>{ui("Filter the immutable signed transaction stream across all point types.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-4">
-              <Field id="ledger-type" label="Point type" help="Limit results to one wallet type.">
+            <div className="grid gap-3 md:grid-cols-5">
+              <Field
+                id="ledger-source"
+                label={ui("Ledger type")}
+                help={ui("Choose member wallet entries or bank funding transactions.")}
+              >
+                <select
+                  id="ledger-source"
+                  className={selectClass}
+                  value={ledgerSource}
+                  onChange={(event) => {
+                    setLedgerSource(event.target.value as LedgerSource);
+                    setLedgerPage(1);
+                  }}
+                >
+                  <option value="wallet">{ui("Member wallet")}</option>
+                  <option value="bank">{ui("Bank funding")}</option>
+                </select>
+              </Field>
+              <Field id="ledger-type" label={ui("Point type")} help={ui("Limit results to one wallet type.")}>
                 <select
                   id="ledger-type"
                   className={selectClass}
@@ -792,7 +944,7 @@ export function CreditsManagementPage({
                     setLedgerPage(1);
                   }}
                 >
-                  <option value="">All types</option>
+                  <option value="">{ui("All types")}</option>
                   {activeTypes.map((type) => (
                     <option key={type.id} value={type.id}>
                       {type.name}
@@ -800,20 +952,26 @@ export function CreditsManagementPage({
                   ))}
                 </select>
               </Field>
-              <Field id="ledger-member" label="Member ID" help="Limit results to one member.">
-                <Input
-                  id="ledger-member"
-                  value={ledgerMemberId}
-                  onChange={(event) => {
-                    setLedgerMemberId(event.target.value);
-                    setLedgerPage(1);
-                  }}
-                />
-              </Field>
+              {ledgerSource === "wallet" && (
+                <Field id="ledger-member" label={ui("Member ID")} help={ui("Limit results to one member.")}>
+                  <Input
+                    id="ledger-member"
+                    value={ledgerMemberId}
+                    onChange={(event) => {
+                      setLedgerMemberId(event.target.value);
+                      setLedgerPage(1);
+                    }}
+                  />
+                </Field>
+              )}
               <Field
                 id="ledger-action"
-                label="Action"
-                help="Exact ledger action such as EARN, GIVE_IN, REDEEM or EXPIRY."
+                label={ledgerSource === "bank" ? ui("Transaction type") : ui("Action")}
+                help={
+                  ledgerSource === "bank"
+                    ? ui("Exact bank transaction type such as ISSUANCE, ALLOCATION or RETURN.")
+                    : ui("Exact ledger action such as EARN, GIVE_IN, REDEEM or EXPIRY.")
+                }
               >
                 <Input
                   id="ledger-action"
@@ -824,41 +982,41 @@ export function CreditsManagementPage({
                   }}
                 />
               </Field>
-              <Button
-                variant="outline"
-                className="self-end"
-                disabled={expire.isPending}
-                onClick={() => {
-                  expire.mutate();
-                }}
-              >
-                <RefreshCw /> Run expiry now
-              </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="p-2">Date</th>
-                    <th className="p-2">Member</th>
-                    <th className="p-2">Type</th>
-                    <th className="p-2">Action / reason</th>
-                    <th className="p-2 text-right">Amount</th>
-                    <th className="p-2 text-right">Balance</th>
+                    <th className="p-2">{ui("Date")}</th>
+                    <th className="p-2">{ui("Actor")}</th>
+                    <th className="p-2">{ui("Action type")}</th>
+                    <th className="p-2">{ui("Target employee")}</th>
+                    <th className="p-2">{ui("Target employee email")}</th>
+                    <th className="p-2">{ui("Type")}</th>
+                    <th className="p-2 text-right">{ui("Amount")}</th>
+                    <th className="p-2 text-right">{ui("Balance")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(ledger.data?.items ?? []).map((item) => (
                     <tr key={item.id} className="border-b">
                       <td className="p-2 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
-                      <td className="p-2">{displayName(item.member)}</td>
-                      <td className="p-2">{item.pointType.code}</td>
                       <td className="p-2">
-                        {item.action}
+                        {actorLabel(item)}
+                      </td>
+                      <td className="p-2">
+                        {isBankTransaction(item) ? item.type : item.action}
+                      </td>
+                      <td className="p-2">
+                        {isBankTransaction(item) ? ui("Bank") : displayName(item.member)}
                         <span className="ml-2 text-xs text-muted-foreground">
-                          {item.reason ?? item.message}
+                          {isBankTransaction(item) ? item.reason : item.reason ?? item.message}
                         </span>
                       </td>
+                      <td className="p-2 text-sm text-muted-foreground">
+                        {isBankTransaction(item) ? "—" : item.member?.email ?? "—"}
+                      </td>
+                      <td className="p-2">{item.pointType.code}</td>
                       <td
                         className={`p-2 text-right font-semibold ${item.amount >= 0 ? "text-green-600" : "text-red-600"}`}
                       >
@@ -879,9 +1037,7 @@ export function CreditsManagementPage({
                 onClick={() => {
                   setLedgerPage((page) => page - 1);
                 }}
-              >
-                Previous
-              </Button>
+              >{ui("Previous")}</Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -889,9 +1045,7 @@ export function CreditsManagementPage({
                 onClick={() => {
                   setLedgerPage((page) => page + 1);
                 }}
-              >
-                Next
-              </Button>
+              >{ui("Next")}</Button>
             </div>
           </CardContent>
         </Card>
@@ -902,25 +1056,23 @@ export function CreditsManagementPage({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ArrowRightLeft /> Exchange rates
-              </CardTitle>
+                <ArrowRightLeft />{ui("Exchange rates")}</CardTitle>
               <CardDescription>
-                Saving creates a version and deactivates only the prior rate for the same payout
-                type.
+                {ui("Saving creates a version and deactivates only the prior rate for the same payout type.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {sourceRate && (
                 <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                  Editing from {sourceRate.pointType.name} · {sourceRate.payoutType} · v
-                  {sourceRate.version}. The original version remains unchanged for accounting history.
+                  {ui("Editing from")} {sourceRate.pointType.name} · {sourceRate.payoutType} · v
+                  {sourceRate.version}. {ui("The original version remains unchanged for accounting history.")}
                 </div>
               )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <Field
                   id="rate-type"
-                  label="Point type"
-                  help="Exchange-enabled point type for this rate."
+                  label={ui("Point type")}
+                  help={ui("Exchange-enabled point type for this rate.")}
                 >
                   <select
                     id="rate-type"
@@ -944,8 +1096,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-payout"
-                  label="Payout type"
-                  help="Cash is available only when the selected type permits cash exchange."
+                  label={ui("Payout type")}
+                  help={ui("Cash is available only when the selected type permits cash exchange.")}
                 >
                   <select
                     id="rate-payout"
@@ -955,19 +1107,17 @@ export function CreditsManagementPage({
                       setRatePayout(event.target.value as "CASH" | "NON_CASH");
                     }}
                   >
-                    <option value="NON_CASH">Non-cash</option>
+                    <option value="NON_CASH">{ui("Non-cash")}</option>
                     <option
                       value="CASH"
                       disabled={!activeTypes.find((type) => type.id === rateTypeId)?.cashEligible}
-                    >
-                      Cash
-                    </option>
+                    >{ui("Cash")}</option>
                   </select>
                 </Field>
                 <Field
                   id="rate-value"
-                  label="Currency value per point"
-                  help="Enter the normal currency amount; 1 means 1.00 per point."
+                  label={ui("Currency value per point")}
+                  help={ui("Enter the normal currency amount; 1 means 1.00 per point.")}
                 >
                   <Input
                     id="rate-value"
@@ -980,7 +1130,7 @@ export function CreditsManagementPage({
                     }}
                   />
                 </Field>
-                <Field id="rate-currency" label="Currency" help="Three-letter ISO currency code.">
+                <Field id="rate-currency" label={ui("Currency")} help={ui("Three-letter ISO currency code.")}>
                   <Input
                     id="rate-currency"
                     maxLength={3}
@@ -992,8 +1142,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-mechanism"
-                  label="Payout mechanism"
-                  help="Operational method such as payroll, gift card or bank transfer."
+                  label={ui("Payout mechanism")}
+                  help={ui("Operational method such as payroll, gift card or bank transfer.")}
                 >
                   <Input
                     id="rate-mechanism"
@@ -1005,8 +1155,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-min"
-                  label="Minimum points"
-                  help="Smallest accepted exchange request."
+                  label={ui("Minimum points")}
+                  help={ui("Smallest accepted exchange request.")}
                 >
                   <Input
                     id="rate-min"
@@ -1020,8 +1170,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-max"
-                  label="Maximum points"
-                  help="Optional maximum for one request."
+                  label={ui("Maximum points")}
+                  help={ui("Optional maximum for one request.")}
                 >
                   <Input
                     id="rate-max"
@@ -1035,8 +1185,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-period-limit"
-                  label="Period limit"
-                  help="Optional cumulative member limit during the rolling period."
+                  label={ui("Period limit")}
+                  help={ui("Optional cumulative member limit during the rolling period.")}
                 >
                   <Input
                     id="rate-period-limit"
@@ -1050,8 +1200,8 @@ export function CreditsManagementPage({
                 </Field>
                 <Field
                   id="rate-period-days"
-                  label="Period days"
-                  help="Rolling window used by the cumulative exchange limit."
+                  label={ui("Period days")}
+                  help={ui("Rolling window used by the cumulative exchange limit.")}
                 >
                   <Input
                     id="rate-period-days"
@@ -1077,7 +1227,7 @@ export function CreditsManagementPage({
                     createRate.mutate();
                   }}
                 >
-                  {sourceRate ? "Save as new rate version" : "Activate new rate version"}
+                  {sourceRate ? ui("Save as new rate version") : ui("Activate new rate version")}
                 </Button>
                 {sourceRate && (
                   <Button
@@ -1086,9 +1236,7 @@ export function CreditsManagementPage({
                     onClick={() => {
                       setSourceRate(null);
                     }}
-                  >
-                    Cancel editing
-                  </Button>
+                  >{ui("Cancel editing")}</Button>
                 )}
               </div>
               <div className="space-y-2">
@@ -1102,11 +1250,12 @@ export function CreditsManagementPage({
                         {rate.pointType.name} · {rate.payoutType} · v{rate.version}
                       </span>
                       <span className="ml-2 rounded-full border px-2 py-0.5 text-xs">
-                        {rate.isActive ? "Active" : "Historical"}
+                        {rate.isActive ? ui("Active") : "Historical"}
                       </span>
                       <p className="mt-1 text-xs">
                         {(rate.valueMinorPerPoint / 100).toFixed(2)} {rate.currency} / {rate.pointType.unitLabel} · {rate.payoutMechanism}
                       </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{ui("Created by")}: {rate.createdBy ? `${rate.createdBy.name}${rate.createdBy.email ? ` · ${rate.createdBy.email}` : ""}` : ui("System / legacy")}</p>
                     </div>
                     <Button
                       type="button"
@@ -1116,8 +1265,7 @@ export function CreditsManagementPage({
                         editRateAsNewVersion(rate);
                       }}
                     >
-                      <Pencil className="h-4 w-4" /> Edit as new version
-                    </Button>
+                      <Pencil className="h-4 w-4" />{ui("Edit as new version")}</Button>
                   </div>
                 ))}
               </div>
@@ -1126,10 +1274,9 @@ export function CreditsManagementPage({
 
           <Card>
             <CardHeader>
-              <CardTitle>Accounting exchange vouchers</CardTitle>
+              <CardTitle>{ui("Accounting exchange vouchers")}</CardTitle>
               <CardDescription>
-                Stored accounting documents with strict transitions: Pending → Approved → Completed.
-                Cancellation before completion automatically refunds the member wallet.
+                {ui("Stored accounting documents with strict transitions: Pending → Approved → Completed. Cancellation before completion automatically refunds the member wallet.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -1144,39 +1291,39 @@ export function CreditsManagementPage({
                   </div>
                   <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-2">
                     <p>
-                      Debit: {item.amount.toLocaleString()} {item.pointType.unitLabel}
+                      {ui("Debit:")} {item.amount.toLocaleString()} {item.pointType.unitLabel}
                     </p>
                     <p>
-                      Document value: {(item.valueMinor / 100).toLocaleString()} {item.currency}
+                      {ui("Document value:")} {(item.valueMinor / 100).toLocaleString()} {item.currency}
                     </p>
                     <p>
-                      Rate snapshot: v{item.exchangeRate.version} ·{" "}
+                      {ui("Rate snapshot:")} v{item.exchangeRate.version} ·{" "}
                       {(item.exchangeRate.valueMinorPerPoint / 100).toFixed(2)} {item.currency}/
                       {item.pointType.unitLabel}
                     </p>
                     <p>
-                      Method: {item.payoutType} · {item.payoutMechanism}
+                      {ui("Method:")} {item.payoutType} · {item.payoutMechanism}
                     </p>
-                    <p>Requested: {new Date(item.requestedAt).toLocaleString()}</p>
+                    <p>{ui("Requested:")} {new Date(item.requestedAt).toLocaleString()}</p>
                     {item.approvedAt && (
                       <p>
-                        Approved: {new Date(item.approvedAt).toLocaleString()} · {item.approvedBy}
+                        {ui("Approved:")} {new Date(item.approvedAt).toLocaleString()} · {item.approvedBy}
                       </p>
                     )}
                     {item.completedAt && (
                       <p>
-                        Completed: {new Date(item.completedAt).toLocaleString()} ·{" "}
+                        {ui("Completed:")} {new Date(item.completedAt).toLocaleString()} ·{" "}
                         {item.completedBy}
                       </p>
                     )}
-                    {item.completionReference && <p>Reference: {item.completionReference}</p>}
+                    {item.completionReference && <p>{ui("Reference:")} {item.completionReference}</p>}
                   </div>
-                  {item.approvalNote && <p className="mt-2">Approval note: {item.approvalNote}</p>}
+                  {item.approvalNote && <p className="mt-2">{ui("Approval note:")} {item.approvalNote}</p>}
                   {item.completionNote && (
-                    <p className="mt-2">Completion note: {item.completionNote}</p>
+                    <p className="mt-2">{ui("Completion note:")} {item.completionNote}</p>
                   )}
                   {item.cancellationReason && (
-                    <p className="mt-2 text-destructive">Cancellation: {item.cancellationReason}</p>
+                    <p className="mt-2 text-destructive">{ui("Cancellation:")} {item.cancellationReason}</p>
                   )}
                   <div className="mt-2 flex gap-2">
                     {item.status === "PENDING" && (
@@ -1185,9 +1332,7 @@ export function CreditsManagementPage({
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "approve" });
                         }}
-                      >
-                        Approve
-                      </Button>
+                      >{ui("Approve")}</Button>
                     )}
                     {item.status === "APPROVED" && (
                       <Button
@@ -1195,9 +1340,7 @@ export function CreditsManagementPage({
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "complete" });
                         }}
-                      >
-                        Mark completed
-                      </Button>
+                      >{ui("Mark completed")}</Button>
                     )}
                     {["PENDING", "APPROVED"].includes(item.status) && (
                       <Button
@@ -1206,15 +1349,13 @@ export function CreditsManagementPage({
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "cancel" });
                         }}
-                      >
-                        Cancel & refund
-                      </Button>
+                      >{ui("Cancel & refund")}</Button>
                     )}
                   </div>
                 </div>
               ))}
               {(requests.data?.items ?? []).length === 0 && (
-                <p className="text-sm text-muted-foreground">No exchange requests.</p>
+                <p className="text-sm text-muted-foreground">{ui("No exchange requests.")}</p>
               )}
             </CardContent>
           </Card>
@@ -1226,17 +1367,15 @@ export function CreditsManagementPage({
           {section === "banks" && (
             <Card>
               <CardHeader>
-                <CardTitle>Bank cycles</CardTitle>
-                <CardDescription>
-                  Track allocation windows without deleting unused bank value when a cycle closes.
-                </CardDescription>
+                <CardTitle>{ui("Bank cycles")}</CardTitle>
+                <CardDescription>{ui("Track allocation windows without deleting unused bank value when a cycle closes.")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="cycle-type"
-                    label="Point type"
-                    help="Bank-governed point type tracked by this cycle."
+                    label={ui("Point type")}
+                    help={ui("Bank-governed point type tracked by this cycle.")}
                   >
                     <select
                       id="cycle-type"
@@ -1257,8 +1396,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="cycle-start"
-                    label="Starts at"
-                    help="Optional cycle start; defaults to now."
+                    label={ui("Starts at")}
+                    help={ui("Optional cycle start; defaults to now.")}
                   >
                     <Input
                       id="cycle-start"
@@ -1271,8 +1410,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="cycle-end"
-                    label="Ends at"
-                    help="Optional cycle end; defaults to the point type allowance-cycle duration."
+                    label={ui("Ends at")}
+                    help={ui("Optional cycle end; defaults to the point type allowance-cycle duration.")}
                   >
                     <Input
                       id="cycle-end"
@@ -1285,8 +1424,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="cycle-note"
-                    label="Cycle note"
-                    help="Optional operational context for the allocation window."
+                    label={ui("Cycle note")}
+                    help={ui("Optional operational context for the allocation window.")}
                   >
                     <Input
                       id="cycle-note"
@@ -1302,9 +1441,7 @@ export function CreditsManagementPage({
                   onClick={() => {
                     openCycle.mutate();
                   }}
-                >
-                  Open cycle
-                </Button>
+                >{ui("Open cycle")}</Button>
                 <div className="space-y-2">
                   {(cycles.data ?? []).map((cycle) => (
                     <div
@@ -1315,6 +1452,7 @@ export function CreditsManagementPage({
                         {cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleDateString()}–
                         {new Date(cycle.endsAt).toLocaleDateString()} · {cycle.status}
                       </span>
+                      <span className="text-xs text-muted-foreground">{ui("Created by")}: {cycle.createdBy ? `${cycle.createdBy.name}${cycle.createdBy.email ? ` · ${cycle.createdBy.email}` : ""}` : ui("System / legacy")}</span>
                       <span>
                         Opening {cycle.opening.toLocaleString()} · allocated{" "}
                         {cycle.allocated.toLocaleString()} · closing{" "}
@@ -1327,9 +1465,7 @@ export function CreditsManagementPage({
                           onClick={() => {
                             clearCycle.mutate(cycle.id);
                           }}
-                        >
-                          Close cycle
-                        </Button>
+                        >{ui("Close cycle")}</Button>
                       )}
                     </div>
                   ))}
@@ -1341,18 +1477,17 @@ export function CreditsManagementPage({
           {section === "categories" && (
             <Card>
               <CardHeader>
-                <CardTitle>Recognition categories</CardTitle>
+                <CardTitle>{ui("Recognition categories")}</CardTitle>
                 <CardDescription>
-                  Used for member recognition and reporting. Used categories are archived rather
-                  than deleted.
+                  {ui("Used for member recognition and reporting. Used categories are archived rather than deleted.")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="category-name"
-                    label="Category name"
-                    help="Short label displayed in the Portal Give form."
+                    label={ui("Category name")}
+                    help={ui("Short label displayed in the Portal Give form.")}
                   >
                     <Input
                       id="category-name"
@@ -1364,8 +1499,8 @@ export function CreditsManagementPage({
                   </Field>
                   <Field
                     id="category-description"
-                    label="Category description"
-                    help="Explains when members should use this category."
+                    label={ui("Category description")}
+                    help={ui("Explains when members should use this category.")}
                   >
                     <Input
                       id="category-description"
@@ -1381,9 +1516,7 @@ export function CreditsManagementPage({
                   onClick={() => {
                     createCategory.mutate();
                   }}
-                >
-                  Create category
-                </Button>
+                >{ui("Create category")}</Button>
                 <div className="space-y-2">
                   {(categories.data ?? []).map((category) => (
                     <div
@@ -1393,6 +1526,7 @@ export function CreditsManagementPage({
                       <span>
                         <strong>{category.name}</strong>
                         <span className="ml-2 text-muted-foreground">{category.description}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{ui("Created by")}: {category.createdBy ? `${category.createdBy.name}${category.createdBy.email ? ` · ${category.createdBy.email}` : ""}` : ui("System / legacy")}</span>
                       </span>
                       <div className="flex gap-2">
                         <Button
@@ -1402,7 +1536,7 @@ export function CreditsManagementPage({
                             updateCategory.mutate({ category });
                           }}
                         >
-                          {category.isActive ? "Deactivate" : "Activate"}
+                          {category.isActive ? ui("Deactivate") : ui("Activate")}
                         </Button>
                         <Button
                           size="sm"
@@ -1410,9 +1544,7 @@ export function CreditsManagementPage({
                           onClick={() => {
                             updateCategory.mutate({ category, remove: true });
                           }}
-                        >
-                          Delete
-                        </Button>
+                        >{ui("Delete")}</Button>
                       </div>
                     </div>
                   ))}
@@ -1427,18 +1559,25 @@ export function CreditsManagementPage({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Upload /> Dynamic member import
-            </CardTitle>
+              <Upload />{ui("Dynamic member import")}</CardTitle>
             <CardDescription>
-              Use point_CODE and optional expiry_CODE columns for any configured type. Omitting
-              status preserves an existing member’s state.
+              {ui("Use point_CODE and optional expiry_CODE columns for any configured type. Omitting status preserves an existing member’s state.")}
             </CardDescription>
+            <p className="text-xs text-muted-foreground">
+              {ui("The importer detects the column header automatically, including files with a title row above it. The header row is not counted as a member row.")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {ui("Export selected members from Members to edit profile fields and re-import using memberId.")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {ui("Exported balance_CODE columns are target balances. Import applies only the difference and enforces each point type's settings.")}
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <Field
               id="bulk-file"
-              label="CSV or XLSX file"
-              help="CSV is read as text; XLSX is transmitted as base64 and parsed server-side."
+              label={ui("CSV or XLSX file")}
+              help={ui("CSV is read as text; XLSX is transmitted as base64 and parsed server-side.")}
             >
               <Input
                 id="bulk-file"
@@ -1450,11 +1589,45 @@ export function CreditsManagementPage({
                 }}
               />
             </Field>
+            <div className="space-y-3 rounded-md border p-4">
+              <div>
+                <p className="font-medium">{ui("Fields to import")}</p>
+                <p className="text-xs text-muted-foreground">{ui("Email or External ID is required for a new member. Member ID can be used to update an existing member.")}</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {importFieldOptions.map((option) => {
+                  const checked = bulkSelectedFields.includes(option.key);
+                  return (
+                    <label key={option.key} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={option.mandatory}
+                        onChange={(event) => {
+                          const selected = event.target.checked;
+                          setBulkSelectedFields((current) => {
+                            if (selected) {
+                              const prefix = option.key.startsWith("point_") ? "point_" : option.key.startsWith("balance_") ? "balance_" : "";
+                              const code = prefix ? option.key.slice(prefix.length) : "";
+                              const counterpart = prefix === "point_" ? `balance_${code}` : prefix === "balance_" ? `point_${code}` : null;
+                              return [...current.filter((field) => field !== counterpart), option.key];
+                            }
+                            return current.filter((field) => field !== option.key);
+                          });
+                        }}
+                      />
+                      <span className="flex-1">{importFieldLabel(option.key, activeTypes)}</span>
+                      {option.mandatory && <span className="text-xs font-medium text-muted-foreground">{ui("Mandatory")}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
             {bulkFormat === "csv" && (
               <Field
                 id="bulk-content"
-                label="CSV content"
-                help="Editable import preview. Positive bank-governed amounts consume bank funds; Per grant types require expiry_CODE."
+                label={ui("CSV content")}
+                help={ui("Editable import preview. Positive bank-governed amounts consume bank funds; Per grant types require expiry_CODE.")}
               >
                 <Textarea
                   id="bulk-content"
@@ -1467,17 +1640,15 @@ export function CreditsManagementPage({
               </Field>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={downloadImportTemplate}>
-                <Download /> Download CSV template
-              </Button>
+              <Button type="button" variant="outline" disabled={pointTypes.isLoading} onClick={downloadImportTemplate}>
+                <Download />{ui("Download CSV template")}</Button>
               <Button
                 disabled={!bulkContent || bulkImport.isPending}
                 onClick={() => {
                   bulkImport.mutate();
                 }}
               >
-                <Upload /> Import members
-              </Button>
+                <Upload />{ui("Import members")}</Button>
             </div>
             {bulkResult && (
               <div className="rounded-md border p-3 text-sm">

@@ -6,10 +6,75 @@ import type {
   TierCreateInput,
   TierEvaluationResult,
   TierMemberCount,
+  TierQualificationRule,
   TierRow,
   TierUpdateInput,
 } from "./types.js";
 import { TierNotFoundError, TierRankConflictError } from "./types.js";
+
+function qualificationRules(tier: TierRow): TierQualificationRule[] {
+  if (Array.isArray(tier.qualificationRules)) {
+    const parsed: TierQualificationRule[] = [];
+    for (const value of tier.qualificationRules) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const rule = value as Record<string, unknown>;
+      if (
+        typeof rule.pointTypeId === "string" &&
+        typeof rule.minPoints === "number" &&
+        Number.isFinite(rule.minPoints)
+      ) {
+        parsed.push({ pointTypeId: rule.pointTypeId, minPoints: rule.minPoints });
+      }
+    }
+    if (parsed.length > 0) return parsed;
+  }
+
+  return tier.pointTypeId ? [{ pointTypeId: tier.pointTypeId, minPoints: tier.minPoints }] : [];
+}
+
+function qualifies(
+  tier: TierRow,
+  pointTotals: Record<string, number>,
+): boolean {
+  const matches = qualificationRules(tier).map(
+    (rule) => (pointTotals[rule.pointTypeId] ?? 0) >= rule.minPoints,
+  );
+  return tier.qualificationOperator === "OR" ? matches.some(Boolean) : matches.every(Boolean);
+}
+
+function progressToNext(
+  current: TierRow,
+  next: TierRow | null,
+  pointTotals: Record<string, number>,
+): { progress: number; pointsToNext: number | null } {
+  if (!next) return { progress: 100, pointsToNext: null };
+
+  const currentRules = qualificationRules(current);
+  const nextRules = qualificationRules(next);
+  const ratios = nextRules.map((nextRule) => {
+    const currentRule = currentRules.find((rule) => rule.pointTypeId === nextRule.pointTypeId);
+    const currentMin = currentRule?.minPoints ?? 0;
+    const earned = pointTotals[nextRule.pointTypeId] ?? 0;
+    const requiredDelta = nextRule.minPoints - currentMin;
+    return {
+      ratio: requiredDelta <= 0 ? 1 : (earned - currentMin) / requiredDelta,
+      deficit: Math.max(0, nextRule.minPoints - earned),
+    };
+  });
+
+  const isOr = next.qualificationOperator === "OR";
+  const progressRatio = isOr
+    ? Math.max(...ratios.map((item) => item.ratio))
+    : Math.min(...ratios.map((item) => item.ratio));
+  return {
+    progress: ratios.length > 0
+      ? Math.min(100, Math.max(0, Math.round(progressRatio * 100)))
+      : 0,
+    pointsToNext: ratios.length > 0
+      ? (isOr ? Math.min(...ratios.map((item) => item.deficit)) : Math.max(...ratios.map((item) => item.deficit)))
+      : null,
+  };
+}
 
 export class TiersService {
   private repo: Repository;
@@ -94,14 +159,15 @@ export class TiersService {
       };
     }
 
-    const qualificationPointTypeId = tiers[0]?.pointTypeId ?? null;
-    if (tiers.some((tier) => tier.pointTypeId !== qualificationPointTypeId)) {
-      throw new Error("All tiers in a program must use the same point type");
-    }
+    const firstTier = tiers[0]!;
+    const qualificationPointTypeId = qualificationRules(firstTier)[0]?.pointTypeId ?? null;
     const aggregate = await this.repo.findMemberAggregate(memberId, qualificationPointTypeId);
     if (!aggregate) {
       throw new Error(`Member not found: ${memberId}`);
     }
+
+    const pointTotals = aggregate.pointTotals ??
+      (qualificationPointTypeId ? { [qualificationPointTypeId]: aggregate.totalEarned } : {});
 
     // Determine the correct tier based on total earned points
     // Tiers are ordered by rank ascending — higher rank = higher tier
@@ -109,7 +175,7 @@ export class TiersService {
     let nextTier: TierRow | null = null;
 
     for (const tier of tiers) {
-      if (aggregate.totalEarned >= tier.minPoints) {
+      if (qualifies(tier, pointTotals)) {
         correctTier = tier;
       } else if (correctTier && !nextTier) {
         nextTier = tier;
@@ -124,24 +190,18 @@ export class TiersService {
 
     // No change
     if (correctTier && previousTierId === correctTier.id) {
-      // Compute progress to next tier
-      const pointsProgress = nextTier
-        ? Math.min(
-            100,
-            Math.round(
-              ((aggregate.totalEarned - correctTier.minPoints) /
-                (nextTier.minPoints - correctTier.minPoints)) *
-                100,
-            ),
-          )
-        : 100;
+      const { progress: pointsProgress, pointsToNext } = progressToNext(
+        correctTier,
+        nextTier,
+        pointTotals,
+      );
       return {
         currentTier: correctTier,
         previousTier: correctTier,
         changed: false,
         direction: null,
         pointsProgress,
-        pointsToNext: nextTier ? nextTier.minPoints - aggregate.totalEarned : null,
+        pointsToNext,
         nextTier,
       };
     }
@@ -149,22 +209,18 @@ export class TiersService {
     // No tier assigned yet — assign the first eligible tier
     if (!previousTierId && correctTier) {
       await this.repo.createMemberTier(memberId, correctTier.id);
+      const { progress: pointsProgress, pointsToNext } = progressToNext(
+        correctTier,
+        nextTier,
+        pointTotals,
+      );
       return {
         currentTier: correctTier,
         previousTier: null,
         changed: true,
         direction: "upgrade",
-        pointsProgress: nextTier
-          ? Math.min(
-              100,
-              Math.round(
-                ((aggregate.totalEarned - correctTier.minPoints) /
-                  (nextTier.minPoints - correctTier.minPoints)) *
-                  100,
-              ),
-            )
-          : 100,
-        pointsToNext: nextTier ? nextTier.minPoints - aggregate.totalEarned : null,
+        pointsProgress,
+        pointsToNext,
         nextTier,
       };
     }
@@ -177,17 +233,11 @@ export class TiersService {
       await this.repo.createMemberTier(memberId, correctTier.id);
 
       const isUpgrade = correctTier.rank > (previousTier?.rank ?? 0);
-
-      const pointsProgress = nextTier
-        ? Math.min(
-            100,
-            Math.round(
-              ((aggregate.totalEarned - correctTier.minPoints) /
-                (nextTier.minPoints - correctTier.minPoints)) *
-                100,
-            ),
-          )
-        : 100;
+      const { progress: pointsProgress, pointsToNext } = progressToNext(
+        correctTier,
+        nextTier,
+        pointTotals,
+      );
 
       return {
         currentTier: correctTier,
@@ -195,19 +245,24 @@ export class TiersService {
         changed: true,
         direction: isUpgrade ? "upgrade" : "downgrade",
         pointsProgress,
-        pointsToNext: nextTier ? nextTier.minPoints - aggregate.totalEarned : null,
+        pointsToNext,
         nextTier,
       };
     }
 
     // No eligible tier
+    const firstTierDeficits = tiers[0]
+      ? qualificationRules(tiers[0]).map(
+          (rule) => Math.max(0, rule.minPoints - (pointTotals[rule.pointTypeId] ?? 0)),
+        )
+      : [];
     return {
       currentTier: null,
       previousTier,
       changed: previousTier !== null,
       direction: previousTier ? "downgrade" : null,
       pointsProgress: 0,
-      pointsToNext: tiers[0] ? tiers[0].minPoints - aggregate.totalEarned : null,
+      pointsToNext: firstTierDeficits.length > 0 ? Math.max(...firstTierDeficits) : null,
       nextTier: tiers[0] ?? null,
     };
   }

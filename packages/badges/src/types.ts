@@ -61,6 +61,8 @@ export interface TierCreateInput {
   name: string;
   rank: number;
   minPoints: number;
+  qualificationRules?: TierQualificationRule[];
+  qualificationOperator?: "AND" | "OR";
   color?: string;
   iconUrl?: string;
   benefits?: Record<string, unknown>;
@@ -71,9 +73,16 @@ export interface TierUpdateInput {
   name?: string;
   rank?: number;
   minPoints?: number;
+  qualificationRules?: TierQualificationRule[];
+  qualificationOperator?: "AND" | "OR";
   color?: string;
   iconUrl?: string;
   benefits?: Record<string, unknown>;
+}
+
+export interface TierQualificationRule {
+  pointTypeId: string;
+  minPoints: number;
 }
 
 export interface TierEvaluationResult {
@@ -107,6 +116,7 @@ export interface MemberAggregate {
   eventCounts: Record<string, number>; // eventType -> count
   totalSpent: number;
   lastEventAt: Date | null;
+  pointTotals?: Record<string, number>;
 }
 
 // ── Tier member count for stats ──────────────────────────────────────────

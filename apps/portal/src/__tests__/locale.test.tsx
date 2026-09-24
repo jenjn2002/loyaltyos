@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 describe("Portal locale resolution", () => {
-  it("shows Spanish UI when /auth/me returns locale es-MX", async () => {
+  it("shows Vietnamese UI when /auth/me returns locale vi-VN", async () => {
     login();
     mockFetch.mockResolvedValueOnce(
       new Response(
@@ -51,8 +51,8 @@ describe("Portal locale resolution", () => {
             lastName: null,
             joinedAt: new Date().toISOString(),
             programId: "prog_001",
-            locale: "es-MX",
-            program: { defaultLocale: "es-MX", supportedLocales: ["es-MX", "en-US"] },
+            locale: "vi-VN",
+            program: { defaultLocale: "vi-VN", supportedLocales: ["vi-VN", "en-US"] },
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -69,13 +69,13 @@ describe("Portal locale resolution", () => {
 
     renderApp();
 
-    // After bootstrap, language should be es-MX
+    // After bootstrap, language should be vi-VN
     await waitFor(() => {
-      expect(i18n.language).toBe("es-MX");
+      expect(i18n.language).toBe("vi-VN");
     });
 
     // sessionStorage should have the locale
-    expect(sessionStorage.getItem("loyaltyos-locale")).toBe("es-MX");
+    expect(sessionStorage.getItem("loyaltyos-locale")).toBe("vi-VN");
   });
 
   it("stores locale in sessionStorage when ?lang=en-US is in URL", async () => {
@@ -104,7 +104,7 @@ describe("Portal locale resolution", () => {
     expect(i18n.language).toBe("en-US");
   });
 
-  it("defaults to es-MX when nothing matches", async () => {
+  it("defaults to vi-VN when nothing matches", async () => {
     Object.defineProperty(window, "location", {
       value: { search: "" },
       writable: true,
@@ -115,8 +115,8 @@ describe("Portal locale resolution", () => {
 
     await bootstrapLocale();
 
-    expect(i18n.language).toBe("es-MX");
-    expect(sessionStorage.getItem("loyaltyos-locale")).toBe("es-MX");
+    expect(i18n.language).toBe("vi-VN");
+    expect(sessionStorage.getItem("loyaltyos-locale")).toBe("vi-VN");
   });
 });
 
@@ -130,8 +130,8 @@ describe("Profile language selector", () => {
         JSON.stringify({
           data: {
             id: "mem_001",
-            locale: "es-MX",
-            program: { defaultLocale: "es-MX", supportedLocales: ["es-MX", "en-US"] },
+            locale: "vi-VN",
+            program: { defaultLocale: "vi-VN", supportedLocales: ["vi-VN", "en-US"] },
           },
         }),
         { status: 200 },
@@ -156,7 +156,7 @@ describe("Profile language selector", () => {
     const user = userEvent.setup();
     renderApp();
 
-    // Find the language selector and change it (renders in Spanish after bootstrap)
+    // Find the language selector and change it (renders in Vietnamese after bootstrap)
     const select = await screen.findByLabelText("Idioma");
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { locale: "en-US" } }), { status: 200 }),

@@ -1,9 +1,9 @@
 import { pick } from "accept-language-parser";
 
-const SUPPORTED_LOCALES = ["es-MX", "en-US"] as const;
+const SUPPORTED_LOCALES = ["vi-VN", "en-US"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
-export const DEFAULT_LOCALE: SupportedLocale = "es-MX";
+export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 
 const SUPPORTED_READONLY: readonly string[] = SUPPORTED_LOCALES;
 

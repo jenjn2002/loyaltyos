@@ -1,7 +1,7 @@
 import { configuredProgramId, fetchApi, postApi } from "./api-client";
 
 interface AuthSession {
-  token: string;
+  token: string | null;
   memberId: string;
   programId: string;
 }
@@ -13,11 +13,15 @@ export function getSession(): AuthSession | null {
   if (token && memberId && programId) {
     return { token, memberId, programId };
   }
+  if (memberId && programId) {
+    return { token: null, memberId, programId };
+  }
   return null;
 }
 
 export function setSession(session: AuthSession): void {
-  sessionStorage.setItem("auth-token", session.token);
+  if (session.token) sessionStorage.setItem("auth-token", session.token);
+  else sessionStorage.removeItem("auth-token");
   sessionStorage.setItem("member-id", session.memberId);
   sessionStorage.setItem("program-id", session.programId);
 }
@@ -30,6 +34,19 @@ export function clearSession(): void {
 
 export function isAuthenticated(): boolean {
   return sessionStorage.getItem("member-id") !== null;
+}
+
+/** Restore a Microsoft/OIDC session that is held in the HttpOnly Lucia cookie. */
+export async function bootstrapSession(): Promise<boolean> {
+  if (isAuthenticated()) return true;
+  try {
+    const member = await fetchApi<{ id: string; programId: string }>("/auth/me");
+    if (!member.id || !member.programId) return false;
+    setSession({ token: null, memberId: member.id, programId: member.programId });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface AuthMethods {
@@ -62,7 +79,7 @@ export function startMicrosoftLogin(): void {
   );
 }
 
-export async function sendMagicLink(email: string, locale = "es-MX"): Promise<void> {
+export async function sendMagicLink(email: string, locale = "vi-VN"): Promise<void> {
   await postApi("/auth/magic-link", { email, locale });
 }
 

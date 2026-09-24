@@ -19,6 +19,7 @@ import {
   startOutstandingBalanceWorker,
 } from "./workers/giftcards.js";
 import { startNotificationsWorker } from "./workers/notifications.js";
+import { startOccasionsWorker } from "./workers/occasions.js";
 
 await bootstrapInitialAdmin();
 
@@ -42,6 +43,7 @@ try {
   await scheduleGiftCardExpiration();
   await scheduleOutstandingBalanceRefresh();
   await scheduleCreditExpiry();
+  await startOccasionsWorker();
 
   // Collect BullMQ queue depth metrics periodically
   const bullmqMetrics = getBullMQMetrics();

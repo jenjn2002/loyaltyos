@@ -33,6 +33,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     // Skip auth for public routes (magic link, admin login, etc.)
     if (
       request.url.startsWith("/api/v1/auth/") ||
+      request.url.startsWith("/api/v1/admin/auth/microsoft") ||
       request.url.startsWith("/api/v1/admin/login") ||
       request.url.startsWith("/api/v1/admin/logout") ||
       request.url.startsWith("/healthz") ||
@@ -144,7 +145,8 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     if (!request.url.startsWith("/api/v1/admin/")) return;
     if (
       request.url.startsWith("/api/v1/admin/login") ||
-      request.url.startsWith("/api/v1/admin/logout")
+      request.url.startsWith("/api/v1/admin/logout") ||
+      request.url.startsWith("/api/v1/admin/auth/microsoft")
     )
       return;
     if (!request.adminId && request.apiKeyScope !== "SERVER")

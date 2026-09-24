@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useEffect } from "react";
 
 const DEFINITIONS: [RegExp, string][] = [
@@ -51,7 +52,7 @@ function attach(control: HTMLElement): void {
     control.dataset.help ??
     label?.dataset.help ??
     DEFINITIONS.find(([pattern]) => pattern.test(clean))?.[1] ??
-    `Defines how “${clean || "this field"}” is used for this action.`;
+    `Defines how “${clean || ui("this field")}” is used for this action.`;
   // Only decorate React-owned nodes. Re-parenting labels caused intermittent
   // reconciliation crashes on dynamic forms such as the Credits page.
   if (label) {

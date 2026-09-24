@@ -479,12 +479,12 @@ async function main(): Promise<void> {
     data: {
       programId: program.id,
       name: "Points Earned",
-      locale: "es-MX",
+      locale: "vi-VN",
       channel: "EMAIL",
       triggerEvent: "points.earned",
-      subject: "¡Ganaste {{points}} puntos!",
+      subject: "Bạn đã nhận được {{points}} điểm!",
       bodyHtml:
-        "<h1>¡Puntos Ganados! 🎉</h1><p>Hola {{member.firstName}},</p><p>Acabas de ganar <strong>{{points}} puntos</strong>. Tu nuevo saldo es <strong>{{balance}} puntos</strong>.</p>",
+        "<h1>Đã nhận điểm 🎉</h1><p>Xin chào {{member.firstName}},</p><p>Bạn vừa nhận được <strong>{{points}} điểm</strong>. Số dư mới của bạn là <strong>{{balance}} điểm</strong>.</p>",
     },
   });
 
@@ -500,18 +500,18 @@ async function main(): Promise<void> {
         "<h1>Points Earned 🎉</h1><p>Hi {{member.firstName}},</p><p>You just earned <strong>{{points}} points</strong>! Your new balance is <strong>{{balance}} points</strong>.</p>",
     },
   });
-  console.log("Created notification templates: Points Earned (es-MX, en-US)");
+  console.log("Created notification templates: Points Earned (vi-VN, en-US)");
 
   await prisma.notificationTemplate.create({
     data: {
       programId: program.id,
       name: "Magic Link",
-      locale: "es-MX",
+      locale: "vi-VN",
       channel: "EMAIL",
       triggerEvent: "auth.magic_link",
-      subject: "Inicia sesión en {{program.name}}",
+      subject: "Đăng nhập vào {{program.name}}",
       bodyHtml:
-        '<h1>Inicia sesión en {{program.name}}</h1><p>Hola {{member.firstName}},</p><p>Haz clic en el enlace para iniciar sesión en tu cuenta de recompensas:</p><p><a href="{{magicLinkUrl}}">Iniciar sesión en {{program.name}}</a></p><p>Este enlace expira en 15 minutos. Si no lo solicitaste, puedes ignorar este correo.</p>',
+        '<h1>Đăng nhập vào {{program.name}}</h1><p>Xin chào {{member.firstName}},</p><p>Nhấp vào liên kết bên dưới để đăng nhập vào tài khoản phần thưởng của bạn:</p><p><a href="{{magicLinkUrl}}">Đăng nhập vào {{program.name}}</a></p><p>Liên kết này sẽ hết hạn sau 15 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>',
     },
   });
 
@@ -527,17 +527,17 @@ async function main(): Promise<void> {
         '<h1>Sign in to {{program.name}}</h1><p>Hi {{member.firstName}},</p><p>Click the link below to sign in to your rewards account:</p><p><a href="{{magicLinkUrl}}">Sign in to {{program.name}}</a></p><p>This link expires in 15 minutes. If you didn\'t request this, you can safely ignore this email.</p>',
     },
   });
-  console.log("Created notification templates: Magic Link (es-MX, en-US)");
+  console.log("Created notification templates: Magic Link (vi-VN, en-US)");
 
   // Additional templates for both locales
   const templateDefs = [
     {
       name: "Welcome",
       triggerEvent: "member.registered",
-      esMX: {
-        subject: "¡Bienvenido a {{program.name}}!",
+      viVN: {
+        subject: "Chào mừng bạn đến với {{program.name}}!",
         bodyHtml:
-          "<h1>¡Bienvenido {{member.firstName}}!</h1><p>Gracias por unirte a <strong>{{program.name}}</strong>. Empieza a ganar puntos hoy.</p>",
+          "<h1>Chào mừng {{member.firstName}}!</h1><p>Cảm ơn bạn đã tham gia <strong>{{program.name}}</strong>. Hãy bắt đầu tích điểm ngay hôm nay.</p>",
       },
       enUS: {
         subject: "Welcome to {{program.name}}!",
@@ -548,10 +548,10 @@ async function main(): Promise<void> {
     {
       name: "Points Redeemed",
       triggerEvent: "points.redeemed",
-      esMX: {
-        subject: "Canjeaste {{points}} puntos",
+      viVN: {
+        subject: "Bạn đã đổi {{points}} điểm",
         bodyHtml:
-          "<h1>Puntos Canjeados</h1><p>Hola {{member.firstName}},</p><p>Canjeaste <strong>{{points}} puntos</strong> por <strong>{{reward.name}}</strong>.</p>",
+          "<h1>Đã đổi điểm</h1><p>Xin chào {{member.firstName}},</p><p>Bạn đã đổi <strong>{{points}} điểm</strong> để nhận <strong>{{reward.name}}</strong>.</p>",
       },
       enUS: {
         subject: "You redeemed {{points}} points",
@@ -562,10 +562,10 @@ async function main(): Promise<void> {
     {
       name: "Coupon Issued",
       triggerEvent: "coupon.issued",
-      esMX: {
-        subject: "¡Tienes un cupón nuevo!",
+      viVN: {
+        subject: "Bạn có một phiếu giảm giá mới!",
         bodyHtml:
-          "<h1>¡Cupón Disponible!</h1><p>Hola {{member.firstName}},</p><p>Tienes un cupón: <strong>{{coupon.code}}</strong>. Válido hasta {{coupon.expiresAt}}.</p>",
+          "<h1>Phiếu giảm giá mới!</h1><p>Xin chào {{member.firstName}},</p><p>Mã phiếu của bạn: <strong>{{coupon.code}}</strong>. Có hiệu lực đến {{coupon.expiresAt}}.</p>",
       },
       enUS: {
         subject: "You've got a new coupon!",
@@ -576,10 +576,10 @@ async function main(): Promise<void> {
     {
       name: "Tier Changed",
       triggerEvent: "tier.changed",
-      esMX: {
-        subject: "¡Subiste de nivel a {{tier.name}}!",
+      viVN: {
+        subject: "Bạn đã đạt hạng {{tier.name}}!",
         bodyHtml:
-          "<h1>¡Nuevo Nivel!</h1><p>Hola {{member.firstName}},</p><p>Felicitaciones, has alcanzado el nivel <strong>{{tier.name}}</strong>.</p>",
+          "<h1>Hạng mới!</h1><p>Xin chào {{member.firstName}},</p><p>Chúc mừng, bạn đã đạt hạng <strong>{{tier.name}}</strong>.</p>",
       },
       enUS: {
         subject: "You've reached {{tier.name}} tier!",
@@ -590,10 +590,10 @@ async function main(): Promise<void> {
     {
       name: "Expiration Warning",
       triggerEvent: "points.expiring",
-      esMX: {
-        subject: "{{points}} puntos por vencer",
+      viVN: {
+        subject: "{{points}} điểm sắp hết hạn",
         bodyHtml:
-          "<h1>Puntos por Vencer</h1><p>Hola {{member.firstName}},</p><p>Tienes <strong>{{points}} puntos</strong> que vencerán el {{expirationDate}}. ¡Úsalos antes de que expiren!</p>",
+          "<h1>Điểm sắp hết hạn</h1><p>Xin chào {{member.firstName}},</p><p>Bạn có <strong>{{points}} điểm</strong> sẽ hết hạn vào {{expirationDate}}. Hãy sử dụng trước khi hết hạn!</p>",
       },
       enUS: {
         subject: "{{points}} points expiring soon",
@@ -608,11 +608,11 @@ async function main(): Promise<void> {
       data: {
         programId: program.id,
         name: def.name,
-        locale: "es-MX",
+        locale: "vi-VN",
         channel: "EMAIL",
         triggerEvent: def.triggerEvent,
-        subject: def.esMX.subject,
-        bodyHtml: def.esMX.bodyHtml,
+        subject: def.viVN.subject,
+        bodyHtml: def.viVN.bodyHtml,
       },
     });
     await prisma.notificationTemplate.create({

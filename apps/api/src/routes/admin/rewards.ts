@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { notificationsService } from "../../lib/notifications-setup.js";
 import { requireCapability } from "../../lib/permissions.js";
@@ -157,9 +158,14 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         }),
         prisma.reward.count({ where }),
       ]);
+      const creators = await createdByForEntities(
+        request.programId,
+        "reward",
+        items.map((reward) => reward.id),
+      );
       return reply.send({
         data: {
-          items,
+          items: items.map((reward) => ({ ...reward, createdBy: creators.get(reward.id) ?? null })),
           total,
           page: query.page,
           pageSize: query.pageSize,

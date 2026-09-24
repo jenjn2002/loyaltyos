@@ -10,7 +10,7 @@ The LoyaltyOS Customer Portal (`apps/portal`) is a mobile-first React PWA that l
 - **Badges gallery** — all badges with unlock status and progress percentage.
 - **Transaction history** — paginated list of point transactions.
 - **Profile** — notification preferences toggles (EMAIL, SMS, PUSH) and opt-out per channel.
-- **i18n** — English and Spanish, switchable in the UI.
+- **i18n** — English and Vietnamese, switchable in the UI.
 - **PWA** — installable on mobile devices with a web app manifest.
 
 ## Quick Start
@@ -102,6 +102,6 @@ The portal uses CSS custom properties for branding. Override these in your style
 Translation files are in `packages/i18n/src/locales/`. Currently supported:
 
 - English (`en-US.json`)
-- Spanish (`es-MX.json`)
+- Vietnamese (`vi-VN.json`)
 
 Locale resolution follows a priority chain per surface. See [Localization](localization.md) for details on adding new languages, resolution order, and template authoring.

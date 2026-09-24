@@ -140,7 +140,7 @@ describe("WidgetConfigController", () => {
     `);
 
     expect(el.controller.config.theme).toBe("auto");
-    expect(el.controller.config.locale).toBe("es-MX");
+    expect(el.controller.config.locale).toBe("vi-VN");
     expect(el.controller.config.mode).toBe("full");
 
     Object.defineProperty(navigator, "language", { value: origLanguage, configurable: true });

@@ -22,12 +22,12 @@ function getAllKeys(obj: NestedJson, prefix = ""): string[] {
 }
 
 function main(): void {
-  const esMxPath = join(LOCALES_DIR, "es-MX.json");
-  const esMx = JSON.parse(readFileSync(esMxPath, "utf-8")) as NestedJson;
+  const viVnPath = join(LOCALES_DIR, "vi-VN.json");
+  const viVn = JSON.parse(readFileSync(viVnPath, "utf-8")) as NestedJson;
 
-  const content = `import esMX from "./locales/es-MX.json" with { type: "json" };
+  const content = `import viVN from "./locales/vi-VN.json" with { type: "json" };
 
-type JsonShape = typeof esMX;
+type JsonShape = typeof viVN;
 
 type DotPrefix<T extends string, K extends string> = K extends ""
   ? T
@@ -39,7 +39,7 @@ type NestedKeys<T, Prefix extends string = ""> = {
     : DotPrefix<Prefix, K>;
 }[keyof T & string];
 
-/** All valid translation keys derived from es-MX.json */
+/** All valid translation keys derived from vi-VN.json */
 export type TranslationKey = NestedKeys<JsonShape>;
 
 /** Type-safe t() function signature */
@@ -47,7 +47,7 @@ export type TFunction = (key: TranslationKey, params?: Record<string, string | n
 `;
 
   writeFileSync(TYPES_PATH, content, "utf-8");
-  console.log(`✅ Generated types with ${String(getAllKeys(esMx).length)} keys`);
+  console.log(`✅ Generated types with ${String(getAllKeys(viVn).length)} keys`);
 }
 
 main();

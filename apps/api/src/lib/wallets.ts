@@ -26,6 +26,18 @@ export interface LedgerActor {
   id: string;
 }
 
+export interface PointIssueInput {
+  memberId: string;
+  programId: string;
+  amount: number;
+  source: string;
+  reason: string;
+  idempotencyKey: string;
+  pointTypeId?: string;
+  metadata?: Record<string, unknown>;
+  expiresAt?: Date;
+}
+
 type Tx = Prisma.TransactionClient;
 
 const DAY_MS = 86_400_000;
@@ -67,14 +79,16 @@ async function resolvePointType(
 }
 
 function expiryFor(
-  pointType: Pick<PointTypeDefinition, "expiryMode" | "expiryDays" | "fixedExpiryAt">,
+  pointType: Pick<PointTypeDefinition, "createdAt" | "expiryMode" | "expiryDays" | "fixedExpiryAt">,
   explicitExpiry?: Date,
   now = new Date(),
 ): Date | null {
   if (pointType.expiryMode === "NEVER") return null;
   if (pointType.expiryMode === "AFTER_DAYS") {
     if (!pointType.expiryDays) throw new LoyaltyError("POINT_EXPIRY_DAYS_REQUIRED", 409);
-    return new Date(now.getTime() + pointType.expiryDays * DAY_MS);
+    const expiryAt = new Date(pointType.createdAt.getTime() + pointType.expiryDays * DAY_MS);
+    if (expiryAt <= now) throw new LoyaltyError("POINT_EXPIRY_IN_PAST", 409);
+    return expiryAt;
   }
   if (pointType.expiryMode === "FIXED_DATE") {
     if (!pointType.fixedExpiryAt) throw new LoyaltyError("POINT_FIXED_EXPIRY_REQUIRED", 409);
@@ -153,6 +167,7 @@ interface CreditLedgerInput extends LedgerCommon {
   amount: number;
   explicitExpiry?: Date;
   restoredLots?: { amount: number; expiresAt: Date | null }[];
+  reversedFromId?: string;
 }
 
 interface DebitLedgerInput extends LedgerCommon {
@@ -252,6 +267,7 @@ async function creditWallet(tx: Tx, input: CreditLedgerInput) {
       actorId: input.actor?.id,
       previousHash,
       recordHash,
+      reversedFromId: input.reversedFromId,
       idempotencyKey: input.idempotencyKey,
       expiresAt: calculatedExpiry,
       metadata: json(input.metadata),
@@ -549,7 +565,8 @@ async function debitBank(
         orderBy: { startsAt: "desc" },
         select: { id: true },
       });
-  return tx.pointBankTransaction.create({
+  const cycleId = input.cycleId ?? activeCycle?.id;
+  const transaction = await tx.pointBankTransaction.create({
     data: {
       bankId: bank.id,
       programId: input.programId,
@@ -560,9 +577,16 @@ async function debitBank(
       reason: input.reason,
       actorId: input.actorId,
       idempotencyKey: input.idempotencyKey,
-      cycleId: input.cycleId ?? activeCycle?.id,
+      cycleId,
     },
   });
+  if (cycleId) {
+    await tx.pointBankCycle.update({
+      where: { id: cycleId },
+      data: { allocated: { increment: input.amount } },
+    });
+  }
+  return transaction;
 }
 
 async function creditBank(
@@ -680,6 +704,69 @@ export class WalletService {
         idempotent: transaction.idempotent,
       };
     });
+  }
+
+  /** Issue a configured administrative/standing grant and consume its bank when governed. */
+  async issue(input: PointIssueInput) {
+    assertPositiveInteger(input.amount);
+    if (!input.reason.trim()) throw new LoyaltyError("POINT_REASON_REQUIRED", 400);
+    return this.db.$transaction((tx) => this.issueWithTransaction(tx, input));
+  }
+
+  async issueWithTransaction(tx: Prisma.TransactionClient, input: PointIssueInput) {
+    assertPositiveInteger(input.amount);
+    if (!input.reason.trim()) throw new LoyaltyError("POINT_REASON_REQUIRED", 400);
+    const member = await tx.member.findFirst({
+      where: {
+        id: input.memberId,
+        programId: input.programId,
+        deletedAt: null,
+        status: "ACTIVE",
+      },
+    });
+    if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+    const pointType = input.pointTypeId
+      ? await resolvePointType(tx, input.programId, { pointTypeId: input.pointTypeId })
+      : await tx.pointTypeDefinition.findFirst({
+          where: {
+            programId: input.programId,
+            isPrimary: true,
+            isActive: true,
+            archivedAt: null,
+          },
+        });
+    if (!pointType) throw new LoyaltyError("PRIMARY_POINT_TYPE_NOT_CONFIGURED", 409);
+    if (pointType.bankEnabled) {
+      await debitBank(tx, {
+        programId: input.programId,
+        pointTypeId: pointType.id,
+        amount: input.amount,
+        type: "AUTO_ISSUANCE",
+        reason: input.reason.trim(),
+        actorId: input.source,
+        idempotencyKey: `${input.idempotencyKey}:bank`,
+      });
+    }
+    const transaction = await creditWallet(tx, {
+      memberId: input.memberId,
+      programId: input.programId,
+      pointType,
+      amount: input.amount,
+      action: "GRANT",
+      source: input.source,
+      reason: input.reason.trim(),
+      idempotencyKey: input.idempotencyKey,
+      metadata: input.metadata,
+      explicitExpiry: input.expiresAt,
+      actor: { type: "SYSTEM", id: input.source },
+    });
+    return {
+      transactionId: transaction.id,
+      amount: transaction.amount,
+      multiplier: 1,
+      balanceAfter: transaction.balanceAfter,
+      idempotent: transaction.idempotent,
+    };
   }
 
   async redeem(input: {
@@ -810,6 +897,12 @@ export class WalletService {
           expiryMode: pointType.expiryMode,
           expiryDays: pointType.expiryDays,
           fixedExpiryAt: pointType.fixedExpiryAt,
+          expiryAt:
+            pointType.expiryMode === "AFTER_DAYS" && pointType.expiryDays
+              ? new Date(pointType.createdAt.getTime() + pointType.expiryDays * DAY_MS)
+              : pointType.expiryMode === "FIXED_DATE"
+                ? pointType.fixedExpiryAt
+                : null,
           expiryWarningDays: pointType.expiryWarningDays,
           allowManualAdjustment: pointType.allowManualAdjustment,
           transferable: pointType.transferable,
@@ -1432,8 +1525,26 @@ export class WalletService {
       }),
       this.db.customPointTransaction.count({ where }),
     ]);
+    const campaignIds = [
+      ...new Set(
+        items
+          .map((item) => /^campaign:(.+)$/.exec(item.source)?.[1])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const campaigns = campaignIds.length
+      ? await this.db.campaign.findMany({
+          where: { programId, id: { in: campaignIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const campaignNames = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]));
     return {
-      items,
+      items: items.map((item) => {
+        const campaignId = /^campaign:(.+)$/.exec(item.source)?.[1];
+        const sourceLabel = campaignId ? campaignNames.get(campaignId) : undefined;
+        return sourceLabel ? { ...item, sourceLabel } : item;
+      }),
       total,
       page,
       pageSize,
@@ -1648,6 +1759,15 @@ export class WalletService {
           pointType: { select: { id: true, code: true, name: true, unitLabel: true } },
           member: { select: { id: true, firstName: true, lastName: true, email: true } },
           exchangeRate: true,
+          approvalRequest: {
+            select: {
+              id: true,
+              status: true,
+              currentStepOrder: true,
+              resolvedAt: true,
+              resolutionComment: true,
+            },
+          },
         },
         orderBy: { requestedAt: "desc" },
         skip: (page - 1) * pageSize,
@@ -1971,10 +2091,16 @@ export class WalletService {
     return updated;
   }
 
-  async expire(programId: string): Promise<number> {
+  async expire(
+    programId: string,
+    actor?: LedgerActor,
+    pointTypeId?: string,
+  ): Promise<{ expired: number; runId: string | null }> {
+    const runId = randomUUID();
     const candidates = await this.db.customPointLot.findMany({
       where: {
         programId,
+        ...(pointTypeId ? { pointTypeId } : {}),
         remainingAmount: { gt: 0 },
         expiresAt: { lte: new Date() },
       },
@@ -2007,14 +2133,105 @@ export class WalletService {
           source: "system:expiration",
           reason: `Expired lot ${lot.id}`,
           idempotencyKey: `point-expire:${lot.id}`,
-          actor: { type: "SYSTEM", id: "point-expiration" },
-          metadata: { lotId: lot.id, grantTransactionId: lot.grantTransactionId },
+          actor: actor ?? { type: "SYSTEM", id: "point-expiration" },
+          metadata: {
+            lotId: lot.id,
+            grantTransactionId: lot.grantTransactionId,
+            expirationRunId: runId,
+            manual: Boolean(actor),
+          },
         });
         return true;
       });
       if (changed) expired += 1;
     }
-    return expired;
+    return { expired, runId: expired > 0 ? runId : null };
+  }
+
+  async resetExpiry(
+    programId: string,
+    actor: LedgerActor,
+    pointTypeId?: string,
+    requestedRunId?: string,
+  ): Promise<{ restored: number; runId: string }> {
+    const transactions = await this.db.customPointTransaction.findMany({
+      where: {
+        programId,
+        ...(pointTypeId ? { pointTypeId } : {}),
+        action: "EXPIRATION",
+        source: "system:expiration",
+        reversedById: null,
+      },
+      include: { pointType: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 500,
+    });
+    const metadataOf = (value: unknown): Record<string, unknown> | null =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
+    const discoveredRun = transactions
+      .map((transaction) => metadataOf(transaction.metadata))
+      .find((metadata) => metadata?.manual === true && typeof metadata.expirationRunId === "string");
+    const runId =
+      requestedRunId ??
+      (typeof discoveredRun?.expirationRunId === "string" ? discoveredRun.expirationRunId : null);
+    if (!runId) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
+
+    const candidates = transactions.filter((transaction) => {
+      const metadata = metadataOf(transaction.metadata);
+      return metadata?.expirationRunId === runId && metadata?.manual === true;
+    });
+    if (candidates.length === 0) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
+
+    let restored = 0;
+    await this.db.$transaction(async (tx) => {
+      for (const candidate of candidates) {
+        const original = await tx.customPointTransaction.findUnique({
+          where: { id: candidate.id },
+          include: { pointType: true },
+        });
+        if (!original || original.reversedById) continue;
+        const metadata = metadataOf(original.metadata);
+        const rawLots = Array.isArray(metadata?.consumedLots) ? metadata.consumedLots : [];
+        const restoredLots = rawLots
+          .filter(
+            (lot): lot is { amount: number; expiresAt: string | null } =>
+              Boolean(lot) &&
+              typeof lot === "object" &&
+              typeof (lot as { amount?: unknown }).amount === "number",
+          )
+          .map((lot) => ({
+            amount: lot.amount,
+            expiresAt: lot.expiresAt ? new Date(lot.expiresAt) : null,
+          }));
+        const amount = Math.abs(original.amount);
+        const transaction = await creditWallet(tx, {
+          memberId: original.memberId,
+          programId,
+          pointType: original.pointType,
+          amount,
+          action: "EXPIRATION_RESET",
+          source: "admin:expiration-reset",
+          reason: `Reset expiration run ${runId}`,
+          idempotencyKey: `point-expiration-reset:${original.id}`,
+          actor,
+          reversedFromId: original.id,
+          restoredLots:
+            restoredLots.length > 0 ? restoredLots : [{ amount, expiresAt: original.expiresAt }],
+          metadata: {
+            expirationRunId: runId,
+            reversedExpirationId: original.id,
+          },
+        });
+        await tx.customPointTransaction.update({
+          where: { id: original.id },
+          data: { reversedById: transaction.id },
+        });
+        restored += amount;
+      }
+    });
+    return { restored, runId };
   }
 
   async expiringNotices(programId: string) {

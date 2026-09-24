@@ -13,6 +13,30 @@ export interface Balance {
   confirmed: number;
   pending: number;
   total: number;
+  wallets?: Array<{
+    pointTypeId: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    icon?: string | null;
+    balance: number;
+    isPrimary: boolean;
+  }>;
+}
+
+export interface CampaignClaim {
+  id: string;
+  pointsAwarded: number;
+  status: "PENDING" | "CLAIMED" | "EXPIRED";
+  claimedAt: string | null;
+  createdAt: string;
+  campaign: {
+    id: string;
+    name: string;
+    description: string | null;
+    eventType: string | null;
+    pointType: { id: string; code: string; name: string; unitLabel: string } | null;
+  };
 }
 
 /** @deprecated Point types are program-defined; use a pointTypeId string. */
@@ -29,6 +53,7 @@ export interface CreditBalance {
   expiryMode: "NEVER" | "AFTER_DAYS" | "FIXED_DATE" | "PER_GRANT";
   expiryDays: number | null;
   fixedExpiryAt: string | null;
+  expiryAt: string | null;
   expiryWarningDays: number[];
   transferable: boolean;
   redeemable: boolean;
@@ -87,6 +112,40 @@ export interface CreditExchangeRate {
     unitLabel: string;
     color: string | null;
   };
+}
+
+export type CreditExchangeStatus = "PENDING" | "APPROVED" | "COMPLETED" | "CANCELLED" | "REJECTED";
+
+export interface CreditExchangeRequest {
+  id: string;
+  documentNumber: string;
+  amount: number;
+  valueMinor: number;
+  currency: string;
+  payoutMechanism: string;
+  payoutType: string;
+  status: CreditExchangeStatus;
+  requestedAt: string;
+  approvedAt: string | null;
+  approvalNote: string | null;
+  completedAt: string | null;
+  completionReference: string | null;
+  completionNote: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  pointType: {
+    id: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+  };
+  approvalRequest?: {
+    id: string;
+    status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    currentStepOrder: number | null;
+    resolvedAt: string | null;
+    resolutionComment: string | null;
+  } | null;
 }
 
 export interface CreditTransaction {

@@ -20,8 +20,8 @@ model Program {
   creditExpiryWarningDays Int[]    @default([30, 7])
   logoUrl                 String?
   isActive                Boolean  @default(true)
-  defaultLocale           String   @default("es-MX")
-  supportedLocales        String[] @default(["es-MX", "en-US"])
+  defaultLocale           String   @default("vi-VN")
+  supportedLocales        String[] @default(["vi-VN", "en-US"])
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -56,6 +56,8 @@ model Program {
   tiers                         Tier[]
   campaigns                     Campaign[]
   segments                      Segment[]
+  memberFieldDefinitions        MemberFieldDefinition[]
+  eventDefinitions              EventDefinition[]
   coupons                       Coupon[]
   rewards                       Reward[]
   badges                        Badge[]
@@ -130,6 +132,7 @@ model Member {
   pointLots                      CustomPointLot[]
   pointAllowances                PointAllowance[]
   pointExchangeRequests          PointExchangeRequest[]
+  campaignClaims                 CampaignClaim[]
 
   @@unique([programId, externalId])
   @@index([programId])
@@ -942,6 +945,8 @@ model Tier {
   name        String
   rank        Int
   minPoints   Int      @default(0)
+  qualificationRules Json? @default("[]")
+  qualificationOperator String @default("AND")
   color       String?
   iconUrl     String?
   benefits    Json?    @default("{}")
@@ -985,7 +990,14 @@ enum CampaignType {
 model Campaign {
   id               String       @id @default(cuid())
   programId        String
+  createdById      String?
   pointTypeId      String?
+  eventType        String?
+  issuancePolicy   String       @default("STANDING")
+  issuanceMode     String       @default("AUTO")
+  approvalStatus   String       @default("NOT_REQUIRED")
+  justification    String?
+  grantExpiryDays  Int?
   name             String
   description      String?
   type             CampaignType
@@ -1003,13 +1015,20 @@ model Campaign {
   updatedAt        DateTime     @updatedAt
 
   program      Program               @relation(fields: [programId], references: [id], onDelete: Cascade)
+  createdBy    AdminUser?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  segmentId    String?
+  segment      Segment?              @relation(fields: [segmentId], references: [id], onDelete: SetNull)
   pointType    PointTypeDefinition?  @relation(fields: [pointTypeId], references: [id], onDelete: SetNull)
   variants     CampaignVariant[]
   applications CampaignApplication[]
+  claims       CampaignClaim[]
 
   @@index([programId, type])
+  @@index([createdById])
+  @@index([programId, eventType])
   @@index([isActive])
   @@index([startsAt, endsAt])
+  @@index([segmentId])
 }
 
 model CampaignVariant {
@@ -1044,6 +1063,25 @@ model CampaignApplication {
   @@index([campaignId, memberId])
 }
 
+model CampaignClaim {
+  id            String   @id @default(cuid())
+  campaignId    String
+  memberId      String
+  occurrence    String
+  pointsAwarded Int
+  status        String   @default("PENDING")
+  claimedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, memberId, occurrence])
+  @@index([memberId, status])
+  @@index([campaignId, status])
+}
+
 model Segment {
   id          String   @id @default(cuid())
   programId   String
@@ -1057,9 +1095,57 @@ model Segment {
   updatedAt   DateTime @updatedAt
 
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
 
   @@index([programId])
   @@index([type])
+}
+
+enum MemberFieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  SELECT
+}
+
+model MemberFieldDefinition {
+  id          String          @id @default(cuid())
+  programId   String
+  key         String
+  label       String
+  type        MemberFieldType @default(TEXT)
+  required    Boolean         @default(false)
+  options     Json?           @default("[]")
+  isActive    Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, key])
+  @@index([programId, isActive, sortOrder])
+}
+
+model EventDefinition {
+  id          String   @id @default(cuid())
+  programId   String
+  key         String
+  name        String
+  description String?
+  automation  Json     @default("{\"mode\":\"EXTERNAL\",\"timezone\":\"Asia/Ho_Chi_Minh\"}")
+  // Kept for backwards compatibility with older event definitions. Approval
+  // is now a campaign policy, not an event occurrence property.
+  requiresApproval Boolean @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, key])
+  @@index([programId, isActive, key])
 }
 
 enum CouponMode {
@@ -1149,7 +1235,7 @@ model TermsTemplate {
   id        String   @id @default(cuid())
   programId String
   name      String
-  locale    String   @default("es-MX")
+  locale    String   @default("vi-VN")
   body      String   @db.Text
   version   Int      @default(1)
   isActive  Boolean  @default(true)
@@ -1361,7 +1447,7 @@ model NotificationTemplate {
   id              String               @id @default(cuid())
   programId       String
   name            String
-  locale          String               @default("es-MX")
+  locale          String               @default("vi-VN")
   channel         NotificationChannel
   subject         String?
   bodyHtml        String?
@@ -1489,7 +1575,7 @@ model AdminUser {
   name         String
   role         AdminRole @default(OPERATOR)
   isActive     Boolean   @default(true)
-  locale       String    @default("es-MX")
+  locale       String    @default("vi-VN")
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -1498,6 +1584,7 @@ model AdminUser {
   auditLogs         AuditLog[]
   sessions          AdminSession[]
   giftCardBatches   GiftCardBatch[]
+  createdCampaigns   Campaign[]
   workflowAssignees ApprovalWorkflowAssignee[]
   approvalDecisions ApprovalDecision[]
 

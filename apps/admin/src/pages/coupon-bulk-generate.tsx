@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Check, Copy, Save } from "lucide-react";
 import { useState } from "react";
@@ -120,9 +121,8 @@ export function CouponBulkGeneratePage(): JSX.Element {
             navigate("/coupons");
           }}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
-        </Button>
-        <h1 className="text-3xl font-bold">Bulk Generate Coupons</h1>
+          <ArrowLeft className="mr-2 h-4 w-4" />{ui("Back")}</Button>
+        <h1 className="text-3xl font-bold">{ui("Bulk Generate Coupons")}</h1>
       </div>
 
       <form
@@ -133,25 +133,23 @@ export function CouponBulkGeneratePage(): JSX.Element {
       >
         <Card>
           <CardHeader>
-            <CardTitle>Generation Settings</CardTitle>
-            <CardDescription>
-              Configure how many codes to generate and their format.
-            </CardDescription>
+            <CardTitle>{ui("Generation Settings")}</CardTitle>
+            <CardDescription>{ui("Configure how many codes to generate and their format.")}</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="prefix">Code Prefix</Label>
-              <Input id="prefix" {...form.register("prefix")} placeholder="e.g. SUMMER" />
+              <Label htmlFor="prefix">{ui("Code Prefix")}</Label>
+              <Input id="prefix" {...form.register("prefix")} placeholder={ui("e.g. SUMMER")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="count">Number of Codes</Label>
+              <Label htmlFor="count">{ui("Number of Codes")}</Label>
               <Input id="count" type="number" {...form.register("count")} />
               {form.formState.errors.count && (
                 <p className="text-sm text-destructive">{form.formState.errors.count.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="length">Code Length</Label>
+              <Label htmlFor="length">{ui("Code Length")}</Label>
               <Input id="length" type="number" {...form.register("length")} placeholder="8" />
             </div>
           </CardContent>
@@ -159,12 +157,12 @@ export function CouponBulkGeneratePage(): JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle>Discount Configuration</CardTitle>
-            <CardDescription>Set the discount type, value, and usage limits.</CardDescription>
+            <CardTitle>{ui("Discount Configuration")}</CardTitle>
+            <CardDescription>{ui("Set the discount type, value, and usage limits.")}</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Discount Type</Label>
+              <Label>{ui("Discount Type")}</Label>
               <Select
                 value={form.watch("discountType")}
                 onValueChange={(v) => {
@@ -177,14 +175,14 @@ export function CouponBulkGeneratePage(): JSX.Element {
                 <SelectContent>
                   {DISCOUNT_TYPES.map((dt) => (
                     <SelectItem key={dt.value} value={dt.value}>
-                      {dt.label}
+                      {ui(dt.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="discountValue">Discount Value</Label>
+              <Label htmlFor="discountValue">{ui("Discount Value")}</Label>
               <Input
                 id="discountValue"
                 type="number"
@@ -193,7 +191,7 @@ export function CouponBulkGeneratePage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="minPurchase">Minimum Purchase (points)</Label>
+              <Label htmlFor="minPurchase">{ui("Minimum Purchase (points)")}</Label>
               <Input
                 id="minPurchase"
                 type="number"
@@ -202,16 +200,16 @@ export function CouponBulkGeneratePage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="maxUses">Max Uses Per Coupon</Label>
+              <Label htmlFor="maxUses">{ui("Max Uses Per Coupon")}</Label>
               <Input
                 id="maxUses"
                 type="number"
                 {...form.register("maxUses")}
-                placeholder="Unlimited"
+                placeholder={ui("Unlimited")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="maxUsesPerMember">Max Uses Per Member</Label>
+              <Label htmlFor="maxUsesPerMember">{ui("Max Uses Per Member")}</Label>
               <Input
                 id="maxUsesPerMember"
                 type="number"
@@ -220,7 +218,7 @@ export function CouponBulkGeneratePage(): JSX.Element {
               />
             </div>
             <div className="flex items-center justify-between self-end">
-              <Label>Stackable with points</Label>
+              <Label>{ui("Stackable with points")}</Label>
               <input
                 type="checkbox"
                 checked={form.watch("isStackable")}
@@ -235,11 +233,11 @@ export function CouponBulkGeneratePage(): JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle>Channels & Schedule</CardTitle>
+            <CardTitle>{ui("Channels & Schedule")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Valid Channels</Label>
+              <Label>{ui("Valid Channels")}</Label>
               <div className="flex flex-wrap gap-4">
                 {CHANNELS.map((ch) => (
                   <div key={ch} className="flex items-center gap-2">
@@ -265,11 +263,11 @@ export function CouponBulkGeneratePage(): JSX.Element {
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="startsAt">Start Date</Label>
+                <Label htmlFor="startsAt">{ui("Start Date")}</Label>
                 <Input id="startsAt" type="datetime-local" {...form.register("startsAt")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="expiresAt">Expiry Date</Label>
+                <Label htmlFor="expiresAt">{ui("Expiry Date")}</Label>
                 <Input id="expiresAt" type="datetime-local" {...form.register("expiresAt")} />
               </div>
             </div>
@@ -280,7 +278,7 @@ export function CouponBulkGeneratePage(): JSX.Element {
 
         <Button type="submit" disabled={saving} size="lg">
           <Save className="mr-2 h-4 w-4" />
-          {saving ? "Generating..." : "Generate Coupons"}
+          {saving ? "Generating..." : ui("Generate Coupons")}
         </Button>
       </form>
 
@@ -297,12 +295,10 @@ export function CouponBulkGeneratePage(): JSX.Element {
             >
               {copied ? (
                 <>
-                  <Check className="mr-2 h-4 w-4" /> Copied
-                </>
+                  <Check className="mr-2 h-4 w-4" />{ui("Copied")}</>
               ) : (
                 <>
-                  <Copy className="mr-2 h-4 w-4" /> Copy All
-                </>
+                  <Copy className="mr-2 h-4 w-4" />{ui("Copy All")}</>
               )}
             </Button>
           </CardHeader>

@@ -17,6 +17,7 @@ export type {
   TierCreateInput,
   TierEvaluationResult,
   TierMemberCount,
+  TierQualificationRule,
   TierRow,
   TierUpdateInput,
 } from "./types.js";

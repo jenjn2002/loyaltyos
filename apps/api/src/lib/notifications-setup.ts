@@ -2,6 +2,7 @@ import {
   createOneSignalProvider,
   createSmtpProvider,
   createTwilioProvider,
+  NoopProvider,
   NotificationsService,
   SmtpProvider,
   WebhookProvider,
@@ -15,6 +16,9 @@ export const notificationsService = new NotificationsService(prisma);
 
 // Register EMAIL provider
 notificationsService.setProvider("EMAIL", createSmtpProvider());
+// IN_APP notifications are already persisted for the portal; the no-op provider
+// lets the notification worker mark them delivered without an external service.
+notificationsService.setProvider("IN_APP", new NoopProvider("IN_APP"));
 
 // Register SMS provider (no-op when env vars not set)
 const smsProvider = createTwilioProvider();

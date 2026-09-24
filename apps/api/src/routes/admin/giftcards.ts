@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
 import { giftCardService } from "../../lib/giftcard-setup.js";
 import { requireAdmin } from "../../plugins/require-admin.js";
 
@@ -31,7 +32,7 @@ const updateTermsSchema = z.object({
 
 const createTermsRouteSchema = z.object({
   name: z.string().min(1).max(200),
-  locale: z.string().default("es-MX"),
+  locale: z.string().default("vi-VN"),
   body: z.string().min(1),
 });
 
@@ -76,6 +77,10 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       programId: request.programId,
       createdById: request.adminId ?? "system",
     });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "gift_card_batch", batch.id, {
+      created: true,
+      name: batch.name,
+    });
     return reply.status(201).send({ data: batch });
   });
 
@@ -91,7 +96,21 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       .parse(request.query);
 
     const result = await giftCardService.listBatches(request.programId, query);
-    return reply.send({ data: result });
+    const batches = result.items as Array<{ id: string; createdById: string }>;
+    const creatorIds = [...new Set(batches.map((batch) => batch.createdById).filter(Boolean))] as string[];
+    const creators = creatorIds.length
+      ? await prisma.adminUser.findMany({ where: { id: { in: creatorIds }, programId: request.programId }, select: { id: true, name: true, email: true } })
+      : [];
+    const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
+    return reply.send({
+      data: {
+        ...result,
+        items: batches.map((batch) => ({
+          ...batch,
+          createdBy: creatorMap.get(batch.createdById) ?? null,
+        })),
+      },
+    });
   });
 
   app.get(`${prefix}/batches/:id`, { preHandler: [requireAdmin] }, async (request, reply) => {
@@ -414,12 +433,23 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       ...body,
       programId: request.programId,
     });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "gift_card_terms_template", template.id, {
+      created: true,
+      name: template.name,
+    });
     return reply.status(201).send({ data: template });
   });
 
   app.get(`${prefix}/terms`, { preHandler: [requireAdmin] }, async (request, reply) => {
     const templates = await giftCardService.listTermsTemplates(request.programId);
-    return reply.send({ data: templates });
+    const creators = await createdByForEntities(
+      request.programId,
+      "gift_card_terms_template",
+      templates.map((template) => template.id),
+    );
+    return reply.send({
+      data: templates.map((template) => ({ ...template, createdBy: creators.get(template.id) ?? null })),
+    });
   });
 
   app.get(`${prefix}/terms/:id`, { preHandler: [requireAdmin] }, async (request, reply) => {

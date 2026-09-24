@@ -9,6 +9,12 @@ export interface MemberPointWallet {
   expiryMode?: string;
 }
 
+export interface CreatedBy {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
 export interface Member {
   id: string;
   externalId: string | null;
@@ -25,14 +31,18 @@ export interface Member {
   updatedAt: string;
   status?: "ACTIVE" | "INACTIVE";
   deactivatedAt?: string | null;
+  deletedAt?: string | null;
   username?: string | null;
   credentialsConfigured?: boolean;
   passwordChangedAt?: string | null;
   pointWallets?: MemberPointWallet[];
+  createdBy?: CreatedBy | null;
 }
 
 export interface DashboardStats {
   activeMembers: number;
+  inactiveMembers?: number;
+  newMembersLast30Days?: number;
   totalPointsIssued: number;
   totalPointsRedeemed: number;
   redemptionRatio: number;
@@ -40,8 +50,17 @@ export interface DashboardStats {
   pointIssued?: number;
   pointRedeemed?: number;
   pointExchanged?: number;
+  currentPointBalance?: number;
   recognitionCount?: number;
   recognitionVolume?: number;
+  pointTypeMetrics?: {
+    pointType: { id: string; code: string; name: string; unitLabel: string; color: string | null };
+    balance: number;
+    issued: number;
+    redeemed: number;
+    exchanged: number;
+    recognition: { count: number; volume: number };
+  }[];
   pointBanks?: {
     pointType: { id: string; code: string; name: string; unitLabel: string; color: string | null };
     used: number;
@@ -58,6 +77,7 @@ export interface PointTransaction {
   amount: number;
   balanceAfter: number;
   source: string;
+  sourceLabel?: string;
   reason: string | null;
   message: string | null;
   pointType: { id: string; code: string; name: string; unitLabel: string };
@@ -97,9 +117,17 @@ export interface CampaignVariant {
 }
 
 export interface Campaign {
+  issuancePolicy?: "STANDING" | "APPROVAL_REQUIRED";
+  issuanceMode?: "AUTO" | "CLAIM";
+  approvalStatus: string;
+  justification: string | null;
   id: string;
   programId: string;
+  createdById?: string | null;
+  createdBy?: { id: string; name: string; email: string } | null;
   pointTypeId: string | null;
+  segmentId?: string | null;
+  eventType?: string | null;
   name: string;
   description: string | null;
   type: CampaignType;
@@ -116,6 +144,54 @@ export interface Campaign {
   updatedAt: string;
   variants?: CampaignVariant[];
   applications?: unknown[];
+  issuance?: { count: number; points: number; pendingClaims?: number };
+}
+
+export interface CampaignIssuanceMember {
+  id: string;
+  email: string;
+  externalId: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  department: string | null;
+}
+
+export interface CampaignIssuanceItem {
+  id: string;
+  memberId: string;
+  eventId: string | null;
+  pointsAwarded: number;
+  occurrence?: string;
+  status?: string;
+  claimedAt?: string | null;
+  recordType?: "ISSUED" | "CLAIM";
+  metadata: unknown;
+  createdAt: string;
+  member: CampaignIssuanceMember | null;
+}
+
+export interface CampaignIssuanceStatus {
+  campaign: {
+    id: string;
+    name: string;
+    eventType: string | null;
+    issuancePolicy: string;
+    issuanceMode: "AUTO" | "CLAIM";
+    approvalStatus: string;
+    isActive: boolean;
+    startsAt: string | null;
+    endsAt: string | null;
+    maxBudget: number | null;
+    segmentId: string | null;
+  };
+  status: string;
+  issuedCount: number;
+  totalPoints: number;
+  pendingClaims: number;
+  items: CampaignIssuanceItem[];
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface CampaignEstimate {
@@ -152,6 +228,7 @@ export interface Coupon {
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  createdBy?: CreatedBy | null;
 }
 
 export interface CouponStats {
@@ -192,10 +269,24 @@ export interface Segment {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  createdBy?: CreatedBy | null;
 }
 
 export interface SegmentMemberCount {
   count: number;
+}
+
+export interface SegmentMember {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  department: string | null;
+  status: string;
+  joinedAt: string;
+  totalSpent: number;
+  currentTier: string | null;
 }
 
 export interface GiftCardBatch {
@@ -212,6 +303,7 @@ export interface GiftCardBatch {
   generatedCount: number;
   createdById: string;
   createdAt: string;
+  createdBy?: CreatedBy | null;
 }
 
 export interface GiftCard {
@@ -249,6 +341,7 @@ export interface TermsTemplate {
   version: number;
   isActive: boolean;
   createdAt: string;
+  createdBy?: CreatedBy | null;
 }
 
 export interface GiftCardMetrics {

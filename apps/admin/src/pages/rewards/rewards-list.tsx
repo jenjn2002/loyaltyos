@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Grid3X3, List, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -35,6 +36,7 @@ interface Reward {
     pointType: { code: string; name: string; unitLabel: string };
   }[];
   createdAt: string;
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 
 interface RewardsResponse {
@@ -91,14 +93,12 @@ export function RewardsListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Rewards</h1>
-          <p className="text-sm text-muted-foreground">Manage your rewards catalog</p>
+          <h1 className="text-2xl font-bold">{ui("Rewards")}</h1>
+          <p className="text-sm text-muted-foreground">{ui("Manage your rewards catalog")}</p>
         </div>
         <Button asChild>
           <Link to="/rewards/new">
-            <Plus className="mr-2 h-4 w-4" />
-            New Reward
-          </Link>
+            <Plus className="mr-2 h-4 w-4" />{ui("New Reward")}</Link>
         </Button>
       </div>
 
@@ -106,7 +106,7 @@ export function RewardsListPage(): JSX.Element {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search rewards..."
+            placeholder={ui("Search rewards...")}
             className="pl-9"
             value={search}
             onChange={(e) => {
@@ -160,9 +160,7 @@ export function RewardsListPage(): JSX.Element {
       )}
 
       {deleteReward.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not delete the reward. Please try again.
-        </p>
+        <p role="alert" className="text-sm text-destructive">{ui("Could not delete the reward. Please try again.")}</p>
       )}
 
       {data && data.totalPages > 1 && (
@@ -178,9 +176,7 @@ export function RewardsListPage(): JSX.Element {
               onClick={() => {
                 setPage((p) => p - 1);
               }}
-            >
-              Previous
-            </Button>
+            >{ui("Previous")}</Button>
             <Button
               variant="outline"
               size="sm"
@@ -188,9 +184,7 @@ export function RewardsListPage(): JSX.Element {
               onClick={() => {
                 setPage((p) => p + 1);
               }}
-            >
-              Next
-            </Button>
+            >{ui("Next")}</Button>
           </div>
         </div>
       )}
@@ -214,21 +208,20 @@ function RewardsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Cost</TableHead>
-            <TableHead>Stock</TableHead>
-            <TableHead>Tier</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="w-20">Actions</TableHead>
+            <TableHead>{ui("Name")}</TableHead>
+            <TableHead>{ui("Category")}</TableHead>
+            <TableHead>{ui("Cost")}</TableHead>
+            <TableHead>{ui("Stock")}</TableHead>
+            <TableHead>{ui("Tier")}</TableHead>
+            <TableHead>{ui("Status")}</TableHead>
+            <TableHead>{ui("Created by")}</TableHead>
+            <TableHead className="w-20">{ui("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rewards.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground">
-                No rewards found
-              </TableCell>
+              <TableCell colSpan={8} className="text-center text-muted-foreground">{ui("No rewards found")}</TableCell>
             </TableRow>
           ) : (
             rewards.map((r) => (
@@ -247,11 +240,14 @@ function RewardsTable({
                     .join(" · ")}
                 </TableCell>
                 <TableCell>{r.stock ?? "∞"}</TableCell>
-                <TableCell>{r.tierRequired ?? "All"}</TableCell>
+                <TableCell>{r.tierRequired ?? ui("All")}</TableCell>
                 <TableCell>
                   <Badge variant={r.isActive ? "default" : "outline"}>
-                    {r.isActive ? "Active" : "Draft"}
+                    {r.isActive ? ui("Active") : "Draft"}
                   </Badge>
+                </TableCell>
+                <TableCell className="text-sm">
+                  {r.createdBy ? <><p className="font-medium">{r.createdBy.name}</p><p className="text-xs text-muted-foreground">{r.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
@@ -274,7 +270,7 @@ function RewardsTable({
                       size="icon"
                       className="text-destructive"
                       aria-label={`Delete ${r.name}`}
-                      title="Delete reward"
+                      title={ui("Delete reward")}
                       disabled={deletingId === r.id}
                       onClick={() => {
                         onDelete(r);
@@ -305,7 +301,7 @@ function RewardsGrid({
   deletingId: string | null | undefined;
 }): JSX.Element {
   if (rewards.length === 0) {
-    return <p className="text-center text-muted-foreground py-12">No rewards found</p>;
+    return <p className="text-center text-muted-foreground py-12">{ui("No rewards found")}</p>;
   }
 
   return (
@@ -331,7 +327,7 @@ function RewardsGrid({
                 </p>
               </div>
               <Badge variant={r.isActive ? "default" : "outline"}>
-                {r.isActive ? "Active" : "Draft"}
+                {r.isActive ? ui("Active") : "Draft"}
               </Badge>
             </div>
             {r.stock != null && (
@@ -345,9 +341,7 @@ function RewardsGrid({
                   onEdit(r.id);
                 }}
               >
-                <Pencil className="mr-1 h-3 w-3" />
-                Edit
-              </Button>
+                <Pencil className="mr-1 h-3 w-3" />{ui("Edit")}</Button>
               <Button variant="outline" size="sm" asChild>
                 <Link to={`/rewards/${r.id}/redemptions`}>
                   <List className="mr-1 h-3 w-3" />
@@ -363,9 +357,7 @@ function RewardsGrid({
                   onDelete(r);
                 }}
               >
-                <Trash2 className="mr-1 h-3 w-3" />
-                Delete
-              </Button>
+                <Trash2 className="mr-1 h-3 w-3" />{ui("Delete")}</Button>
             </div>
           </CardContent>
         </Card>

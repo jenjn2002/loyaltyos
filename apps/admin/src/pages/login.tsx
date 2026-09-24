@@ -1,20 +1,29 @@
-import { useState } from "react";
+import { Mail } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { adminLogin, isAdminAuthenticated } from "@/lib/api-client";
+import { adminLogin, isAdminAuthenticated, startMicrosoftLogin } from "@/lib/api-client";
 
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const code = new URLSearchParams(location.search).get("error");
+    if (!code) return;
+    const translated = t(`errors.${code}`);
+    setError(translated === `errors.${code}` ? t("auth.networkError") : translated);
+  }, [location.search, t]);
 
   if (isAdminAuthenticated()) {
     navigate("/", { replace: true });
@@ -83,6 +92,23 @@ export function LoginPage(): JSX.Element {
               {loading ? t("auth.signingIn") : t("auth.signIn")}
             </Button>
           </form>
+          <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            <span>{t("or")}</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={startMicrosoftLogin}
+          >
+            <Mail className="mr-2 h-4 w-4" />
+            {t("microsoftSignIn")}
+          </Button>
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            {t("auth.microsoftAdminApproval")}
+          </p>
         </CardContent>
       </Card>
     </div>

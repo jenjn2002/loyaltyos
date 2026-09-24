@@ -14,7 +14,7 @@ export function formatDate(
 }
 
 /**
- * Format a date as relative time (e.g., "3 days ago", "hace 3 días").
+ * Format a date as relative time (e.g., "3 days ago", "3 ngày trước").
  * Uses Intl.RelativeTimeFormat under the hood.
  */
 export function formatRelativeDate(date: Date | string, locale: string): string {
@@ -66,6 +66,6 @@ export function formatNumber(
  */
 export function formatPoints(n: number, locale: string): string {
   const formatted = new Intl.NumberFormat(locale).format(n);
-  const suffix = locale === "es-MX" ? " pts" : " pts";
+  const suffix = locale === "vi-VN" ? " pts" : " pts";
   return `${formatted}${suffix}`;
 }

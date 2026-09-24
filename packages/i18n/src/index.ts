@@ -1,6 +1,7 @@
-export { changeLanguage, enUS, esMX, getCurrentLanguage, initCatalog, t } from "./catalog.js";
+export { changeLanguage, enUS, viVN, getCurrentLanguage, initCatalog, t } from "./catalog.js";
 export type { SupportedLocale } from "./detect.js";
 export { DEFAULT_LOCALE, getSupportedLocales, isSupportedLocale, resolveLocale } from "./detect.js";
+export { translateLegacyText } from "./legacy.js";
 export {
   formatCurrency,
   formatDate,

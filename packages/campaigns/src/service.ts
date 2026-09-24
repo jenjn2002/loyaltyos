@@ -25,11 +25,17 @@ import {
 
 export class CampaignsService {
   private repo: ReturnType<typeof createRepository>;
-  private points: { earn(input: EarnInput): Promise<EarnResult> };
+  private points: {
+    earn(input: EarnInput): Promise<EarnResult>;
+    issue?: (input: EarnInput & { reason: string }) => Promise<EarnResult>;
+  };
 
   constructor(
     prisma: PrismaClient,
-    pointsService: { earn(input: EarnInput): Promise<EarnResult> },
+    pointsService: {
+      earn(input: EarnInput): Promise<EarnResult>;
+      issue?: (input: EarnInput & { reason: string }) => Promise<EarnResult>;
+    },
   ) {
     this.repo = createRepository(prisma);
     this.points = pointsService;
@@ -50,6 +56,7 @@ export class CampaignsService {
   async activate(id: string): Promise<void> {
     const campaign = await this.repo.findById(id);
     if (!campaign) throw new CampaignNotFoundError(id);
+    if (campaign.approvalStatus && !["NOT_REQUIRED", "APPROVED"].includes(campaign.approvalStatus)) throw new Error("Campaign requires approval");
     await this.repo.updateStatus(id, true);
   }
 
@@ -133,6 +140,8 @@ export class CampaignsService {
   ): Promise<ApplyResult> {
     const applicationKey =
       idempotencyKey ?? (eventContext.eventId ? `event:${eventContext.eventId}` : undefined);
+    const campaign = await this.repo.findById(campaignId);
+    if (!campaign) throw new CampaignNotFoundError(campaignId);
     if (applicationKey) {
       const existing = await this.repo.findApplication(campaignId, applicationKey);
       if (existing) {
@@ -147,11 +156,24 @@ export class CampaignsService {
           idempotent: true,
         };
       }
+      if (campaign.issuanceMode === "CLAIM") {
+        const existingClaim = await this.repo.findClaim(campaignId, applicationKey);
+        if (existingClaim) {
+          return {
+            campaignId,
+            memberId: eventContext.memberId,
+            pointsAwarded: 0,
+            variantId: null,
+            applicationId: existingClaim.id,
+            claimId: existingClaim.id,
+            idempotent: true,
+          };
+        }
+      }
     }
-    const campaign = await this.repo.findById(campaignId);
-    if (!campaign) throw new CampaignNotFoundError(campaignId);
 
     if (!campaign.isActive) throw new CampaignNotActiveError(campaignId);
+    if (campaign.approvalStatus && !["NOT_REQUIRED", "APPROVED"].includes(campaign.approvalStatus)) throw new Error("Campaign requires approval");
 
     const now = new Date();
     if (campaign.startsAt && campaign.startsAt > now) {
@@ -189,20 +211,42 @@ export class CampaignsService {
     }
 
     let pointsAwarded = 0;
+    let claimId: string | undefined;
     if (campaign.type === "BONUS_POINTS") {
       const baseAmount = eventContext.amount ?? 0;
-      const effectiveAmount = Math.floor(baseAmount * (campaign.multiplier - 1));
+      const isPurchase = eventContext.type.toLowerCase() === "purchase";
+      const effectiveAmount = isPurchase
+        ? Math.floor(baseAmount * (campaign.multiplier - 1))
+        : Math.floor(campaign.multiplier);
       if (effectiveAmount > 0) {
-        const earnResult = await this.points.earn({
+        const pointInput = {
           memberId: eventContext.memberId,
           programId: eventContext.programId,
           amount: effectiveAmount,
           source: `campaign:${campaign.id}`,
           idempotencyKey: idempotencyKey ?? `${eventContext.memberId}:${campaign.id}:earn`,
           pointTypeId: campaign.pointTypeId ?? undefined,
-        });
-        if (!earnResult.idempotent) {
-          pointsAwarded = effectiveAmount;
+        };
+        if (campaign.issuanceMode === "CLAIM") {
+          const occurrence = applicationKey ?? `event:${eventContext.eventId ?? Date.now().toString()}`;
+          const claim = await this.repo.recordClaim({
+            campaignId: campaign.id,
+            memberId: eventContext.memberId,
+            occurrence,
+            pointsAwarded: effectiveAmount,
+          });
+          claimId = claim.id;
+        } else {
+          const earnResult =
+            !isPurchase && this.points.issue
+              ? await this.points.issue({
+                  ...pointInput,
+                  reason: `Automatic campaign: ${campaign.name}`,
+                })
+              : await this.points.earn(pointInput);
+          if (!earnResult.idempotent) {
+            pointsAwarded = effectiveAmount;
+          }
         }
       }
     }
@@ -212,15 +256,17 @@ export class CampaignsService {
       variantId = assignVariant(eventContext.memberId, campaign.id, campaign.variants);
     }
 
-    const application = await this.repo.recordApplication({
-      campaignId,
-      variantId,
-      memberId: eventContext.memberId,
-      eventId: eventContext.eventId,
-      idempotencyKey: applicationKey,
-      pointsAwarded,
-      metadata: eventContext.payload,
-    });
+    const application = claimId
+      ? { id: claimId }
+      : await this.repo.recordApplication({
+          campaignId,
+          variantId,
+          memberId: eventContext.memberId,
+          eventId: eventContext.eventId,
+          idempotencyKey: applicationKey,
+          pointsAwarded,
+          metadata: eventContext.payload,
+        });
 
     return {
       campaignId,
@@ -228,14 +274,24 @@ export class CampaignsService {
       pointsAwarded,
       variantId,
       applicationId: application.id,
-      idempotent: pointsAwarded === 0,
+      ...(claimId ? { claimId } : {}),
+      idempotent: claimId ? false : pointsAwarded === 0,
     };
   }
 
   async estimateImpact(input: EstimateInput): Promise<EstimateResult> {
-    const estimatedMembers = await this.repo.countEligibleMembers(input.programId);
+    const estimatedMembers = input.estimatedMembers ?? await this.repo.countEligibleMembers(input.programId);
     const multiplier = input.multiplier ?? 1;
-    const estimatedPoints = estimatedMembers * 100 * multiplier;
+    // An estimate represents one execution of the campaign. A member can
+    // receive at most one grant in that execution, even when the campaign
+    // allows multiple uses over its lifetime. Purchase campaigns use the
+    // same base amount as the legacy estimator; standing occasions use the
+    // configured points-to-award value directly.
+    const pointsPerMember = input.isPurchase === false ? multiplier : 100 * multiplier;
+    const usesPerMember = input.maxUsesPerMember && input.maxUsesPerMember > 0
+      ? Math.min(input.maxUsesPerMember, 1)
+      : 1;
+    const estimatedPoints = estimatedMembers * pointsPerMember * usesPerMember;
     const estimatedCost = input.maxBudget
       ? Math.min(estimatedPoints, input.maxBudget)
       : estimatedPoints;

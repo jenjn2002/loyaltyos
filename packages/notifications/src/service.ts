@@ -105,25 +105,27 @@ export class NotificationsService {
     memberId: string,
     context: Record<string, unknown>,
   ): Promise<NotificationRow[]> {
-    // Resolve locale: context._locale override > member.locale > program.defaultLocale > es-MX
+    // Resolve locale: context._locale override > member.locale > program.defaultLocale > vi-VN
     const contextLocale = typeof context._locale === "string" ? context._locale : undefined;
     const memberLocale = await this.repo.findMemberLocale(memberId);
     const programDefaultLocale = await this.repo.findProgramDefaultLocale(memberId);
-    const resolvedLocale = contextLocale ?? memberLocale ?? "es-MX";
+    const resolvedLocale = contextLocale ?? memberLocale ?? "vi-VN";
 
     // Find templates matching the trigger, filtered by locale
     let templates = await this.repo.findTemplatesByTrigger(programId, triggerEvent, resolvedLocale);
 
-    // Fallback chain: try program default, then es-MX
-    if (templates.length === 0 && programDefaultLocale && programDefaultLocale !== resolvedLocale) {
+    // Keep the English experience English when a member explicitly uses it.
+    // For other locales, retain the configured program default as the next
+    // fallback before trying the neutral English catalog.
+    if (templates.length === 0 && resolvedLocale !== "en-US" && programDefaultLocale && programDefaultLocale !== resolvedLocale) {
       templates = await this.repo.findTemplatesByTrigger(
         programId,
         triggerEvent,
         programDefaultLocale,
       );
     }
-    if (templates.length === 0 && resolvedLocale !== "es-MX") {
-      templates = await this.repo.findTemplatesByTrigger(programId, triggerEvent, "es-MX");
+    if (templates.length === 0 && resolvedLocale !== "en-US") {
+      templates = await this.repo.findTemplatesByTrigger(programId, triggerEvent, "en-US");
     }
 
     if (templates.length === 0) return [];
@@ -296,7 +298,29 @@ export class NotificationsService {
   async markRead(id: string): Promise<NotificationRow> {
     const notification = await this.repo.findNotificationById(id);
     if (!notification) throw new NotificationNotFoundError(id);
-    return this.repo.updateNotificationStatus(id, "READ");
+    return this.repo.updateNotificationStatus(id, "READ", { readAt: new Date() });
+  }
+
+  async setMemberNotificationRead(
+    memberId: string,
+    notificationId: string,
+    read: boolean,
+  ): Promise<NotificationRow> {
+    const notification = await this.repo.findNotificationById(notificationId);
+    if (!notification || notification.memberId !== memberId) throw new NotificationNotFoundError(notificationId);
+    return this.repo.updateNotificationStatus(
+      notificationId,
+      read ? "READ" : "SENT",
+      { readAt: read ? new Date() : null },
+    );
+  }
+
+  async getMemberUnreadNotificationCount(memberId: string): Promise<number> {
+    return this.repo.countUnreadNotifications(memberId);
+  }
+
+  async markMemberNotificationsRead(memberId: string): Promise<number> {
+    return this.repo.markMemberNotificationsRead(memberId);
   }
 
   // ── Webhooks ─────────────────────────────────────────

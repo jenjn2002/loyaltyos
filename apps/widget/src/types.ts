@@ -1,6 +1,6 @@
 // ── Widget configuration ──────────────────────────────────────────────────
 
-export type WidgetLocale = "es-MX" | "en-US";
+export type WidgetLocale = "vi-VN" | "en-US";
 
 export interface WidgetConfig {
   programId: string;
@@ -16,7 +16,7 @@ export interface WidgetConfig {
 export const DEFAULT_CONFIG: Partial<WidgetConfig> = {
   theme: "auto",
   accentColor: "#7c3aed",
-  locale: "es-MX",
+  locale: "vi-VN",
   compact: false,
   mode: "full",
 };

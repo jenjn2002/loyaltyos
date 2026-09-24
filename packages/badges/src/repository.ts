@@ -104,6 +104,8 @@ export function createRepository(prisma: PrismaClient) {
           name: data.name,
           rank: data.rank,
           minPoints: data.minPoints,
+          qualificationRules: (data.qualificationRules ?? []) as unknown as Prisma.InputJsonValue,
+          qualificationOperator: data.qualificationOperator ?? "AND",
           color: data.color,
           iconUrl: data.iconUrl,
           benefits: data.benefits as Prisma.InputJsonValue,
@@ -119,6 +121,12 @@ export function createRepository(prisma: PrismaClient) {
           ...(data.name !== undefined && { name: data.name }),
           ...(data.rank !== undefined && { rank: data.rank }),
           ...(data.minPoints !== undefined && { minPoints: data.minPoints }),
+          ...(data.qualificationRules !== undefined && {
+            qualificationRules: data.qualificationRules as unknown as Prisma.InputJsonValue,
+          }),
+          ...(data.qualificationOperator !== undefined && {
+            qualificationOperator: data.qualificationOperator,
+          }),
           ...(data.color !== undefined && { color: data.color }),
           ...(data.iconUrl !== undefined && { iconUrl: data.iconUrl }),
           ...(data.benefits !== undefined && { benefits: data.benefits as Prisma.InputJsonValue }),
@@ -197,6 +205,9 @@ export function createRepository(prisma: PrismaClient) {
         ) ?? null;
       const totalEarned = qualificationWallet?.totalEarned ?? 0;
       const totalRedeemed = qualificationWallet?.totalSpent ?? 0;
+      const pointTotals = Object.fromEntries(
+        member.pointWallets.map((wallet) => [wallet.pointTypeId, wallet.totalEarned]),
+      );
 
       return {
         id: member.id,
@@ -217,7 +228,23 @@ export function createRepository(prisma: PrismaClient) {
         eventCounts,
         totalSpent: totalEarned, // totalSpent = totalEarned for tier qualification
         lastEventAt,
+        pointTotals,
       };
+    },
+
+    async findMemberPointTotals(memberId: string): Promise<Record<string, number> | null> {
+      const member = await prisma.member.findFirst({
+        where: { id: memberId, deletedAt: null },
+        select: {
+          pointWallets: {
+            select: { pointTypeId: true, totalEarned: true },
+          },
+        },
+      });
+      if (!member) return null;
+      return Object.fromEntries(
+        member.pointWallets.map((wallet) => [wallet.pointTypeId, wallet.totalEarned]),
+      );
     },
 
     // ═══════════════════════════════════════════════════════════════════

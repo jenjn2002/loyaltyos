@@ -4,15 +4,15 @@ import { initCatalog, t } from "../catalog.js";
 
 describe("catalog", () => {
   it("translates a top-level key", async () => {
-    await initCatalog("es-MX");
+    await initCatalog("vi-VN");
     const result = t("members.title");
-    expect(result).toBe("Miembros");
+    expect(result).toBe("Thành viên");
   });
 
   it("translates a nested key", async () => {
-    await initCatalog("es-MX");
+    await initCatalog("vi-VN");
     const result = t("members.tiers.gold");
-    expect(result).toBe("Oro");
+    expect(result).toBe("Vàng");
   });
 
   it("translates with parameter interpolation", async () => {
@@ -28,7 +28,7 @@ describe("catalog", () => {
   });
 
   it("returns the key for completely nonexistent key", async () => {
-    await initCatalog("es-MX");
+    await initCatalog("vi-VN");
     const result = t("nonexistent.key");
     // Should return the key itself as fallback
     expect(result).toBe("nonexistent.key");

@@ -45,7 +45,7 @@ import {
   RefundExceedsInitialError,
   TermsTemplateNotFoundError,
 } from "@loyaltyos/giftcards";
-import { enUS, esMX, resolveLocale } from "@loyaltyos/i18n";
+import { enUS, viVN, resolveLocale } from "@loyaltyos/i18n";
 import type { SupportedLocale } from "@loyaltyos/i18n";
 import {
   RewardInsufficientPointsError,
@@ -66,7 +66,7 @@ import { ZodError } from "zod";
 import { LoyaltyError } from "./errors.js";
 
 const CATALOGS: Record<SupportedLocale, Record<string, unknown>> = {
-  "es-MX": esMX,
+  "vi-VN": viVN,
   "en-US": enUS,
 };
 

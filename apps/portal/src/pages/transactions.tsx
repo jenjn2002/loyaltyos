@@ -30,9 +30,47 @@ const typeColors: Record<string, string> = {
   EXCHANGE: "text-red-500",
 };
 
+interface TransactionLabels {
+  exchange: string;
+  reward: string;
+  campaign: string;
+  admin: string;
+  recognition: string;
+  system: string;
+  transaction: string;
+}
+
+function cleanTransactionReason(reason: string | null): string {
+  return (reason ?? "")
+    .replace(/^Reward redemption:\s*/i, "")
+    .replace(/^Claimed campaign:\s*/i, "")
+    .replace(/^Automatic issuance rule:\s*/i, "")
+    .trim();
+}
+
+function transactionTitle(tx: PointTransaction, labels: TransactionLabels): string {
+  const reason = cleanTransactionReason(tx.reason);
+  if (tx.source.startsWith("reward:")) return reason || labels.reward;
+  if (tx.source.startsWith("campaign:")) return reason || labels.campaign;
+  if (tx.source === "member:exchange") return labels.exchange;
+  if (tx.source.startsWith("admin:")) return labels.admin;
+  if (tx.source.startsWith("member:give")) return labels.recognition;
+  if (tx.source.startsWith("system:")) return labels.system;
+  return reason || labels.transaction;
+}
+
 export default function Transactions() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<string>("");
+  const labels: TransactionLabels = {
+    exchange: t("transactionTitles.exchange"),
+    reward: t("transactionTitles.reward"),
+    campaign: t("transactionTitles.campaign"),
+    admin: t("transactionTitles.admin"),
+    recognition: t("transactionTitles.recognition"),
+    system: t("transactionTitles.system"),
+    transaction: t("transactionTitles.transaction"),
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["transactions", filter],
@@ -105,11 +143,15 @@ export default function Transactions() {
                   <Icon className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{tx.source}</p>
-                  {tx.reason && (
+                  <p className="truncate text-sm font-medium">{transactionTitle(tx, labels)}</p>
+                  {cleanTransactionReason(tx.reason) &&
+                    cleanTransactionReason(tx.reason) !== transactionTitle(tx, labels) && (
                     <p className="truncate text-xs text-[var(--color-text-secondary)]">
-                      {tx.reason}
+                      {cleanTransactionReason(tx.reason)}
                     </p>
+                  )}
+                  {tx.message && (
+                    <p className="truncate text-xs text-[var(--color-text-secondary)]">{tx.message}</p>
                   )}
                   <p className="text-xs text-[var(--color-text-secondary)]">
                     {new Date(tx.createdAt).toLocaleDateString()}

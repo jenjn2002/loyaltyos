@@ -1,6 +1,6 @@
-import esMX from "./locales/es-MX.json" with { type: "json" };
+import viVN from "./locales/vi-VN.json" with { type: "json" };
 
-type JsonShape = typeof esMX;
+type JsonShape = typeof viVN;
 
 type DotPrefix<T extends string, K extends string> = K extends "" ? T : `${T}.${K}`;
 
@@ -10,7 +10,7 @@ type NestedKeys<T, Prefix extends string = ""> = {
     : DotPrefix<Prefix, K>;
 }[keyof T & string];
 
-/** All valid translation keys derived from es-MX.json */
+/** All valid translation keys derived from vi-VN.json */
 export type TranslationKey = NestedKeys<JsonShape>;
 
 /** Type-safe t() function signature */

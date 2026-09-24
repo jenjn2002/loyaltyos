@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -18,6 +19,7 @@ import { CouponBulkGeneratePage } from "@/pages/coupon-bulk-generate";
 import { CouponsListPage } from "@/pages/coupons-list";
 import { CreditsManagementPage } from "@/pages/credits-management";
 import { DashboardPage } from "@/pages/dashboard";
+import { EventDefinitionsPage } from "@/pages/event-definitions";
 import { BatchDetailPage } from "@/pages/giftcards/batch-detail";
 import { BatchWizardPage } from "@/pages/giftcards/batch-wizard";
 import { BatchesListPage } from "@/pages/giftcards/batches-list";
@@ -25,8 +27,11 @@ import { CardDetailPage } from "@/pages/giftcards/card-detail";
 import { TermsEditorPage } from "@/pages/giftcards/terms-editor";
 import { TermsListPage } from "@/pages/giftcards/terms-list";
 import { LoginPage } from "@/pages/login";
+import { LogsPage } from "@/pages/logs";
 import { MemberDetailPage } from "@/pages/member-detail";
+import { MemberFieldsPage } from "@/pages/member-fields";
 import { MembersListPage } from "@/pages/members-list";
+import { IssuanceRulesPage } from "@/pages/issuance-rules";
 import { PermissionsPage } from "@/pages/permissions";
 import { PointTypesPage } from "@/pages/point-types";
 import { RewardsEditorPage } from "@/pages/rewards/rewards-editor";
@@ -53,7 +58,7 @@ function AdminGuard({ children }: { children: ReactNode }): JSX.Element {
   }, []);
 
   if (state === "loading") {
-    return <div className="flex min-h-screen items-center justify-center">Loading…</div>;
+    return <div className="flex min-h-screen items-center justify-center">{ui("Loading…")}</div>;
   }
   if (state === "unauthenticated") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -77,6 +82,7 @@ export function App(): JSX.Element {
           <Route index element={<DashboardPage />} />
           <Route path="/members" element={<MembersListPage />} />
           <Route path="/members/:id" element={<MemberDetailPage />} />
+          <Route path="/member-fields" element={<MemberFieldsPage />} />
           <Route path="/credits" element={<Navigate to="/credits/wallets" replace />} />
           <Route path="/credits/wallets" element={<CreditsManagementPage section="wallets" />} />
           <Route path="/credits/banks" element={<CreditsManagementPage section="banks" />} />
@@ -90,13 +96,16 @@ export function App(): JSX.Element {
           <Route path="/point-types" element={<PointTypesPage view="registry" />} />
           <Route path="/point-types/new" element={<PointTypesPage view="editor" />} />
           <Route path="/point-types/:id/edit" element={<PointTypesPage view="editor" />} />
+          <Route path="/issuance-rules" element={<IssuanceRulesPage />} />
           <Route path="/permissions" element={<PermissionsPage />} />
+          <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/campaigns" element={<CampaignsListPage />} />
           <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
           <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />
+          <Route path="/event-definitions" element={<EventDefinitionsPage />} />
           <Route path="/coupons" element={<CouponsListPage />} />
           <Route path="/coupons/generate" element={<CouponBulkGeneratePage />} />
           <Route path="/segments" element={<SegmentsListPage />} />

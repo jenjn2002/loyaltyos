@@ -3,6 +3,16 @@ const API_KEY: string = (import.meta.env.VITE_API_KEY as string | undefined) ?? 
 const PROGRAM_ID: string = (import.meta.env.VITE_PROGRAM_ID as string | undefined) ?? "prog_dev";
 const APP_BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+export function configuredProgramId(): string {
+  return PROGRAM_ID;
+}
+
+export function startMicrosoftLogin(): void {
+  window.location.assign(
+    `${API_URL}/admin/auth/microsoft?programId=${encodeURIComponent(PROGRAM_ID)}`,
+  );
+}
+
 export function appUrl(path = "/"): string {
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${APP_BASE_PATH}${suffix}` || "/";
@@ -48,16 +58,23 @@ export function isAdminAuthenticated(): boolean {
 
 /** Restore the admin session after a full-page refresh. */
 export async function restoreAdminSession(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    controller.abort();
+  }, 10_000);
   try {
     const response = await fetch(`${API_URL}/admin/me`, {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     });
     adminCredentialMode = response.ok;
     return response.ok;
   } catch {
     adminCredentialMode = false;
     return false;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 

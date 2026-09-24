@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_LOCALE, isSupportedLocale, resolveLocale } from "../detect.js";
 
 describe("isSupportedLocale", () => {
-  it("returns true for es-MX", () => {
-    expect(isSupportedLocale("es-MX")).toBe(true);
+  it("returns true for vi-VN", () => {
+    expect(isSupportedLocale("vi-VN")).toBe(true);
   });
 
   it("returns true for en-US", () => {
@@ -21,7 +21,7 @@ describe("resolveLocale", () => {
     expect(
       resolveLocale({
         userPreference: "en-US",
-        browserLanguage: "es-MX",
+        browserLanguage: "vi-VN",
       }),
     ).toBe("en-US");
   });
@@ -50,16 +50,16 @@ describe("resolveLocale", () => {
     ).toBe("en-US");
   });
 
-  it("defaults to es-MX when nothing matches", () => {
-    expect(resolveLocale({})).toBe("es-MX");
+  it("defaults to vi-VN when nothing matches", () => {
+    expect(resolveLocale({})).toBe("vi-VN");
   });
 
   it("matches language-only prefix via accept-language-parser", () => {
     expect(
       resolveLocale({
-        browserLanguage: "es",
+        browserLanguage: "vi",
       }),
-    ).toBe("es-MX");
+    ).toBe("vi-VN");
   });
 
   it("matches en prefix to en-US", () => {
@@ -74,20 +74,20 @@ describe("resolveLocale", () => {
     expect(
       resolveLocale({
         acceptLanguage: "en-US",
-        userPreference: "es-MX",
+        userPreference: "vi-VN",
         browserLanguage: "en-US",
       }),
-    ).toBe("es-MX");
+    ).toBe("vi-VN");
   });
 
   // ── q-weighted Accept-Language ─────────────────────────
 
-  it("handles q-weighted Accept-Language: es-MX,es;q=0.9,en;q=0.8", () => {
+  it("handles q-weighted Accept-Language: vi-VN,en;q=0.8", () => {
     expect(
       resolveLocale({
-        acceptLanguage: "es-MX,es;q=0.9,en;q=0.8",
+        acceptLanguage: "vi-VN,en;q=0.8",
       }),
-    ).toBe("es-MX");
+    ).toBe("vi-VN");
   });
 
   it("handles q-weighted Accept-Language: en-US,en;q=0.9", () => {

@@ -1,8 +1,9 @@
+import { memberFieldLabel, ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Copy } from "lucide-react";
+import { ChevronLeft, Copy, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,10 +35,41 @@ const transactionTypeColors: Record<string, "default" | "secondary" | "destructi
   EXCHANGE: "destructive",
 };
 
+interface MemberProfileForm {
+  email: string;
+  externalId: string;
+  phone: string;
+  firstName: string;
+  lastName: string;
+  department: string;
+  photoUrl: string;
+}
+
+interface MemberFieldDefinition {
+  id: string;
+  key: string;
+  label: string;
+  type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT";
+  required: boolean;
+  options: string[] | null;
+  isActive: boolean;
+}
+
+const emptyProfileForm: MemberProfileForm = {
+  email: "",
+  externalId: "",
+  phone: "",
+  firstName: "",
+  lastName: "",
+  department: "",
+  photoUrl: "",
+};
+
 export function MemberDetailPage(): JSX.Element {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const memberId = id ?? "";
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [statusReason, setStatusReason] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -48,6 +80,10 @@ export function MemberDetailPage(): JSX.Element {
   const [identitySubject, setIdentitySubject] = useState("");
   const [identityTenant, setIdentityTenant] = useState("");
   const [identityEmail, setIdentityEmail] = useState("");
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState<MemberProfileForm>(emptyProfileForm);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
 
   const {
     data: member,
@@ -64,9 +100,64 @@ export function MemberDetailPage(): JSX.Element {
     queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
   });
 
+  const customFields = useQuery({
+    queryKey: ["member-fields"],
+    queryFn: () => fetchApi<MemberFieldDefinition[]>("/admin/member-fields"),
+    enabled: Boolean(memberId),
+  });
+
   useEffect(() => {
     if (member) setCredentialUsername(member.username ?? "");
   }, [member]);
+
+  useEffect(() => {
+    if (!member || profileEditing) return;
+    setProfileForm({
+      email: member.email ?? "",
+      externalId: member.externalId ?? "",
+      phone: member.phone ?? "",
+      firstName: member.firstName ?? "",
+      lastName: member.lastName ?? "",
+      department: member.department ?? "",
+      photoUrl: member.photoUrl ?? "",
+    });
+  }, [member, profileEditing]);
+
+  useEffect(() => {
+    if (!member || profileEditing) return;
+    const metadata = member.metadata;
+    setCustomValues(
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {},
+    );
+  }, [member, profileEditing]);
+
+  const updateMemberProfile = useMutation({
+    mutationFn: () =>
+      fetchApi<Member>(`/members/${memberId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          email: profileForm.email.trim() || null,
+          externalId: profileForm.externalId.trim() || null,
+          phone: profileForm.phone.trim() || null,
+          firstName: profileForm.firstName.trim() || null,
+          lastName: profileForm.lastName.trim() || null,
+          department: profileForm.department.trim() || null,
+          photoUrl: profileForm.photoUrl.trim() || null,
+          metadata: customValues,
+        }),
+      }),
+    onSuccess: async () => {
+      setProfileEditing(false);
+      setProfileMessage(ui("Member profile updated."));
+      await queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
+    onError: (error: Error) => {
+      setProfileMessage(error.message);
+    },
+  });
 
   const saveCredentials = useMutation({
     mutationFn: () =>
@@ -197,6 +288,23 @@ export function MemberDetailPage(): JSX.Element {
     }
   };
 
+  const deleteMember = async (): Promise<void> => {
+    if (!window.confirm(ui("Delete this member? Their account will be removed from active members and wallets cleared. History is retained."))) return;
+    setStatusUpdating(true);
+    setStatusMessage(null);
+    try {
+      await fetchApi(`/admin/members/${memberId}`, {
+        method: "DELETE",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      navigate("/members");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : ui("Member deletion failed"));
+      setStatusUpdating(false);
+    }
+  };
+
   if (memberError || (!memberLoading && !member)) {
     return (
       <div className="space-y-6">
@@ -208,7 +316,7 @@ export function MemberDetailPage(): JSX.Element {
         </Button>
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-destructive">Member not found</p>
+            <p className="text-destructive">{ui("Member not found")}</p>
           </CardContent>
         </Card>
       </div>
@@ -229,14 +337,48 @@ export function MemberDetailPage(): JSX.Element {
       {/* Profile */}
       <Card>
         <CardHeader>
-          <CardTitle>
-            {memberLoading ? (
-              <Skeleton className="h-6 w-48" />
-            ) : (
-              `${member?.firstName ?? ""} ${member?.lastName ?? ""}`.trim() || "N/A"
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>
+                {memberLoading ? (
+                  <Skeleton className="h-6 w-48" />
+                ) : (
+                  `${member?.firstName ?? ""} ${member?.lastName ?? ""}`.trim() || "N/A"
+                )}
+              </CardTitle>
+              <CardDescription>{ui("Member Profile")}</CardDescription>
+            </div>
+            {admin.data?.capabilities["member.manage"] !== false && !memberLoading && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setProfileMessage(null);
+                    setProfileEditing((editing) => !editing);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  {profileEditing ? t("common.cancel") : t("common.edit")}
+                </Button>
+                {admin.data?.capabilities["member.manage"] === true && !member?.deletedAt && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={statusUpdating}
+                    onClick={() => {
+                      void deleteMember();
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {ui("Delete member")}
+                  </Button>
+                )}
+              </div>
             )}
-          </CardTitle>
-          <CardDescription>Member Profile</CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
           {memberLoading ? (
@@ -245,101 +387,268 @@ export function MemberDetailPage(): JSX.Element {
               <Skeleton className="h-4 w-48" />
               <Skeleton className="h-4 w-32" />
             </div>
-          ) : (
-            <dl className="grid gap-2 sm:grid-cols-2">
-              <div>
-                <dt className="text-sm text-muted-foreground">Member ID</dt>
-                <dd className="flex items-center gap-1">
-                  <code className="break-all text-xs">{member?.id}</code>
-                  {member?.id && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0"
-                      aria-label="Copy member ID"
-                      onClick={() => void navigator.clipboard.writeText(member.id)}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </dd>
+          ) : profileEditing ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setProfileMessage(null);
+                updateMemberProfile.mutate();
+              }}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-first-name">{t("members.firstName")}</Label>
+                  <Input
+                    id="member-profile-first-name"
+                    value={profileForm.firstName}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, firstName: event.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-last-name">{t("members.lastName")}</Label>
+                  <Input
+                    id="member-profile-last-name"
+                    value={profileForm.lastName}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, lastName: event.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-email">{t("common.email")}</Label>
+                  <Input
+                    id="member-profile-email"
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, email: event.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-phone">{ui("Phone")}</Label>
+                  <Input
+                    id="member-profile-phone"
+                    value={profileForm.phone}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, phone: event.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-external-id">{t("members.externalId")}</Label>
+                  <Input
+                    id="member-profile-external-id"
+                    value={profileForm.externalId}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, externalId: event.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-department">{ui("Department")}</Label>
+                  <Input
+                    id="member-profile-department"
+                    value={profileForm.department}
+                    onChange={(event) => {
+                      setProfileForm((current) => ({ ...current, department: event.target.value }));
+                    }}
+                  />
+                </div>
               </div>
-              <div>
-                <dt className="text-sm text-muted-foreground">Email</dt>
-                <dd>{member?.email ?? "N/A"}</dd>
+              <div className="space-y-2">
+                <Label htmlFor="member-profile-photo-url">{ui("Photo URL (optional)")}</Label>
+                <Input
+                  id="member-profile-photo-url"
+                  type="url"
+                  value={profileForm.photoUrl}
+                  onChange={(event) => {
+                    setProfileForm((current) => ({ ...current, photoUrl: event.target.value }));
+                  }}
+                  placeholder="https://"
+                />
               </div>
-              <div>
-                <dt className="text-sm text-muted-foreground">Phone</dt>
-                <dd>{member?.phone ?? "N/A"}</dd>
-              </div>
-              <div>
-                <dt className="text-sm text-muted-foreground">External ID</dt>
-                <dd>{member?.externalId ?? "--"}</dd>
-              </div>
-              <div>
-                <dt className="text-sm text-muted-foreground">Joined</dt>
-                <dd>{member ? new Date(member.joinedAt).toLocaleDateString() : "--"}</dd>
-              </div>
-              <div>
-                <dt className="text-sm text-muted-foreground">Status</dt>
-                <dd>{member?.status ?? "ACTIVE"}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-sm text-muted-foreground">Credit wallets</dt>
-                <dd className="mt-1 flex flex-wrap gap-2 text-sm">
-                  {(member?.pointWallets ?? []).length === 0 ? (
-                    <span className="text-muted-foreground">No configured wallets</span>
-                  ) : (
-                    member?.pointWallets?.map((wallet) => (
-                      <span key={wallet.pointTypeId} className="rounded bg-muted px-2 py-1">
-                        {wallet.name}: {wallet.balance.toLocaleString()} {wallet.unitLabel}
-                        {wallet.allowance
-                          ? ` · Give remaining: ${wallet.allowance.remaining.toLocaleString()}`
-                          : ""}
-                      </span>
-                    ))
-                  )}
-                </dd>
-              </div>
-              {member?.tags && member.tags.length > 0 && (
-                <div className="sm:col-span-2">
-                  <dt className="mb-1 text-sm text-muted-foreground">Tags</dt>
-                  <dd className="flex flex-wrap gap-1">
-                    {member.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </dd>
+              {customFields.data?.some((field) => field.isActive) && (
+                <div className="grid gap-4 rounded-md border p-4 sm:grid-cols-2">
+                  {customFields.data.filter((field) => field.isActive).map((field) => {
+                    const value = customValues[field.key];
+                    const inputId = `member-custom-${field.key}`;
+                    return (
+                      <div className="space-y-2" key={field.id}>
+                        <Label htmlFor={inputId}>{memberFieldLabel(field)}{field.required ? " *" : ""}</Label>
+                        {field.type === "BOOLEAN" ? (
+                          <label className="flex h-10 items-center gap-2 text-sm"><input id={inputId} type="checkbox" checked={value === true} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.checked }))} />{ui("Yes")}</label>
+                        ) : field.type === "SELECT" ? (
+                          <select id={inputId} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">{ui("Select")}</option>{(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                        ) : (
+                          <Input id={inputId} type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"} value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: field.type === "NUMBER" ? Number(event.target.value) : event.target.value }))} />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </dl>
+              {updateMemberProfile.isError && profileMessage && (
+                <p className="text-sm text-destructive">{profileMessage}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setProfileEditing(false);
+                    setProfileMessage(null);
+                  }}
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button type="submit" disabled={updateMemberProfile.isPending}>
+                  {updateMemberProfile.isPending ? t("common.loading") : t("common.save")}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <div className="mb-4 flex items-center gap-3">
+                {member?.photoUrl ? (
+                  <img
+                    src={member.photoUrl}
+                    alt={ui("Member photo")}
+                    className="h-16 w-16 rounded-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-lg font-semibold">
+                    {`${member?.firstName?.[0] ?? ""}${member?.lastName?.[0] ?? ""}`.toUpperCase() || "?"}
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm text-muted-foreground">{ui("Department")}</p>
+                  <p>{member?.department ?? "--"}</p>
+                </div>
+              </div>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Member ID")}</dt>
+                  <dd className="flex items-center gap-1">
+                    <code className="break-all text-xs">{member?.id}</code>
+                    {member?.id && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        aria-label={ui("Copy member ID")}
+                        onClick={() => void navigator.clipboard.writeText(member.id)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Email")}</dt>
+                  <dd>{member?.email ?? "N/A"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Phone")}</dt>
+                  <dd>{member?.phone ?? "N/A"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("External ID")}</dt>
+                  <dd>{member?.externalId ?? "--"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Department")}</dt>
+                  <dd>{member?.department ?? "--"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Photo URL (optional)")}</dt>
+                  <dd className="max-w-full truncate" title={member?.photoUrl ?? undefined}>
+                    {member?.photoUrl ?? "--"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Joined")}</dt>
+                  <dd>{member ? new Date(member.joinedAt).toLocaleDateString() : "--"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">{ui("Status")}</dt>
+                  <dd>{member?.status ?? "ACTIVE"}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-sm text-muted-foreground">{ui("Credit wallets")}</dt>
+                  <dd className="mt-1 flex flex-wrap gap-2 text-sm">
+                    {(member?.pointWallets ?? []).length === 0 ? (
+                      <span className="text-muted-foreground">{ui("No configured wallets")}</span>
+                    ) : (
+                      member?.pointWallets?.map((wallet) => (
+                        <span key={wallet.pointTypeId} className="rounded bg-muted px-2 py-1">
+                          {wallet.name}: {wallet.balance.toLocaleString()} {wallet.unitLabel}
+                          {wallet.allowance
+                            ? ` · ${ui("Give remaining:")} ${wallet.allowance.remaining.toLocaleString()}`
+                            : ""}
+                        </span>
+                      ))
+                    )}
+                  </dd>
+                </div>
+                {member?.tags && member.tags.length > 0 && (
+                  <div className="sm:col-span-2">
+                    <dt className="mb-1 text-sm text-muted-foreground">{ui("Tags")}</dt>
+                    <dd className="flex flex-wrap gap-1">
+                      {member.tags.map((tag) => (
+                        <Badge key={tag} variant="secondary">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </dd>
+                  </div>
+                )}
+                {customFields.data?.filter((field) => field.isActive).map((field) => {
+                  const value = customValues[field.key];
+                  const hasValue = value !== undefined && value !== null && value !== "";
+                  const displayValue = !hasValue
+                    ? "--"
+                    : field.type === "BOOLEAN"
+                      ? value === true ? ui("Yes") : ui("No")
+                      : String(value);
+                  return (
+                    <div key={field.id}>
+                      <dt className="text-sm text-muted-foreground">{memberFieldLabel(field)}</dt>
+                      <dd>{displayValue}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </>
+          )}
+          {profileMessage && !profileEditing && (
+            <p className="mt-3 text-sm text-muted-foreground">{profileMessage}</p>
           )}
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
             <div className="min-w-64 flex-1">
-              <Label htmlFor="status-reason">Status / offboarding reason</Label>
+              <Label htmlFor="status-reason">{ui("Status / offboarding reason")}</Label>
               <Input
                 id="status-reason"
                 value={statusReason}
                 onChange={(event) => {
                   setStatusReason(event.target.value);
                 }}
-                placeholder="Reason is required"
+                placeholder={ui("Reason is required")}
               />
             </div>
             {member?.status === "INACTIVE" ? (
-              <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>
-                Reactivate
-              </Button>
+              <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>{ui("Reactivate")}</Button>
             ) : (
               <Button
                 variant="destructive"
                 disabled={statusUpdating}
                 onClick={() => void updateMemberStatus("INACTIVE")}
-              >
-                Offboard & clear wallets
-              </Button>
+              >{ui("Offboard & clear wallets")}</Button>
             )}
             {statusMessage && (
               <p className="w-full text-sm text-muted-foreground">{statusMessage}</p>
@@ -496,7 +805,7 @@ export function MemberDetailPage(): JSX.Element {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-3">
           <CardHeader>
-            <CardTitle>Configured wallets</CardTitle>
+            <CardTitle>{ui("Configured wallets")}</CardTitle>
           </CardHeader>
           <CardContent>
             {balanceLoading ? (
@@ -516,16 +825,14 @@ export function MemberDetailPage(): JSX.Element {
                     <p className="text-xs text-muted-foreground">{wallet.unitLabel}</p>
                     {wallet.allowance && (
                       <p className="mt-1 text-xs">
-                        Give allowance: {wallet.allowance.remaining.toLocaleString()} /{" "}
+                        {ui("Give allowance:")} {wallet.allowance.remaining.toLocaleString()} /{" "}
                         {wallet.allowance.allocated.toLocaleString()}
                       </p>
                     )}
                   </div>
                 ))}
                 {(wallets ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No active point types are configured.
-                  </p>
+                  <p className="text-sm text-muted-foreground">{ui("No active point types are configured.")}</p>
                 )}
               </div>
             )}
@@ -536,18 +843,18 @@ export function MemberDetailPage(): JSX.Element {
       {/* Transactions */}
       <Card>
         <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
+          <CardTitle>{ui("Transaction History")}</CardTitle>
         </CardHeader>
         <CardContent>
           {txsLoading ? (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Balance After</TableHead>
-                  <TableHead>Source</TableHead>
+                  <TableHead>{ui("Date")}</TableHead>
+                  <TableHead>{ui("Type")}</TableHead>
+                  <TableHead>{ui("Amount")}</TableHead>
+                  <TableHead>{ui("Balance After")}</TableHead>
+                  <TableHead>{ui("Source")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -574,18 +881,18 @@ export function MemberDetailPage(): JSX.Element {
             </Table>
           ) : !transactions || transactions.items.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-muted-foreground">No transactions yet</p>
+              <p className="text-muted-foreground">{ui("No transactions yet")}</p>
             </div>
           ) : (
             <>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Balance After</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead>{ui("Date")}</TableHead>
+                    <TableHead>{ui("Type")}</TableHead>
+                    <TableHead>{ui("Amount")}</TableHead>
+                    <TableHead>{ui("Balance After")}</TableHead>
+                    <TableHead>{ui("Source")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -603,7 +910,7 @@ export function MemberDetailPage(): JSX.Element {
                       </TableCell>
                       <TableCell>{tx.balanceAfter.toLocaleString()}</TableCell>
                       <TableCell>
-                        {tx.pointType.code} · {tx.source}
+                        {tx.pointType.code} · {tx.sourceLabel ?? tx.source}
                       </TableCell>
                     </TableRow>
                   ))}

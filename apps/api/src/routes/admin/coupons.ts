@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { prisma } from "../../db.js";
 import { adaptCouponsMetrics, getBusinessMetrics } from "../../lib/business-metrics.js";
+import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
 
 const coupons = new CouponsService(prisma, adaptCouponsMetrics(getBusinessMetrics()));
 
@@ -65,6 +67,10 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
       ...body,
       programId,
     });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "coupon", coupon.id, {
+      created: true,
+      code: coupon.code,
+    });
     return reply.status(201).send({ data: coupon });
   });
 
@@ -75,6 +81,10 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
     const codes = await coupons.generateCodes({
       ...body,
       programId,
+    });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "coupon_generation", null, {
+      count: codes.length,
+      prefix: body.prefix ?? "",
     });
     return reply.status(201).send({ data: codes });
   });
@@ -99,7 +109,17 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
 
     const programId = request.programId || (request.headers["x-program-id"] as string);
     const result = await coupons.list(programId, query);
-    return reply.send({ data: result });
+    const creators = await createdByForEntities(
+      programId,
+      "coupon",
+      result.items.map((coupon) => coupon.id),
+    );
+    return reply.send({
+      data: {
+        ...result,
+        items: result.items.map((coupon) => ({ ...coupon, createdBy: creators.get(coupon.id) ?? null })),
+      },
+    });
   });
 
   // GET /admin/coupons/:id — Get coupon by id
@@ -115,6 +135,7 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
     const coupon = await coupons.update(id, body);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "coupon", id, body);
     return reply.send({ data: coupon });
   });
 
@@ -122,6 +143,7 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
   app.delete("/admin/coupons/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     await coupons.delete(id);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "coupon", id, { isActive: false });
     return reply.status(204).send();
   });
 

@@ -45,7 +45,7 @@ import "@loyaltyos/widget";
 | `member-id`  | string | —        | Member ID for personalization                  |
 | `token`      | string | —        | JWT session token (from magic-link auth)       |
 | `mode`       | string | `"full"` | Display mode: `"full"` or `"mini"`             |
-| `lang`       | string | `"en"`   | Language: `"en"` or `"es"`                     |
+| `lang`       | string | `"en"`   | Language: `"en"` or `"vi"`                     |
 
 ## Display Modes
 

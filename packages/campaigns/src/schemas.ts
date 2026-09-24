@@ -32,7 +32,15 @@ export const campaignVariantSchema = z.object({
 
 export const campaignCreateSchema = z.object({
   programId: z.string().min(1),
+  createdById: z.string().min(1).nullable().optional(),
+  issuancePolicy: z.enum(["STANDING", "APPROVAL_REQUIRED"]).optional(),
+  issuanceMode: z.enum(["AUTO", "CLAIM"]).optional(),
+  approvalStatus: z.enum(["NOT_REQUIRED", "DRAFT", "PENDING", "APPROVED", "REJECTED"]).optional(),
+  isActive: z.boolean().optional(),
+  justification: z.string().trim().max(2000).nullable().optional(),
   pointTypeId: z.string().min(1).optional(),
+  segmentId: z.string().min(1).nullable().optional(),
+  eventType: z.string().trim().min(1).max(80).nullable().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   type: z.enum([
@@ -48,15 +56,15 @@ export const campaignCreateSchema = z.object({
   ]),
   conditions: z.record(z.unknown()).optional(),
   multiplier: z.number().min(0).optional(),
-  maxBudget: z.number().int().optional(),
+  maxBudget: z.number().int().nullable().optional(),
   maxUsesPerMember: z.number().int().optional(),
   isStackable: z.boolean().optional(),
   abTesting: z.boolean().optional(),
-  startsAt: z.coerce.date().optional(),
-  endsAt: z.coerce.date().optional(),
+  startsAt: z.coerce.date().nullable().optional(),
+  endsAt: z.coerce.date().nullable().optional(),
   variants: z.array(campaignVariantSchema).optional(),
 });
 
 export const campaignUpdateSchema = campaignCreateSchema
-  .omit({ programId: true, type: true })
+  .omit({ programId: true, type: true, createdById: true })
   .partial();

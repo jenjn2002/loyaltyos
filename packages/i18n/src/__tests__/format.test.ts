@@ -12,12 +12,12 @@ describe("formatDate", () => {
     expect(result).toContain("2026");
   });
 
-  it("formats a date in es-MX format", () => {
+  it("formats a date in vi-VN format", () => {
     const date = new Date("2026-05-27T12:00:00Z");
-    const result = formatDate(date, "es-MX");
-    // es-MX long date style: "27 de mayo de 2026"
+    const result = formatDate(date, "vi-VN");
+    // vi-VN long date style: "27 tháng 5, 2026"
     expect(result).toContain("27");
-    expect(result).toContain("mayo");
+    expect(result).toContain("tháng");
     expect(result).toContain("2026");
   });
 
@@ -34,10 +34,10 @@ describe("formatCurrency", () => {
     expect(result).toBe("$19.99");
   });
 
-  it("formats MXN in es-MX", () => {
-    const result = formatCurrency(500, "MXN", "es-MX");
-    expect(result).toContain("500");
-    expect(result).toContain("$");
+  it("formats MXN in vi-VN", () => {
+    const result = formatCurrency(500, "MXN", "vi-VN");
+    expect(result).toContain("500,00");
+    expect(result).toContain("MX$");
   });
 
   it("formats negative amounts", () => {
@@ -53,16 +53,16 @@ describe("formatNumber", () => {
     expect(result).toBe("1,234,567");
   });
 
-  it("formats with thousand separators in es-MX", () => {
-    const result = formatNumber(1234567, "es-MX");
-    expect(result).toBe("1,234,567");
+  it("formats with thousand separators in vi-VN", () => {
+    const result = formatNumber(1234567, "vi-VN");
+    expect(result).toBe("1.234.567");
   });
 });
 
 describe("formatPoints", () => {
   it("formats points with separators and pts suffix", () => {
-    const result = formatPoints(1500, "es-MX");
-    expect(result).toContain("1,500");
+    const result = formatPoints(1500, "vi-VN");
+    expect(result).toContain("1.500");
     expect(result).toContain("pts");
   });
 

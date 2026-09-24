@@ -9,6 +9,8 @@ import {
 import { LoyaltyError } from "../../lib/errors.js";
 import { requireCapability } from "../../lib/permissions.js";
 import { pointExchangeApprovalHook } from "../../lib/workflow-integrations.js";
+import { notifyCreditExchangeDecision } from "../../lib/member-notifications.js";
+import { runOccasions } from "../../workers/occasions.js";
 
 const pageQuery = z.object({
   status: z.enum(["PENDING", "APPROVED", "REJECTED", "CANCELLED"]).optional(),
@@ -69,6 +71,14 @@ export function adminApprovalsRoutes(
         body.comment,
         pointExchangeApprovalHook,
       );
+      if (kind === "APPROVE" && result.actionKey === "CAMPAIGN_ISSUANCE_PROPOSAL" && result.status === "APPROVED") {
+        void runOccasions().catch((error: unknown) => {
+          request.log.error({ err: error, approvalRequestId: id }, "Failed to run approved campaign occasions");
+        });
+      }
+      if (result.actionKey === "POINT_EXCHANGE" && (result.status === "APPROVED" || result.status === "REJECTED")) {
+        await notifyCreditExchangeDecision(request.programId, result.subjectId, result.status);
+      }
       return reply.send({ data: result });
     };
 

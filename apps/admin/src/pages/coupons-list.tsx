@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -80,16 +81,16 @@ export function CouponsListPage(): JSX.Element {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>All Coupons</CardTitle>
+          <CardTitle>{ui("All Coupons")}</CardTitle>
           <Select value={modeFilter} onValueChange={setModeFilter}>
             <SelectTrigger className="w-36">
-              <SelectValue placeholder="Mode" />
+              <SelectValue placeholder={ui("Mode")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Modes</SelectItem>
-              <SelectItem value="SHARED">Shared</SelectItem>
-              <SelectItem value="INDIVIDUAL">Individual</SelectItem>
-              <SelectItem value="LIMITED">Limited</SelectItem>
+              <SelectItem value="all">{ui("All Modes")}</SelectItem>
+              <SelectItem value="SHARED">{ui("Shared")}</SelectItem>
+              <SelectItem value="INDIVIDUAL">{ui("Individual")}</SelectItem>
+              <SelectItem value="LIMITED">{ui("Limited")}</SelectItem>
             </SelectContent>
           </Select>
         </CardHeader>
@@ -101,7 +102,7 @@ export function CouponsListPage(): JSX.Element {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : isError || !data ? (
-            <p className="text-destructive">Failed to load coupons.</p>
+            <p className="text-destructive">{ui("Failed to load coupons.")}</p>
           ) : data.items.length === 0 ? (
             <p className="text-muted-foreground">{t("common.noResults")}</p>
           ) : (
@@ -109,12 +110,13 @@ export function CouponsListPage(): JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Code</TableHead>
+                    <TableHead>{ui("Code")}</TableHead>
                     <TableHead>{t("campaigns.type")}</TableHead>
-                    <TableHead>Mode</TableHead>
-                    <TableHead>Usage</TableHead>
+                    <TableHead>{ui("Mode")}</TableHead>
+                    <TableHead>{ui("Usage")}</TableHead>
                     <TableHead>{t("common.status")}</TableHead>
-                    <TableHead>Expires</TableHead>
+                    <TableHead>{ui("Expires")}</TableHead>
+                    <TableHead>{ui("Created by")}</TableHead>
                     <TableHead className="w-20" />
                   </TableRow>
                 </TableHeader>
@@ -147,6 +149,9 @@ export function CouponsListPage(): JSX.Element {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : "Never"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {c.createdBy ? <><p className="font-medium">{c.createdBy.name}</p><p className="text-xs text-muted-foreground">{c.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                       <TableCell>
                         <Button

@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { ui } from "@/lib/ui-text";
 import type { GiftCardBatch, PaginatedResponse } from "@/types";
 
 const TERMINAL_STATUSES = new Set(["ready", "partial", "failed", "cancelled"]);
@@ -124,6 +125,7 @@ export function BatchesListPage(): JSX.Element {
                     <TableHead>{t("common.status")}</TableHead>
                     <TableHead>{t("giftcards.expiration")}</TableHead>
                     <TableHead>{t("common.created")}</TableHead>
+                    <TableHead>{ui("Created by")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -165,6 +167,9 @@ export function BatchesListPage(): JSX.Element {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(batch.createdAt), "PP")}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {batch.createdBy ? <><p className="font-medium">{batch.createdBy.name}</p><p className="text-xs text-muted-foreground">{batch.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                     </TableRow>
                   ))}

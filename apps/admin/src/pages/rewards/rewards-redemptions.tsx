@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, TrendingUp, Users } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
@@ -94,14 +95,14 @@ export function RewardsRedemptionsPage(): JSX.Element {
           <h1 className="text-2xl font-bold">
             {reward ? `Redemptions: ${reward.name}` : "Redemptions"}
           </h1>
-          <p className="text-sm text-muted-foreground">Redemption history and metrics</p>
+          <p className="text-sm text-muted-foreground">{ui("Redemption history and metrics")}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
+            <CardTitle className="text-sm font-medium">{ui("Total Redemptions")}</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -111,7 +112,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Unique Members</CardTitle>
+            <CardTitle className="text-sm font-medium">{ui("Unique Members")}</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -121,7 +122,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Point units spent</CardTitle>
+            <CardTitle className="text-sm font-medium">{ui("Point units spent")}</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -134,7 +135,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>Redemption History</CardTitle>
+          <CardTitle>{ui("Redemption History")}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -144,15 +145,15 @@ export function RewardsRedemptionsPage(): JSX.Element {
               ))}
             </div>
           ) : items.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">No redemptions yet</p>
+            <p className="text-center text-muted-foreground py-8">{ui("No redemptions yet")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Member</TableHead>
-                  <TableHead>Points Spent</TableHead>
-                  <TableHead>Fulfillment</TableHead>
+                  <TableHead>{ui("Date")}</TableHead>
+                  <TableHead>{ui("Member")}</TableHead>
+                  <TableHead>{ui("Points Spent")}</TableHead>
+                  <TableHead>{ui("Fulfillment")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -169,9 +170,14 @@ export function RewardsRedemptionsPage(): JSX.Element {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {r.memberId}
-                        </span>
+                        <p className="font-medium">
+                          {[r.member?.firstName, r.member?.lastName].filter(Boolean).join(" ") ||
+                            r.member?.email ||
+                            r.memberId}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {r.member?.email ?? r.memberId}
+                        </p>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -199,18 +205,14 @@ export function RewardsRedemptionsPage(): JSX.Element {
                               onClick={() => {
                                 statusMutation.mutate({ redemptionId: r.id, status: "FULFILLED" });
                               }}
-                            >
-                              Fulfill
-                            </Button>
+                            >{ui("Fulfill")}</Button>
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => {
                                 statusMutation.mutate({ redemptionId: r.id, status: "CANCELLED" });
                               }}
-                            >
-                              Cancel
-                            </Button>
+                            >{ui("Cancel")}</Button>
                           </>
                         )}
                       </div>

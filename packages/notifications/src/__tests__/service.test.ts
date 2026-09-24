@@ -190,8 +190,8 @@ describe("NotificationsService.createNotification", () => {
 describe("NotificationsService.sendTrigger", () => {
   it("finds matching templates and creates notifications", async () => {
     mockPrisma.member.findUnique.mockResolvedValue({
-      locale: "es-MX",
-      program: { defaultLocale: "es-MX" },
+      locale: "vi-VN",
+      program: { defaultLocale: "vi-VN" },
     });
     mockPrisma.notificationTemplate.findMany.mockResolvedValue([
       templateRow({ triggerEvent: "registration" }),
@@ -210,14 +210,14 @@ describe("NotificationsService.sendTrigger", () => {
 
     expect(result).toHaveLength(1);
     expect(mockPrisma.notificationTemplate.findMany).toHaveBeenCalledWith({
-      where: { programId: "prog-1", triggerEvent: "registration", locale: "es-MX" },
+      where: { programId: "prog-1", triggerEvent: "registration", locale: "vi-VN" },
     });
   });
 
   it("renders template with Handlebars variables", async () => {
     mockPrisma.member.findUnique.mockResolvedValue({
       locale: null,
-      program: { defaultLocale: "es-MX" },
+      program: { defaultLocale: "vi-VN" },
     });
     mockPrisma.notificationTemplate.findMany.mockResolvedValue([
       templateRow({
@@ -251,8 +251,8 @@ describe("NotificationsService.sendTrigger", () => {
 
   it("returns empty when no templates match", async () => {
     mockPrisma.member.findUnique.mockResolvedValue({
-      locale: "es-MX",
-      program: { defaultLocale: "es-MX" },
+      locale: "vi-VN",
+      program: { defaultLocale: "vi-VN" },
     });
     mockPrisma.notificationTemplate.findMany.mockResolvedValue([]);
 
@@ -262,7 +262,7 @@ describe("NotificationsService.sendTrigger", () => {
     expect(result).toHaveLength(0);
   });
 
-  it("falls back to program.defaultLocale before es-MX", async () => {
+  it("falls back to program.defaultLocale before vi-VN", async () => {
     // Member has an unsupported locale; program default is en-US
     mockPrisma.member.findUnique.mockResolvedValue({
       locale: "fr-FR",
@@ -287,7 +287,7 @@ describe("NotificationsService.sendTrigger", () => {
     });
 
     expect(result).toHaveLength(1);
-    // Should have been called with en-US (program default), not es-MX
+    // Should have been called with en-US (program default), not vi-VN
     expect(mockPrisma.notificationTemplate.findMany).toHaveBeenCalledWith({
       where: { programId: "prog-1", triggerEvent: "registration", locale: "en-US" },
     });

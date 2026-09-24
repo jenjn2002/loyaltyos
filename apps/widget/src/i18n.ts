@@ -1,9 +1,9 @@
-import { enUS, esMX } from "@loyaltyos/i18n/src/locales.js";
+import { enUS, viVN } from "@loyaltyos/i18n/src/locales.js";
 
 import type { WidgetLocale } from "./types.js";
 
 const CATALOGS: Record<WidgetLocale, Record<string, unknown>> = {
-  "es-MX": esMX as Record<string, unknown>,
+  "vi-VN": viVN as Record<string, unknown>,
   "en-US": enUS as Record<string, unknown>,
 };
 

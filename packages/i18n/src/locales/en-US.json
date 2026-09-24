@@ -49,6 +49,7 @@
     "signingIn": "Signing in…",
     "loginTitle": "LoyaltyOS",
     "loginDescription": "Sign in to the admin dashboard",
+    "microsoftAdminApproval": "Microsoft 365 accounts must be approved by an Owner before Admin access is granted.",
     "networkError": "Network error. Is the API running?"
   },
   "dashboard": {
@@ -169,6 +170,10 @@
   "settings": {
     "title": "Settings",
     "language": "Language",
+    "languages": {
+      "english": "English",
+      "vietnamese": "Vietnamese"
+    },
     "microsoft": {
       "pageDescription": "Configure optional sign-in providers for this program.",
       "title": "Microsoft 365 sign-in",
@@ -195,6 +200,9 @@
       "autoProvisionMembersHelpLabel": "Help: Auto-provision customers",
       "autoProvisionMembersHelp": "When enabled, any valid Microsoft account in the configured Azure tenant can create a LoyaltyOS member on first login. A unique active member email is linked; ambiguous or inactive matches are rejected. When disabled, only explicitly linked identities can sign in.",
       "redirectUri": "Redirect URI",
+      "customerRedirectUri": "Customer redirect URI",
+      "adminRedirectUri": "Admin redirect URI",
+      "adminRedirectUriHelp": "Add this second URI to the same Azure app registration. Admin Microsoft accounts are created as pending and only active accounts can sign in.",
       "redirectUriHelpLabel": "Help: Redirect URI",
       "redirectUriHelp": "Add this exact stable URI to Azure Authentication. It is derived from PORTAL_URL, never from request headers.",
       "loading": "Loading…",
@@ -267,11 +275,17 @@
     "rewards": "Rewards",
     "badges": "Badges",
     "profile": "Profile",
+    "profilePhoto": "Profile photo",
+    "profilePhotoHelp": "Choose an image from your device. It will be resized automatically.",
+    "photoUploadError": "The image could not be uploaded. Please choose another image.",
     "balance": "Balance",
     "confirmed": "Confirmed",
     "pending": "Pending",
     "yourTier": "Your Tier",
     "rewardsCatalog": "Rewards Catalog",
+    "rewardsAvailable": "Rewards available",
+    "rewarded": "Rewarded",
+    "noRewarded": "No rewards redeemed yet",
     "redeem": "Redeem",
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -311,6 +325,10 @@
     "notifications": "Notifications",
     "preferences": "Preferences",
     "language": "Language",
+    "languages": {
+      "english": "English",
+      "vietnamese": "Vietnamese"
+    },
     "theme": "Theme",
     "light": "Light",
     "dark": "Dark",
@@ -338,6 +356,15 @@
       "ADJUST": "Adjust",
       "REVERSE": "Reverse",
       "EXPIRE": "Expire"
+    },
+    "transactionTitles": {
+      "exchange": "Point exchange",
+      "reward": "Reward redemption",
+      "campaign": "Campaign points",
+      "admin": "Admin adjustment",
+      "recognition": "Recognition",
+      "system": "System transaction",
+      "transaction": "Points transaction"
     },
     "sessionExpired": "Session expired",
     "requestFailed": "Request failed"
@@ -427,6 +454,17 @@
     "CAMPAIGN_BUDGET_EXHAUSTED": "Campaign budget exhausted",
     "CAMPAIGN_USER_LIMIT_REACHED": "Campaign user limit reached",
     "CAMPAIGN_OUT_OF_VALIDITY": "Campaign out of validity",
+    "CAMPAIGN_RUN_NOT_SUPPORTED": "This campaign type cannot be run manually",
+    "CAMPAIGN_POINT_TYPE_REQUIRED": "A point type is required before this campaign can run",
+    "CAMPAIGN_CLAIM_NOT_FOUND": "Campaign claim not found",
+    "CAMPAIGN_CLAIM_NOT_AVAILABLE": "This campaign claim is no longer available",
+    "CAMPAIGN_EVENT_REQUIRED": "A trigger event is required before running this campaign",
+    "CAMPAIGN_NOT_READY": "Campaign must be active and approved before it can run",
+    "CAMPAIGN_MANUAL_EVENT_REQUIRED": "Run now is available only for manual events",
+    "CAMPAIGN_ENDED": "Campaign has ended",
+    "CAMPAIGN_POLICY_REQUIRES_APPROVAL": "This campaign requires approval",
+    "ACTIVE_EVENT_DEFINITION_REQUIRED": "The event must have an active definition",
+    "EVENT_IS_SCHEDULED": "This event is scheduled and does not accept integration reports",
     "COUPON_NOT_FOUND": "Coupon not found",
     "COUPON_CODE_DUPLICATE": "Coupon code duplicate",
     "COUPON_EXPIRED": "Coupon expired",
@@ -492,6 +530,7 @@
     "MICROSOFT_CODE_INVALID": "Microsoft authorization code is invalid",
     "MICROSOFT_TOKEN_INVALID": "Microsoft identity token is invalid",
     "MICROSOFT_AUTH_FAILED": "Microsoft sign-in failed",
+    "ADMIN_MICROSOFT_ACCOUNT_PENDING": "Your Admin account is waiting for approval. Ask an Owner to activate it in Roles & permissions.",
     "MICROSOFT_IDENTITY_NOT_LINKED": "This Microsoft account is not linked to an active member",
     "MICROSOFT_EMAIL_REQUIRED": "Microsoft did not provide a usable email address for this account",
     "MICROSOFT_EMAIL_AMBIGUOUS": "This Microsoft account cannot be matched automatically; contact an administrator",

@@ -19,7 +19,7 @@ export const createBatchSchema = z.object({
 export const createTermsTemplateSchema = z.object({
   programId: z.string().min(1),
   name: z.string().min(1).max(200),
-  locale: z.string().default("es-MX"),
+  locale: z.string().default("vi-VN"),
   body: z.string().min(1),
 });
 

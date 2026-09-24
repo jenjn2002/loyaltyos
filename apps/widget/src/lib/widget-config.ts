@@ -21,12 +21,12 @@ const ATTRS: AttributeDef[] = [
   {
     attr: "data-lang",
     key: "locale",
-    parse: (s) => (["es-MX", "en-US"].includes(s) ? s : "es-MX"),
+    parse: (s) => (["vi-VN", "en-US"].includes(s) ? s : "vi-VN"),
   },
   {
     attr: "locale",
     key: "locale",
-    parse: (s) => (["es-MX", "en-US"].includes(s) ? s : "es-MX"),
+    parse: (s) => (["vi-VN", "en-US"].includes(s) ? s : "vi-VN"),
   },
   { attr: "compact", key: "compact", parse: (s) => s === "true" },
   {
@@ -41,7 +41,7 @@ function resolveDefaultLocale(): WidgetLocale {
   try {
     const params = new URLSearchParams(window.location.search);
     const queryLang = params.get("lang");
-    if (queryLang === "es-MX" || queryLang === "en-US") return queryLang;
+    if (queryLang === "vi-VN" || queryLang === "en-US") return queryLang;
   } catch {
     // ignore
   }
@@ -49,14 +49,14 @@ function resolveDefaultLocale(): WidgetLocale {
   // 2. navigator.language
   try {
     const nav = navigator.language;
-    if (nav.startsWith("es")) return "es-MX";
+    if (nav.startsWith("vi")) return "vi-VN";
     if (nav.startsWith("en")) return "en-US";
   } catch {
     // ignore
   }
 
   // 3. Hard fallback
-  return "es-MX";
+  return "vi-VN";
 }
 
 export class WidgetConfigController implements ReactiveController {

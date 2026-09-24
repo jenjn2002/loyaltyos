@@ -1,5 +1,5 @@
 import enUS from "@loyaltyos/i18n/src/locales/en-US.json" with { type: "json" };
-import esMX from "@loyaltyos/i18n/src/locales/es-MX.json" with { type: "json" };
+import viVN from "@loyaltyos/i18n/src/locales/vi-VN.json" with { type: "json" };
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
@@ -8,27 +8,28 @@ import { isAuthenticated } from "./auth";
 
 void i18n.use(initReactI18next).init({
   resources: {
-    "es-MX": esMX,
+    "vi-VN": viVN,
     "en-US": enUS,
   },
-  lng: "es-MX",
-  fallbackLng: "es-MX",
-  supportedLngs: ["es-MX", "en-US"],
+  lng: "vi-VN",
+  // Keep missing translations in the neutral English source language.
+  fallbackLng: "en-US",
+  supportedLngs: ["vi-VN", "en-US"],
   defaultNS: "portal",
   interpolation: { escapeValue: false },
 });
 
 const STORAGE_KEY = "loyaltyos-locale";
-const SUPPORTED = ["es-MX", "en-US"] as const;
+const SUPPORTED = ["vi-VN", "en-US"] as const;
 
-function isValidLocale(v: string | null | undefined): v is "es-MX" | "en-US" {
+function isValidLocale(v: string | null | undefined): v is "vi-VN" | "en-US" {
   return v != null && SUPPORTED.includes(v as (typeof SUPPORTED)[number]);
 }
 
-function matchNavigatorLocale(): "es-MX" | "en-US" | null {
+function matchNavigatorLocale(): "vi-VN" | "en-US" | null {
   try {
     const nav = navigator.language;
-    if (nav.startsWith("es")) return "es-MX";
+    if (nav.startsWith("vi")) return "vi-VN";
     if (nav.startsWith("en")) return "en-US";
   } catch {
     // ignore
@@ -84,8 +85,8 @@ export async function bootstrapLocale(): Promise<void> {
   }
 
   // 5. Hard fallback
-  await i18n.changeLanguage("es-MX");
-  sessionStorage.setItem(STORAGE_KEY, "es-MX");
+  await i18n.changeLanguage("vi-VN");
+  sessionStorage.setItem(STORAGE_KEY, "vi-VN");
 }
 
 export async function setUserLocale(locale: string): Promise<void> {

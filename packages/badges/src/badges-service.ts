@@ -177,13 +177,28 @@ export class BadgesService {
       // Only evaluate badges whose conditions reference this event type
       const conditions = badge.conditions as Record<string, unknown> | null;
       const conditionsStr = conditions ? JSON.stringify(conditions) : "";
+      const referencesMemberState = [
+        "count_in_window",
+        "within",
+        "totalSpent",
+        "totalEarned",
+        "totalRedeemed",
+        "currentBalance",
+        "daysSinceJoined",
+        "daysSinceLastEvent",
+        "currentTier",
+        "tags",
+        "email",
+        "phone",
+        "firstName",
+        "lastName",
+        "eventCounts",
+      ].some((field) => conditionsStr.includes(field));
       const relevant =
         !conditions ||
         Object.keys(conditions).length === 0 ||
         conditionsStr.includes(event.type) ||
-        conditionsStr.includes("totalSpent") ||
-        conditionsStr.includes("totalEarned") ||
-        conditionsStr.includes("eventCounts");
+        referencesMemberState;
 
       if (!relevant) continue;
 

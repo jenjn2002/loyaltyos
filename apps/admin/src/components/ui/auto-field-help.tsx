@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useEffect } from "react";
 
 const FIELD_DEFINITIONS: [RegExp, string][] = [
@@ -109,7 +110,7 @@ const FIELD_DEFINITIONS: [RegExp, string][] = [
 function definitionFor(label: string): string {
   const clean = label.replace(/\s+/g, " ").replace(/\?$/, "").trim();
   const matched = FIELD_DEFINITIONS.find(([pattern]) => pattern.test(clean));
-  return matched?.[1] ?? `Defines how “${clean || "this field"}” is used by this configuration.`;
+  return matched?.[1] ?? `Defines how “${clean || ui("this field")}” is used by this configuration.`;
 }
 
 function associatedLabel(control: HTMLElement): HTMLLabelElement | null {

@@ -1,12 +1,12 @@
 # Localization
 
-LoyaltyOS supports **es-MX** (Mexican Spanish) and **en-US** (US English). All user-facing surfaces — Admin, Portal, Widget, API errors, and email notifications — are localized.
+LoyaltyOS supports **vi-VN** (Vietnamese) and **en-US** (US English). All user-facing surfaces — Admin, Portal, Widget, API errors, and email notifications — are localized.
 
 ## Supported Locales
 
 | Locale  | Language         | Status    |
 | ------- | ---------------- | --------- |
-| `es-MX` | Spanish (Mexico) | Default   |
+| `vi-VN` | Vietnamese (Mexico) | Default   |
 | `en-US` | English (US)     | Supported |
 
 Translation catalogs live in `packages/i18n/src/locales/`. Each locale is a single JSON file with the same key structure.
@@ -30,7 +30,7 @@ Translation catalogs live in `packages/i18n/src/locales/`. Each locale is a sing
 | 2        | sessionStorage `loyaltyos-locale`      |
 | 3        | `/auth/me` API (admin user preference) |
 | 4        | `navigator.language`                   |
-| 5        | `es-MX` (hard fallback)                |
+| 5        | `vi-VN` (hard fallback)                |
 
 ### Portal (`apps/portal`)
 
@@ -40,7 +40,7 @@ Translation catalogs live in `packages/i18n/src/locales/`. Each locale is a sing
 | 2        | sessionStorage `loyaltyos-locale`                          |
 | 3        | `/auth/me` API → `member.locale` → `program.defaultLocale` |
 | 4        | `navigator.language`                                       |
-| 5        | `es-MX` (hard fallback)                                    |
+| 5        | `vi-VN` (hard fallback)                                    |
 
 The portal calls `bootstrapLocale()` before rendering to ensure correct strings on first paint. Language changes via the profile selector call `setUserLocale()`, which persists to both sessionStorage and the server (`PATCH /v1/members/me`).
 
@@ -52,7 +52,7 @@ The portal calls `bootstrapLocale()` before rendering to ensure correct strings 
 | 2        | `data-lang` attribute on `<loyalty-widget>` |
 | 3        | `locale` attribute on `<loyalty-widget>`    |
 | 4        | `navigator.language`                        |
-| 5        | `es-MX` (hard fallback)                     |
+| 5        | `vi-VN` (hard fallback)                     |
 
 Locale is resolved by `WidgetConfigController` and passed explicitly to `widgetT()` and `formatPoints()`. All string and number formatting uses the same locale value.
 
@@ -61,7 +61,7 @@ Locale is resolved by `WidgetConfigController` and passed explicitly to `widgetT
 | Priority | Source                           |
 | -------- | -------------------------------- |
 | 1        | `Accept-Language` request header |
-| 2        | `es-MX` (hard fallback)          |
+| 2        | `vi-VN` (hard fallback)          |
 
 Errors thrown via `LoyaltyError` are mapped to localized messages using the `errors.{code}` path in the catalog. Clients should send `Accept-Language: <locale>` to receive messages in their preferred language.
 
@@ -72,9 +72,9 @@ Errors thrown via `LoyaltyError` are mapped to localized messages using the `err
 | 1        | `_locale` in trigger context (from auth route)  |
 | 2        | `member.locale` (persisted on first magic link) |
 | 3        | `program.defaultLocale`                         |
-| 4        | `es-MX` (hard fallback)                         |
+| 4        | `vi-VN` (hard fallback)                         |
 
-Template lookup: first tries the resolved locale, then falls back to `program.defaultLocale`, then `es-MX`. Templates are unique per `(programId, name, locale)`.
+Template lookup: first tries the resolved locale, then falls back to `program.defaultLocale`, then `vi-VN`. Templates are unique per `(programId, name, locale)`.
 
 ## API Consumer Guide
 
@@ -89,13 +89,13 @@ curl -H "Accept-Language: en-US" \
 
 # Response: { "error": { "code": "INVALID_TOKEN", "message": "Invalid or expired token" } }
 
-# Spanish response
-curl -H "Accept-Language: es-MX" \
+# Vietnamese response
+curl -H "Accept-Language: vi-VN" \
   -H "X-Program-Id: prog_001" \
   https://api.example.com/api/v1/auth/verify-magic-link \
   -d '{"token":"invalid"}'
 
-# Response: { "error": { "code": "INVALID_TOKEN", "message": "Token inválido o expirado" } }
+# Response: { "error": { "code": "INVALID_TOKEN", "message": "Mã thông báo không hợp lệ hoặc đã hết hạn" } }
 ```
 
 ## Template Authoring
@@ -104,12 +104,12 @@ Notification templates use Handlebars syntax with locale-aware formatting helper
 
 ### Example: Welcome Email
 
-**Template (es-MX):**
+**Template (vi-VN):**
 
 ```handlebars
-Hola
-{{member.firstName}}, ¡Bienvenido a nuestro programa de lealtad! Tienes
-{{formatPoints welcomePoints _locale}}. Tu próximo nivel:
+Xin chào
+{{member.firstName}}, chào mừng bạn đến với chương trình khách hàng thân thiết! Bạn có
+{{formatPoints welcomePoints _locale}}. Hạng tiếp theo của bạn:
 {{formatPoints nextTierPoints _locale}}.
 ```
 

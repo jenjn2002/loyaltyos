@@ -1,5 +1,5 @@
 import enUS from "@loyaltyos/i18n/src/locales/en-US.json" with { type: "json" };
-import esMX from "@loyaltyos/i18n/src/locales/es-MX.json" with { type: "json" };
+import viVN from "@loyaltyos/i18n/src/locales/vi-VN.json" with { type: "json" };
 import type { i18n as I18nInstance } from "i18next";
 import { createInstance } from "i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
@@ -8,7 +8,7 @@ import { initReactI18next } from "react-i18next";
 const LOCALE_STORAGE_KEY = "loyaltyos:locale";
 
 export function getStoredLocale(): string {
-  return localStorage.getItem(LOCALE_STORAGE_KEY) ?? "es-MX";
+  return localStorage.getItem(LOCALE_STORAGE_KEY) ?? "vi-VN";
 }
 
 export function persistLocale(locale: string): void {
@@ -22,10 +22,11 @@ void i18n
   .use(initReactI18next)
   .init({
     lng: getStoredLocale(),
-    fallbackLng: "es-MX",
-    supportedLngs: ["es-MX", "en-US"],
+    // Missing English keys must never fall back to Vietnamese in the English UI.
+    fallbackLng: "en-US",
+    supportedLngs: ["vi-VN", "en-US"],
     resources: {
-      "es-MX": { translation: esMX },
+      "vi-VN": { translation: viVN },
       "en-US": { translation: enUS },
     },
     interpolation: {

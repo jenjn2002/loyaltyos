@@ -310,7 +310,7 @@ loyaltyos/
 │   │       ├── repository.ts
 │   │       ├── types.ts
 │   │       └── __tests__/
-│   ├── i18n/                       # Shared translations (es-MX, en-US)
+│   ├── i18n/                       # Shared translations (vi-VN, en-US)
 │   │   ├── README.md
 │   │   ├── package.json
 │   │   └── src/
@@ -320,7 +320,7 @@ loyaltyos/
 │   │       ├── format.ts
 │   │       ├── locales.ts
 │   │       └── locales/
-│   │           ├── es-MX.json
+│   │           ├── vi-VN.json
 │   │           └── en-US.json
 │   ├── coupons/                    # Coupon system
 │   │   ├── README.md

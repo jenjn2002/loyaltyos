@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bell,
@@ -21,6 +22,51 @@ import { setUserLocale } from "../lib/i18n";
 import { applyTheme } from "../lib/theme";
 import type { MemberProfile } from "../types";
 
+function imageFileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Unsupported image type"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read image"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Unable to decode image"));
+      image.onload = () => {
+        const maxDimension = 512;
+        const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+        const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Unable to process image"));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error("Unable to encode image"));
+              return;
+            }
+            const output = new FileReader();
+            output.onerror = () => reject(new Error("Unable to encode image"));
+            output.onload = () => resolve(String(output.result));
+            output.readAsDataURL(blob);
+          },
+          "image/jpeg",
+          0.82,
+        );
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Profile() {
   const { t, i18n } = useTranslation();
   const authed = isAuthenticated();
@@ -33,6 +79,7 @@ export default function Profile() {
     department: "",
     photoUrl: "",
   });
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark" | "auto">(
     () => (sessionStorage.getItem("theme") as "light" | "dark" | "auto" | null) ?? "auto",
   );
@@ -80,7 +127,11 @@ export default function Profile() {
       }),
     onSuccess: () => {
       setEditing(false);
+      setPhotoError(null);
       void profile.refetch();
+    },
+    onError: () => {
+      setPhotoError(t("photoUploadError"));
     },
   });
 
@@ -92,8 +143,12 @@ export default function Profile() {
   };
 
   const handleLogout = () => {
-    clearSession();
-    window.location.href = appUrl();
+    void postApi("/auth/logout", {})
+      .catch(() => undefined)
+      .finally(() => {
+        clearSession();
+        window.location.href = appUrl();
+      });
   };
 
   return (
@@ -108,12 +163,23 @@ export default function Profile() {
       ) : (
         <>
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-            <h2 className="text-lg font-semibold">
-              {profile.data
-                ? `${profile.data.firstName ?? ""} ${profile.data.lastName ?? ""}`.trim() ||
-                  profile.data.email
-                : "..."}
-            </h2>
+            <div className="flex items-center gap-3">
+              {profile.data?.photoUrl ? (
+                <img
+                  src={profile.data.photoUrl}
+                  alt=""
+                  className="h-14 w-14 rounded-full border border-[var(--color-border)] object-cover"
+                />
+              ) : (
+                <div className="h-14 w-14 rounded-full bg-[var(--color-border)]" aria-hidden="true" />
+              )}
+              <h2 className="text-lg font-semibold">
+                {profile.data
+                  ? `${profile.data.firstName ?? ""} ${profile.data.lastName ?? ""}`.trim() ||
+                    profile.data.email
+                  : "..."}
+              </h2>
+            </div>
             {profile.data && (
               <dl className="mt-3 space-y-1 text-sm text-[var(--color-text-secondary)]">
                 {profile.data.email && (
@@ -141,7 +207,7 @@ export default function Profile() {
                   onChange={(event) => {
                     setProfileForm((form) => ({ ...form, firstName: event.target.value }));
                   }}
-                  placeholder="First name"
+                  placeholder={ui("First name")}
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
                 />
                 <input
@@ -149,7 +215,7 @@ export default function Profile() {
                   onChange={(event) => {
                     setProfileForm((form) => ({ ...form, lastName: event.target.value }));
                   }}
-                  placeholder="Last name"
+                  placeholder={ui("Last name")}
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
                 />
                 <input
@@ -157,18 +223,40 @@ export default function Profile() {
                   onChange={(event) => {
                     setProfileForm((form) => ({ ...form, department: event.target.value }));
                   }}
-                  placeholder="Department"
+                  placeholder={ui("Department")}
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
                 />
-                <input
-                  type="url"
-                  value={profileForm.photoUrl}
-                  onChange={(event) => {
-                    setProfileForm((form) => ({ ...form, photoUrl: event.target.value }));
-                  }}
-                  placeholder="Photo URL (optional)"
-                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
-                />
+                <label className="block text-sm font-medium">
+                  {t("profilePhoto")}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      setPhotoError(null);
+                      void imageFileToDataUrl(file)
+                        .then((photoUrl) => {
+                          setProfileForm((form) => ({ ...form, photoUrl }));
+                        })
+                        .catch(() => {
+                          setPhotoError(t("photoUploadError"));
+                        });
+                    }}
+                    className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                  />
+                  <span className="mt-1 block text-xs text-[var(--color-text-secondary)]">
+                    {t("profilePhotoHelp")}
+                  </span>
+                </label>
+                {profileForm.photoUrl && (
+                  <img
+                    src={profileForm.photoUrl}
+                    alt={t("profilePhoto")}
+                    className="h-20 w-20 rounded-full border border-[var(--color-border)] object-cover"
+                  />
+                )}
+                {photoError && <p className="text-sm text-red-600">{photoError}</p>}
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -177,18 +265,14 @@ export default function Profile() {
                     }}
                     disabled={profileMutation.isPending}
                     className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Save
-                  </button>
+                  >{ui("Save")}</button>
                   <button
                     type="button"
                     onClick={() => {
                       setEditing(false);
                     }}
                     className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
-                  >
-                    Cancel
-                  </button>
+                  >{ui("Cancel")}</button>
                 </div>
               </div>
             ) : (
@@ -204,9 +288,7 @@ export default function Profile() {
                   setEditing(true);
                 }}
                 className="mt-4 text-sm font-medium text-[var(--color-primary)]"
-              >
-                Edit profile
-              </button>
+              >{ui("Edit profile")}</button>
             )}
             <button
               onClick={handleLogout}
@@ -252,8 +334,8 @@ export default function Profile() {
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
               aria-label={t("language")}
             >
-              <option value="en-US">English</option>
-              <option value="es-MX">Español</option>
+              <option value="en-US">{t("languages.english")}</option>
+              <option value="vi-VN">{t("languages.vietnamese")}</option>
             </select>
           </div>
         </div>

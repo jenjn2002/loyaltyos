@@ -31,7 +31,7 @@ export function TermsEditorPage(): JSX.Element {
   const isEdit = !!id;
 
   const [name, setName] = useState("");
-  const [locale, setLocale] = useState("es-MX");
+  const [locale, setLocale] = useState("vi-VN");
   const [body, setBody] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -133,8 +133,8 @@ export function TermsEditorPage(): JSX.Element {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="es-MX">Español</SelectItem>
-                    <SelectItem value="en-US">English</SelectItem>
+                    <SelectItem value="vi-VN">{t("settings.languages.vietnamese")}</SelectItem>
+                    <SelectItem value="en-US">{t("settings.languages.english")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

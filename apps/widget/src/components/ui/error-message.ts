@@ -8,7 +8,7 @@ import type { WidgetLocale } from "../../types.js";
 export class LoyError extends LitElement {
   @property({ type: String }) message = "";
   @property({ type: Boolean }) retryable = false;
-  @property({ type: String }) locale: WidgetLocale = "es-MX";
+  @property({ type: String }) locale: WidgetLocale = "vi-VN";
 
   static override styles = css`
     :host {

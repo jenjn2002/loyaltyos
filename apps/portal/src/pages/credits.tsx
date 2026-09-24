@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -8,17 +9,17 @@ import {
   RefreshCw,
   Send,
   Trash2,
-  WalletCards,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchApi, postApi } from "../lib/api-client";
+import { PointTypeIcon } from "../components/point-type-icon";
 import type {
   CreditBalance,
   CreditCategory,
+  CreditExchangeRequest,
   CreditExchangeRate,
-  CreditHistory,
-  MemberRewardRedemption,
+  PaginatedResponse,
   RecognitionFeedItem,
 } from "../types";
 
@@ -43,6 +44,26 @@ interface ExchangeSubmission {
   };
 }
 
+function exchangeStatusLabel(status: CreditExchangeRequest["status"]): string {
+  return ui(
+    {
+      PENDING: "Pending",
+      APPROVED: "Approved",
+      COMPLETED: "Completed",
+      CANCELLED: "Cancelled",
+      REJECTED: "Rejected",
+    }[status],
+  );
+}
+
+function exchangeStatusClass(status: CreditExchangeRequest["status"]): string {
+  if (status === "APPROVED" || status === "COMPLETED")
+    return "border-green-200 bg-green-50 text-green-700";
+  if (status === "CANCELLED" || status === "REJECTED")
+    return "border-red-200 bg-red-50 text-red-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 const controlClass =
   "block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm";
 
@@ -54,15 +75,42 @@ function memberName(member: DirectoryMember): string {
   return [member.firstName, member.lastName].filter(Boolean).join(" ") || member.id;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function remainingExpiryDays(expiryAt: string | null): number | null {
+  if (!expiryAt) return null;
+  const expiryDate = new Date(expiryAt);
+  if (!Number.isFinite(expiryDate.getTime())) return null;
+  const today = new Date();
+  const expiryDay = Date.UTC(expiryDate.getFullYear(), expiryDate.getMonth(), expiryDate.getDate());
+  const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.ceil((expiryDay - currentDay) / DAY_MS));
+}
+
+function useExpiryRefresh(): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 60_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+}
+
 function expiryLabel(wallet: CreditBalance): string {
-  if (wallet.expiryMode === "NEVER") return "Does not expire";
-  if (wallet.expiryMode === "AFTER_DAYS")
-    return `Expires ${String(wallet.expiryDays)} days after receipt`;
-  if (wallet.expiryMode === "FIXED_DATE")
-    return wallet.fixedExpiryAt
-      ? `Expires ${new Date(wallet.fixedExpiryAt).toLocaleDateString()}`
-      : "Fixed expiry date";
-  return "Expiry is set for each grant";
+  if (wallet.expiryMode === "NEVER") return ui("Does not expire");
+  if (wallet.expiryMode === "AFTER_DAYS" || wallet.expiryMode === "FIXED_DATE") {
+    const expiryAt = wallet.expiryAt ?? wallet.fixedExpiryAt;
+    const days = remainingExpiryDays(expiryAt);
+    if (days === 0) return ui("Expires today");
+    if (days !== null) return `${ui("Expires in")} ${String(days)} ${ui("days")}`;
+    return wallet.expiryMode === "AFTER_DAYS"
+      ? `${ui("Expires")} ${String(wallet.expiryDays)} ${ui("days from point creation")}`
+      : ui("Fixed expiry date");
+  }
+  return ui("Expiry is set for each grant");
 }
 
 function displayAmount(item: RecognitionFeedItem): number {
@@ -92,6 +140,7 @@ export function formatExchangeValue(amount: number, currency: string): string {
 
 export default function Credits(): JSX.Element {
   const queryClient = useQueryClient();
+  useExpiryRefresh();
   const [sourcePointTypeId, setSourcePointTypeId] = useState("");
   const [destinationPointTypeId, setDestinationPointTypeId] = useState("");
   const [fundingSource, setFundingSource] = useState<"BALANCE" | "ALLOWANCE">("BALANCE");
@@ -104,8 +153,7 @@ export default function Credits(): JSX.Element {
   const [exchangeAmount, setExchangeAmount] = useState("1");
   const [payoutType, setPayoutType] = useState<"CASH" | "NON_CASH">("NON_CASH");
   const [notice, setNotice] = useState<string | null>(null);
-  const [historyPage, setHistoryPage] = useState(1);
-  const [historyPointTypeId, setHistoryPointTypeId] = useState("");
+  const [exchangePage, setExchangePage] = useState(1);
   const [feedPage, setFeedPage] = useState(1);
   const [feedKind, setFeedKind] = useState<"all" | "received" | "given">("all");
 
@@ -119,6 +167,13 @@ export default function Credits(): JSX.Element {
     queryKey: ["credits", "rates"],
     queryFn: () => fetchApi<CreditExchangeRate[]>("/credits/exchange/rates"),
   });
+  const exchangeRequests = useQuery({
+    queryKey: ["credits", "exchange-requests", exchangePage],
+    queryFn: () =>
+      fetchApi<PaginatedResponse<CreditExchangeRequest>>(
+        `/members/me/credits/exchange-requests?page=${String(exchangePage)}&pageSize=10`,
+      ),
+  });
   const members = useQuery({
     queryKey: ["members", "directory"],
     queryFn: () => fetchApi<{ items: DirectoryMember[] }>("/members/directory?page=1&pageSize=100"),
@@ -127,15 +182,6 @@ export default function Credits(): JSX.Element {
     queryKey: ["credits", "categories"],
     queryFn: () => fetchApi<CreditCategory[]>("/credits/categories"),
   });
-  const history = useQuery({
-    queryKey: ["credits", "history", historyPage, historyPointTypeId],
-    queryFn: () =>
-      fetchApi<CreditHistory>(
-        `/members/me/credits/transactions?page=${String(historyPage)}&pageSize=20${
-          historyPointTypeId ? `&pointTypeId=${historyPointTypeId}` : ""
-        }`,
-      ),
-  });
   const recognitionFeed = useQuery({
     queryKey: ["credits", "recognition-feed", feedPage, feedKind],
     queryFn: () =>
@@ -143,11 +189,6 @@ export default function Credits(): JSX.Element {
         `/members/me/recognition-feed?page=${String(feedPage)}&pageSize=10&kind=${feedKind}`,
       ),
   });
-  const redemptions = useQuery({
-    queryKey: ["reward-redemptions", "me"],
-    queryFn: () => fetchApi<MemberRewardRedemption[]>("/members/me/reward-redemptions"),
-  });
-
   const giveWallets = useMemo(
     () =>
       (wallets.data ?? []).filter((wallet) => wallet.giveEnabled && wallet.transferTargets.length),
@@ -213,7 +254,7 @@ export default function Credits(): JSX.Element {
         }),
       }),
     onSuccess: async () => {
-      setNotice("Recognition sent successfully.");
+      setNotice(ui("Recognition sent successfully."));
       setMessage("");
       setRecipients([{ memberId: "", amount: "10", message: "" }]);
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
@@ -232,7 +273,7 @@ export default function Credits(): JSX.Element {
       ),
     onSuccess: async (result) => {
       setNotice(
-        `Accounting voucher ${result.request.documentNumber} was created and is pending approval.`,
+        `${ui("Accounting voucher")} ${result.request.documentNumber} ${ui("was created and is pending approval.")}`,
       );
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
     },
@@ -258,14 +299,20 @@ export default function Credits(): JSX.Element {
     recipients.some((row) => !row.message.trim()),
   );
 
-  const secondaryQueries = [rates, members, categories, history, recognitionFeed, redemptions];
+  const secondaryQueries = [
+    rates,
+    members,
+    categories,
+    recognitionFeed,
+    exchangeRequests,
+  ];
   const unavailableSections = secondaryQueries.filter((query) => query.isError).length;
 
   if (wallets.isLoading) {
     return (
       <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl flex-col items-center justify-center gap-3 px-4 py-10 pb-20">
         <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
-        <p className="text-sm text-[var(--color-text-secondary)]">Loading credit wallets…</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">{ui("Loading credit wallets…")}</p>
       </div>
     );
   }
@@ -275,18 +322,16 @@ export default function Credits(): JSX.Element {
       <div className="mx-auto w-full max-w-2xl px-4 py-10 pb-20">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-800">
           <div className="flex items-center gap-2 font-semibold">
-            <AlertTriangle className="h-5 w-5" /> Credits could not be loaded
-          </div>
+            <AlertTriangle className="h-5 w-5" />{ui("Credits could not be loaded")}</div>
           <p className="mt-2 text-sm">
-            {wallets.error instanceof Error ? wallets.error.message : "Please try again."}
+            {wallets.error instanceof Error ? wallets.error.message : ui("Please try again.")}
           </p>
           <button
             type="button"
             className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold"
             onClick={() => void wallets.refetch()}
           >
-            <RefreshCw className="h-4 w-4" /> Retry
-          </button>
+            <RefreshCw className="h-4 w-4" />{ui("Retry")}</button>
         </div>
       </div>
     );
@@ -295,13 +340,13 @@ export default function Credits(): JSX.Element {
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 pb-20">
       <header>
-        <p className="text-sm font-medium text-[var(--color-text-secondary)]">Wallets</p>
-        <h1 className="mt-1 text-2xl font-bold">Points & recognition</h1>
+        <p className="text-sm font-medium text-[var(--color-text-secondary)]">{ui("Wallets")}</p>
+        <h1 className="mt-1 text-2xl font-bold">{ui("Points & recognition")}</h1>
       </header>
 
       {unavailableSections > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <p>{unavailableSections} supporting section(s) could not be loaded.</p>
+          <p>{unavailableSections} {ui("supporting section(s) could not be loaded.")}</p>
           <button
             type="button"
             className="mt-2 inline-flex items-center gap-1 font-semibold"
@@ -313,55 +358,53 @@ export default function Credits(): JSX.Element {
                 });
             }}
           >
-            <RefreshCw className="h-4 w-4" /> Retry unavailable sections
-          </button>
+            <RefreshCw className="h-4 w-4" />{ui("Retry unavailable sections")}</button>
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2" aria-label="Point balances">
-        {(wallets.data ?? []).map((wallet) => (
-          <div
-            key={wallet.pointTypeId}
-            className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
-            style={{ borderTopColor: wallet.color ?? undefined, borderTopWidth: 3 }}
-          >
-            <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-              <span className="flex items-center gap-2">
-                <WalletCards className="h-4 w-4" /> {wallet.name}
-              </span>
-              <span className="text-xs text-[var(--color-text-secondary)]">{wallet.code}</span>
+      <details open className="rounded-2xl border border-[var(--color-border)] p-4">
+        <summary className="cursor-pointer list-none text-lg font-semibold">{ui("Point balances")}</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2" aria-label={ui("Point balances")}>
+          {(wallets.data ?? []).map((wallet) => (
+            <div
+              key={wallet.pointTypeId}
+              className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
+              style={{ borderTopColor: wallet.color ?? undefined, borderTopWidth: 3 }}
+            >
+              <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                <span className="flex items-center gap-2">
+                  <PointTypeIcon icon={wallet.icon} className="h-4 w-4" /> {wallet.name}
+                </span>
+                <span className="text-xs text-[var(--color-text-secondary)]">{wallet.code}</span>
+              </div>
+              <p className="mt-2 text-3xl font-bold">{wallet.balance.toLocaleString()}</p>
+              <p className="text-xs text-[var(--color-text-secondary)]">{wallet.unitLabel}</p>
+              <p className="mt-2 text-xs text-[var(--color-text-secondary)]">{expiryLabel(wallet)}</p>
+              {wallet.allowance && (
+                <p className="mt-1 text-xs font-medium text-[var(--color-primary)]">
+                  {ui("Give allowance:")} {wallet.allowance.remaining.toLocaleString()} /{" "}
+                  {wallet.allowance.allocated.toLocaleString()}
+                </p>
+              )}
             </div>
-            <p className="mt-2 text-3xl font-bold">{wallet.balance.toLocaleString()}</p>
-            <p className="text-xs text-[var(--color-text-secondary)]">{wallet.unitLabel}</p>
-            <p className="mt-2 text-xs text-[var(--color-text-secondary)]">{expiryLabel(wallet)}</p>
-            {wallet.allowance && (
-              <p className="mt-1 text-xs font-medium text-[var(--color-primary)]">
-                Give allowance: {wallet.allowance.remaining.toLocaleString()} /{" "}
-                {wallet.allowance.allocated.toLocaleString()}
-              </p>
-            )}
-          </div>
-        ))}
-        {(wallets.data ?? []).length === 0 && (
-          <p className="sm:col-span-2 rounded-xl border border-dashed p-5 text-sm text-[var(--color-text-secondary)]">
-            No member-visible point types are currently configured.
-          </p>
-        )}
-      </section>
+          ))}
+          {(wallets.data ?? []).length === 0 && (
+            <p className="sm:col-span-2 rounded-xl border border-dashed p-5 text-sm text-[var(--color-text-secondary)]">{ui("No member-visible point types are currently configured.")}</p>
+          )}
+        </div>
+      </details>
 
       {giveWallets.length > 0 && (
-        <section className="rounded-2xl border border-[var(--color-border)] p-4">
-          <div className="flex items-center gap-2">
+        <details className="rounded-2xl border border-[var(--color-border)] p-4">
+          <summary className="flex cursor-pointer list-none items-center gap-2">
             <Send className="h-5 w-5 text-[var(--color-primary)]" />
-            <h2 className="text-lg font-semibold">Give recognition</h2>
-          </div>
+            <h2 className="text-lg font-semibold">{ui("Give recognition")}</h2>
+          </summary>
           <div className="mt-4 space-y-3">
             <label
               className="block text-sm font-medium"
-              data-help="Select which owned wallet or separate allowance funds this Give operation."
-            >
-              Source point type
-              <select
+              data-help={ui("Select which owned wallet or separate allowance funds this Give operation.")}
+            >{ui("Source point type")}<select
                 className={`mt-1 ${controlClass}`}
                 value={sourcePointTypeId}
                 onChange={(event) => {
@@ -386,27 +429,23 @@ export default function Credits(): JSX.Element {
             {sourceWallet?.giveSource === "BOTH" && (
               <label
                 className="block text-sm font-medium"
-                data-help="Choose whether this Give consumes your owned wallet balance or your renewable Give allowance."
-              >
-                Funds from
-                <select
+                data-help={ui("Choose whether this Give consumes your owned wallet balance or your renewable Give allowance.")}
+              >{ui("Funds from")}<select
                   className={`mt-1 ${controlClass}`}
                   value={fundingSource}
                   onChange={(event) => {
                     setFundingSource(event.target.value as "BALANCE" | "ALLOWANCE");
                   }}
                 >
-                  <option value="ALLOWANCE">Give allowance</option>
-                  <option value="BALANCE">Owned balance</option>
+                  <option value="ALLOWANCE">{ui("Give allowance")}</option>
+                  <option value="BALANCE">{ui("Owned balance")}</option>
                 </select>
               </label>
             )}
             <label
               className="block text-sm font-medium"
-              data-help="Only destinations explicitly allowed by the administrator appear here."
-            >
-              Recipient receives
-              <select
+              data-help={ui("Only destinations explicitly allowed by the administrator appear here.")}
+            >{ui("Recipient receives")}<select
                 className={`mt-1 ${controlClass}`}
                 value={destinationPointTypeId}
                 onChange={(event) => {
@@ -428,10 +467,8 @@ export default function Credits(): JSX.Element {
               >
                 <label
                   className="text-xs font-medium"
-                  data-help="The active colleague receiving this recognition."
-                >
-                  Recipient
-                  <select
+                  data-help={ui("The active colleague receiving this recognition.")}
+                >{ui("Recipient")}<select
                     aria-label={`Recipient ${String(index + 1)}`}
                     value={recipient.memberId}
                     onChange={(event) => {
@@ -443,7 +480,7 @@ export default function Credits(): JSX.Element {
                     }}
                     className={`mt-1 ${controlClass}`}
                   >
-                    <option value="">Select colleague</option>
+                    <option value="">{ui("Select colleague")}</option>
                     {(members.data?.items ?? []).map((member) => (
                       <option key={member.id} value={member.id}>
                         {memberName(member)}
@@ -454,10 +491,8 @@ export default function Credits(): JSX.Element {
                 </label>
                 <label
                   className="text-xs font-medium"
-                  data-help="Amount consumed from the source. The recipient amount follows the configured ratio."
-                >
-                  Amount
-                  <input
+                  data-help={ui("Amount consumed from the source. The recipient amount follows the configured ratio.")}
+                >{ui("Amount")}<input
                     aria-label={`Amount for recipient ${String(index + 1)}`}
                     type="number"
                     min={destination?.sourceAmount ?? 1}
@@ -475,7 +510,7 @@ export default function Credits(): JSX.Element {
                 </label>
                 <button
                   type="button"
-                  aria-label="Remove recipient"
+                  aria-label={ui("Remove recipient")}
                   disabled={recipients.length === 1}
                   onClick={() => {
                     setRecipients((rows) => rows.filter((_, rowIndex) => rowIndex !== index));
@@ -486,10 +521,8 @@ export default function Credits(): JSX.Element {
                 </button>
                 <label
                   className="col-span-3 text-xs font-medium"
-                  data-help="Optional recipient-specific message; it overrides the shared message for this person."
-                >
-                  Recipient-specific message
-                  <input
+                  data-help={ui("Optional recipient-specific message; it overrides the shared message for this person.")}
+                >{ui("Recipient-specific message")}<input
                     value={recipient.message}
                     onChange={(event) => {
                       setRecipients((rows) =>
@@ -498,7 +531,7 @@ export default function Credits(): JSX.Element {
                         ),
                       );
                     }}
-                    placeholder="Optional override"
+                    placeholder={ui("Optional override")}
                     className={`mt-1 ${controlClass}`}
                   />
                 </label>
@@ -521,15 +554,14 @@ export default function Credits(): JSX.Element {
                   }}
                   className="inline-flex items-center gap-1 text-sm font-medium text-[var(--color-primary)]"
                 >
-                  <Plus className="h-4 w-4" /> Add recipient
-                </button>
+                  <Plus className="h-4 w-4" />{ui("Add recipient")}</button>
               )}
 
             <label
               className="block text-sm font-medium"
-              data-help="Shared recognition context. It is required when the selected point type requires a message."
+              data-help={ui("Shared recognition context. It is required when the selected point type requires a message.")}
             >
-              Shared message{sourceWallet?.requireGiveMessage ? " (required)" : " (optional)"}
+              {ui("Shared message")}{sourceWallet?.requireGiveMessage ? ui(" (required)") : ui(" (optional)")}
               <textarea
                 value={message}
                 onChange={(event) => {
@@ -540,17 +572,15 @@ export default function Credits(): JSX.Element {
             </label>
             <label
               className="block text-sm font-medium"
-              data-help="Optional reporting category selected by your program administrator."
-            >
-              Category
-              <select
+              data-help={ui("Optional reporting category selected by your program administrator.")}
+            >{ui("Category")}<select
                 className={`mt-1 ${controlClass}`}
                 value={categoryId}
                 onChange={(event) => {
                   setCategoryId(event.target.value);
                 }}
               >
-                <option value="">No category</option>
+                <option value="">{ui("No category")}</option>
                 {(categories.data ?? []).map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
@@ -560,13 +590,13 @@ export default function Credits(): JSX.Element {
             </label>
             <div className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm">
               <p>
-                Available source:{" "}
+                {ui("Available source:")} {" "}
                 <strong>
                   {sourceAvailable.toLocaleString()} {sourceWallet?.unitLabel}
                 </strong>
               </p>
               <p>
-                Recipient total:{" "}
+                {ui("Recipient total:")} {" "}
                 <strong>
                   {destinationTotal.toLocaleString()} {destination?.unitLabel}
                 </strong>
@@ -593,25 +623,23 @@ export default function Credits(): JSX.Element {
               }}
               className="w-full rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {give.isPending ? "Sending…" : "Confirm & send"}
+              {give.isPending ? ui("Sending…") : ui("Confirm & send")}
             </button>
           </div>
-        </section>
+        </details>
       )}
 
       {exchangeTypes.length > 0 && (
-        <section className="rounded-2xl border border-[var(--color-border)] p-4">
-          <div className="flex items-center gap-2">
+        <details className="rounded-2xl border border-[var(--color-border)] p-4">
+          <summary className="flex cursor-pointer list-none items-center gap-2">
             <ArrowRightLeft className="h-5 w-5 text-[var(--color-primary)]" />
-            <h2 className="text-lg font-semibold">Exchange points</h2>
-          </div>
+            <h2 className="text-lg font-semibold">{ui("Exchange points")}</h2>
+          </summary>
           <div className="mt-4 space-y-3">
             <label
               className="block text-sm font-medium"
-              data-help="A point type appears only when an active exchange rate has been configured."
-            >
-              Point type
-              <select
+              data-help={ui("A point type appears only when an active exchange rate has been configured.")}
+            >{ui("Point type")}<select
                 className={`mt-1 ${controlClass}`}
                 value={exchangePointTypeId}
                 onChange={(event) => {
@@ -627,10 +655,8 @@ export default function Credits(): JSX.Element {
             </label>
             <label
               className="block text-sm font-medium"
-              data-help="The payout choices available for the selected point type and active rate version."
-            >
-              Payout type
-              <select
+              data-help={ui("The payout choices available for the selected point type and active rate version.")}
+            >{ui("Payout type")}<select
                 className={`mt-1 ${controlClass}`}
                 value={payoutType}
                 onChange={(event) => {
@@ -639,17 +665,15 @@ export default function Credits(): JSX.Element {
               >
                 {availablePayoutTypes.map((rate) => (
                   <option key={rate.id} value={rate.payoutType}>
-                    {rate.payoutType === "CASH" ? "Cash" : "Non-cash"} · {rate.payoutMechanism}
+                    {rate.payoutType === "CASH" ? ui("Cash") : ui("Non-cash")} · {rate.payoutMechanism}
                   </option>
                 ))}
               </select>
             </label>
             <label
               className="block text-sm font-medium"
-              data-help="Points deducted immediately when the exchange request is submitted."
-            >
-              Amount
-              <input
+              data-help={ui("Points deducted immediately when the exchange request is submitted.")}
+            >{ui("Amount")}<input
                 className={`mt-1 ${controlClass}`}
                 type="number"
                 min={activeRate?.minPoints ?? 1}
@@ -661,17 +685,16 @@ export default function Credits(): JSX.Element {
               />
             </label>
             <p className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm text-[var(--color-text-secondary)]">
-              Preview:{" "}
+              {ui("Preview:")} {" "}
               {activeRate
                 ? formatExchangeValue(exchangeValueMinor / 100, activeRate.currency)
-                : "Rate not configured"}
+                : ui("Rate not configured")}
               {activeRate?.periodLimitPoints
                 ? ` · Limit ${activeRate.periodLimitPoints.toLocaleString()} every ${String(activeRate.periodDays)} days`
                 : ""}
             </p>
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Submitting creates a stored accounting voucher in Pending status. Authorized staff
-              review it, approve it and then record completion; no automatic cash payout is made.
+              {ui("Submitting creates a stored accounting voucher in Pending status. Authorized staff review it, approve it and then record completion; no automatic cash payout is made.")}
             </p>
             <button
               type="button"
@@ -686,56 +709,91 @@ export default function Credits(): JSX.Element {
               }}
               className="w-full rounded-lg border border-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-[var(--color-primary)] disabled:opacity-50"
             >
-              {exchange.isPending ? "Submitting…" : "Submit exchange request"}
+              {exchange.isPending ? ui("Submitting…") : ui("Submit exchange request")}
             </button>
           </div>
-        </section>
+        </details>
       )}
 
-      {!redemptions.isError && redemptions.data && (
-        <section className="rounded-2xl border border-[var(--color-border)] p-4">
-          <h2 className="text-lg font-semibold">Reward fulfillment</h2>
-          <div className="mt-3 space-y-2">
-            {redemptions.data.length === 0 ? (
-              <p className="text-sm text-[var(--color-text-secondary)]">
-                No reward redemptions yet.
-              </p>
-            ) : (
-              redemptions.data.map((redemption) => (
-                <div
-                  key={redemption.id}
-                  className="flex items-center justify-between rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm"
-                >
-                  <div>
-                    <p className="font-medium">{redemption.reward.name}</p>
-                    <p className="text-xs text-[var(--color-text-secondary)]">
-                      {redemption.pointsSpent.toLocaleString()}{" "}
-                      {redemption.pointType?.unitLabel ?? "points"} ·{" "}
-                      {new Date(redemption.redeemedAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <span className="rounded-full border px-2 py-1 text-xs font-semibold">
-                    {redemption.fulfillmentStatus}
-                  </span>
-                </div>
-              ))
-            )}
+      <details className="rounded-2xl border border-[var(--color-border)] p-4">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-[var(--color-primary)]" />
+            <h2 className="text-lg font-semibold">{ui("My exchange requests")}</h2>
           </div>
-        </section>
-      )}
-
-      <section className="rounded-2xl border border-[var(--color-border)] p-4">
-        <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-[var(--color-primary)]" />
-          <h2 className="text-lg font-semibold">Recognition feed</h2>
+          <span className="text-xs text-[var(--color-text-secondary)]">
+            {ui("Page")} {exchangeRequests.data?.page ?? 1} / {exchangeRequests.data?.totalPages ?? 1}
+          </span>
+        </summary>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+          {ui("Track approval and completion status for every exchange request.")}
+        </p>
+        <div className="mt-3 space-y-3">
+          {(exchangeRequests.data?.items ?? []).map((item) => (
+            <article key={item.id} className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{item.documentNumber}</p>
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    {item.pointType.name} · {item.amount.toLocaleString()} {item.pointType.unitLabel}
+                  </p>
+                </div>
+                <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${exchangeStatusClass(item.status)}`}>
+                  {exchangeStatusLabel(item.status)}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-1 text-xs text-[var(--color-text-secondary)] sm:grid-cols-2">
+                <p>{ui("Value:")} {formatExchangeValue(item.valueMinor / 100, item.currency)}</p>
+                <p>{ui("Payout:")} {item.payoutType} · {item.payoutMechanism}</p>
+                <p>{ui("Requested:")} {new Date(item.requestedAt).toLocaleString()}</p>
+                {item.approvedAt && <p>{ui("Approved:")} {new Date(item.approvedAt).toLocaleString()}</p>}
+                {item.completedAt && <p>{ui("Completed:")} {new Date(item.completedAt).toLocaleString()}</p>}
+                {item.completionReference && <p>{ui("Reference:")} {item.completionReference}</p>}
+              </div>
+              {item.approvalNote && <p className="mt-2 text-xs">{ui("Approval note:")} {item.approvalNote}</p>}
+              {item.completionNote && <p className="mt-2 text-xs">{ui("Completion note:")} {item.completionNote}</p>}
+              {item.cancellationReason && (
+                <p className="mt-2 text-xs text-red-600">{ui("Cancellation:")} {item.cancellationReason}</p>
+              )}
+            </article>
+          ))}
+          {!exchangeRequests.isLoading && (exchangeRequests.data?.items ?? []).length === 0 && (
+            <p className="py-4 text-sm text-[var(--color-text-secondary)]">{ui("No exchange requests.")}</p>
+          )}
+          {exchangeRequests.isError && (
+            <p className="py-4 text-sm text-red-600">{ui("Exchange requests could not be loaded.")}</p>
+          )}
         </div>
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={exchangePage <= 1}
+            onClick={() => {
+              setExchangePage((page) => page - 1);
+            }}
+            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
+          >{ui("Previous")}</button>
+          <button
+            type="button"
+            disabled={exchangePage >= (exchangeRequests.data?.totalPages ?? 1)}
+            onClick={() => {
+              setExchangePage((page) => page + 1);
+            }}
+            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
+          >{ui("Next")}</button>
+        </div>
+      </details>
+
+      <details className="rounded-2xl border border-[var(--color-border)] p-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2">
+          <History className="h-5 w-5 text-[var(--color-primary)]" />
+          <h2 className="text-lg font-semibold">{ui("Recognition feed")}</h2>
+        </summary>
         <div className="mt-3 flex items-center justify-between gap-3">
           <label
             className="text-sm font-medium"
-            data-help="All shows the program feed; Received and Given are limited to your own activity."
-          >
-            View
-            <select
+            data-help={ui("All shows the program feed; Received and Given are limited to your own activity.")}
+          >{ui("View")}<select
               className={`mt-1 ${controlClass}`}
               value={feedKind}
               onChange={(event) => {
@@ -743,9 +801,9 @@ export default function Credits(): JSX.Element {
                 setFeedPage(1);
               }}
             >
-              <option value="all">All recognition</option>
-              <option value="received">Received by me</option>
-              <option value="given">Given by me</option>
+              <option value="all">{ui("All recognition")}</option>
+              <option value="received">{ui("Received by me")}</option>
+              <option value="given">{ui("Given by me")}</option>
             </select>
           </label>
           <span className="text-xs text-[var(--color-text-secondary)]">
@@ -773,16 +831,14 @@ export default function Credits(): JSX.Element {
                 </div>
                 {item.message && <p className="mt-1 text-sm">{item.message}</p>}
                 <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-                  {item.categoryRef?.name ?? item.category ?? "Recognition"} ·{" "}
+                  {item.categoryRef?.name ?? item.category ?? ui("Recognition")} ·{" "}
                   {new Date(item.createdAt).toLocaleString()}
                 </p>
               </article>
             );
           })}
           {(recognitionFeed.data?.items ?? []).length === 0 && (
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              No recognition activity yet.
-            </p>
+            <p className="text-sm text-[var(--color-text-secondary)]">{ui("No recognition activity yet.")}</p>
           )}
         </div>
         <div className="mt-3 flex justify-end gap-2">
@@ -793,9 +849,7 @@ export default function Credits(): JSX.Element {
               setFeedPage((page) => page - 1);
             }}
             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Previous
-          </button>
+          >{ui("Previous")}</button>
           <button
             type="button"
             disabled={feedPage >= (recognitionFeed.data?.totalPages ?? 1)}
@@ -803,107 +857,9 @@ export default function Credits(): JSX.Element {
               setFeedPage((page) => page + 1);
             }}
             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Next
-          </button>
+          >{ui("Next")}</button>
         </div>
-      </section>
-
-      <section className="rounded-2xl border border-[var(--color-border)] p-4">
-        <h2 className="text-lg font-semibold">Wallet transaction history</h2>
-        <div className="mt-3 flex items-end justify-between gap-3">
-          <label
-            className="text-sm font-medium"
-            data-help="Filters history to one configured point type."
-          >
-            Point type
-            <select
-              className={`mt-1 ${controlClass}`}
-              value={historyPointTypeId}
-              onChange={(event) => {
-                setHistoryPointTypeId(event.target.value);
-                setHistoryPage(1);
-              }}
-            >
-              <option value="">All point types</option>
-              {(wallets.data ?? []).map((wallet) => (
-                <option key={wallet.pointTypeId} value={wallet.pointTypeId}>
-                  {wallet.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className="text-xs text-[var(--color-text-secondary)]">
-            Page {history.data?.page ?? 1} / {history.data?.totalPages ?? 1}
-          </span>
-        </div>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--color-border)]">
-                <th className="py-2 pr-3">Date</th>
-                <th className="py-2 pr-3">Point type</th>
-                <th className="py-2 pr-3">Action</th>
-                <th className="py-2 text-right">Amount · balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(history.data?.items ?? []).map((item) => (
-                <tr key={item.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="py-2 pr-3 text-xs text-[var(--color-text-secondary)]">
-                    {new Date(item.createdAt).toLocaleString()}
-                  </td>
-                  <td className="py-2 pr-3">{item.pointType.name}</td>
-                  <td className="py-2 pr-3">
-                    {item.action.replaceAll("_", " ")}
-                    {item.message ? (
-                      <span className="ml-2 text-xs text-[var(--color-text-secondary)]">
-                        {item.message}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="py-2 text-right">
-                    <span
-                      className={`font-semibold ${item.amount >= 0 ? "text-green-600" : "text-red-600"}`}
-                    >
-                      {item.amount > 0 ? "+" : ""}
-                      {item.amount.toLocaleString()}
-                    </span>
-                    <span className="ml-2 text-xs text-[var(--color-text-secondary)]">
-                      → {item.balanceAfter.toLocaleString()}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {(history.data?.items ?? []).length === 0 && (
-            <p className="py-4 text-sm text-[var(--color-text-secondary)]">No transactions yet.</p>
-          )}
-        </div>
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            disabled={historyPage <= 1}
-            onClick={() => {
-              setHistoryPage((page) => page - 1);
-            }}
-            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            disabled={historyPage >= (history.data?.totalPages ?? 1)}
-            onClick={() => {
-              setHistoryPage((page) => page + 1);
-            }}
-            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Next
-          </button>
-        </div>
-      </section>
+      </details>
 
       {notice && (
         <p role="status" className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm">

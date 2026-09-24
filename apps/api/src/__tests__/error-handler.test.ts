@@ -72,22 +72,22 @@ beforeEach(async () => {
 
 describe("localizeMessage — prototype-safe lookup", () => {
   it("returns the literal '__proto__' instead of traversing prototype", () => {
-    expect(localizeMessage("__proto__", "es-MX")).toBe("__proto__");
+    expect(localizeMessage("__proto__", "vi-VN")).toBe("__proto__");
   });
 
   it("returns the literal 'constructor' instead of traversing prototype", () => {
-    expect(localizeMessage("constructor", "es-MX")).toBe("constructor");
+    expect(localizeMessage("constructor", "vi-VN")).toBe("constructor");
   });
 
   it("still resolves real error codes", () => {
-    const result = localizeMessage("INSUFFICIENT_BALANCE", "es-MX");
+    const result = localizeMessage("INSUFFICIENT_BALANCE", "vi-VN");
     expect(result).not.toBe("INSUFFICIENT_BALANCE");
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   });
 
   it("returns the code for unknown error codes", () => {
-    expect(localizeMessage("UNKNOWN_CODE_XYZ", "es-MX")).toBe("UNKNOWN_CODE_XYZ");
+    expect(localizeMessage("UNKNOWN_CODE_XYZ", "vi-VN")).toBe("UNKNOWN_CODE_XYZ");
   });
 });
 

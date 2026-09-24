@@ -1,0 +1,1 @@
+ALTER TABLE "Tier" ADD COLUMN "qualificationOperator" TEXT NOT NULL DEFAULT 'AND';

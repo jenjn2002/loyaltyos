@@ -109,13 +109,14 @@ export function createRepository(prisma: PrismaClient) {
     async updateNotificationStatus(
       id: string,
       status: string,
-      extra: { sentAt?: Date; error?: string } = {},
+      extra: { sentAt?: Date; readAt?: Date | null; error?: string } = {},
     ): Promise<NotificationRow> {
       return prisma.notification.update({
         where: { id },
         data: {
           status: status as never,
           ...(extra.sentAt !== undefined && { sentAt: extra.sentAt }),
+          ...(extra.readAt !== undefined && { readAt: extra.readAt }),
           ...(extra.error !== undefined && { error: extra.error }),
         },
       });
@@ -141,6 +142,20 @@ export function createRepository(prisma: PrismaClient) {
       ]);
 
       return { items, total };
+    },
+
+    async countUnreadNotifications(memberId: string): Promise<number> {
+      return prisma.notification.count({
+        where: { memberId, status: { not: "READ" } },
+      });
+    },
+
+    async markMemberNotificationsRead(memberId: string): Promise<number> {
+      const result = await prisma.notification.updateMany({
+        where: { memberId, status: { not: "READ" } },
+        data: { status: "READ", readAt: new Date() },
+      });
+      return result.count;
     },
 
     // Webhook Subscriptions

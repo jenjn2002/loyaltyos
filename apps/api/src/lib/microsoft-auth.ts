@@ -238,13 +238,14 @@ export function buildMicrosoftAuthorizationUrl(
   config: MicrosoftAuthConfig,
   discovery: MicrosoftDiscovery,
   programId: string,
+  redirectUri = microsoftRedirectUri(),
 ): { url: string; stateCookie: string } {
   validateMicrosoftConfig(config);
   const state: OAuthState = {
     state: crypto.randomBytes(32).toString("base64url"),
     programId,
     clientId: config.clientId ?? "",
-    redirectUri: microsoftRedirectUri(),
+    redirectUri,
     nonce: crypto.randomBytes(32).toString("base64url"),
     codeVerifier: crypto.randomBytes(48).toString("base64url"),
     expiresAt: Math.floor(Date.now() / 1000) + STATE_TTL_SECONDS,

@@ -29,11 +29,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { ui } from "@/lib/ui-text";
 import type { TermsTemplate } from "@/types";
 
 const LOCALE_LABELS: Record<string, string> = {
-  "es-MX": "Español",
-  "en-US": "English",
+  "vi-VN": "settings.languages.vietnamese",
+  "en-US": "settings.languages.english",
 };
 
 export function TermsListPage(): JSX.Element {
@@ -123,6 +124,7 @@ export function TermsListPage(): JSX.Element {
                   <TableHead>{t("giftcards.version")}</TableHead>
                   <TableHead>{t("giftcards.active")}</TableHead>
                   <TableHead>{t("common.created")}</TableHead>
+                  <TableHead>{ui("Created by")}</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
@@ -132,7 +134,7 @@ export function TermsListPage(): JSX.Element {
                     <TableRow key={tpl.id}>
                       <TableCell className="font-medium">{name}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{LOCALE_LABELS[tpl.locale] ?? tpl.locale}</Badge>
+                        <Badge variant="outline">{LOCALE_LABELS[tpl.locale] ? t(LOCALE_LABELS[tpl.locale] as string) : tpl.locale}</Badge>
                       </TableCell>
                       <TableCell>v{tpl.version}</TableCell>
                       <TableCell>
@@ -145,6 +147,9 @@ export function TermsListPage(): JSX.Element {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(tpl.createdAt), "PP")}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {tpl.createdBy ? <><p className="font-medium">{tpl.createdBy.name}</p><p className="text-xs text-muted-foreground">{tpl.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">

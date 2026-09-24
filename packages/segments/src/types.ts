@@ -16,6 +16,7 @@ export interface SegmentUpdateInput {
   description?: string;
   rules?: Record<string, unknown>;
   memberIds?: string[];
+  isActive?: boolean;
 }
 
 export interface SegmentListFilters {
@@ -37,9 +38,12 @@ export interface MemberWithComputedFields {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  department: string | null;
   metadata: Record<string, unknown> | null;
   tags: string[];
+  status: string;
   joinedAt: Date;
+  lastActiveAt: Date | null;
   deletedAt: Date | null;
   totalSpent: number;
   currentTier: string | null;

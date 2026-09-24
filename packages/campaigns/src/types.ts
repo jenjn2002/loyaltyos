@@ -9,34 +9,50 @@ export interface CampaignVariantInput {
 }
 
 export interface CampaignCreateInput {
+  issuancePolicy?: "STANDING" | "APPROVAL_REQUIRED";
+  issuanceMode?: "AUTO" | "CLAIM";
+  approvalStatus?: string;
+  isActive?: boolean;
+  justification?: string | null;
   programId: string;
+  createdById?: string | null;
   pointTypeId?: string;
+  segmentId?: string | null;
+  eventType?: string | null;
   name: string;
   description?: string;
   type: CampaignType;
   conditions?: Record<string, unknown>;
   multiplier?: number;
-  maxBudget?: number;
+  maxBudget?: number | null;
   maxUsesPerMember?: number;
   isStackable?: boolean;
   abTesting?: boolean;
-  startsAt?: Date;
-  endsAt?: Date;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
   variants?: CampaignVariantInput[];
 }
 
 export interface CampaignUpdateInput {
+  issuancePolicy?: "STANDING" | "APPROVAL_REQUIRED";
+  issuanceMode?: "AUTO" | "CLAIM";
+  approvalStatus?: string;
+  isActive?: boolean;
+  justification?: string | null;
   pointTypeId?: string;
+  segmentId?: string | null;
+  eventType?: string | null;
   name?: string;
   description?: string;
   conditions?: Record<string, unknown>;
   multiplier?: number;
-  maxBudget?: number;
+  maxBudget?: number | null;
   maxUsesPerMember?: number;
   isStackable?: boolean;
   abTesting?: boolean;
-  startsAt?: Date;
-  endsAt?: Date;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  variants?: CampaignVariantInput[];
 }
 
 export interface EventContext {
@@ -49,9 +65,15 @@ export interface EventContext {
 }
 
 export interface CampaignWithVariants {
+  issuancePolicy?: "STANDING" | "APPROVAL_REQUIRED";
+  issuanceMode?: "AUTO" | "CLAIM";
+  approvalStatus?: string;
   id: string;
   programId: string;
+  createdById: string | null;
   pointTypeId: string | null;
+  segmentId: string | null;
+  eventType: string | null;
   name: string;
   description: string | null;
   type: CampaignType;
@@ -89,6 +111,7 @@ export interface ApplyResult {
   pointsAwarded: number;
   variantId: string | null;
   applicationId: string;
+  claimId?: string;
   idempotent: boolean;
 }
 
@@ -98,6 +121,12 @@ export interface EstimateInput {
   conditions?: Record<string, unknown>;
   multiplier?: number;
   maxBudget?: number;
+  /** Optional precomputed eligible-member count (for segment-aware estimates). */
+  estimatedMembers?: number;
+  /** Maximum number of grants a member may receive for the campaign. */
+  maxUsesPerMember?: number;
+  /** Purchase campaigns multiply a transaction base; standing events grant the multiplier directly. */
+  isPurchase?: boolean;
 }
 
 export interface EstimateResult {

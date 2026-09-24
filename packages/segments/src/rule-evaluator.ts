@@ -65,10 +65,15 @@ function matchesCondition(condition: RuleCondition, context: Record<string, unkn
 }
 
 function resolveField(field: string, context: Record<string, unknown>): unknown {
-  return context[field];
+  return field.split(".").reduce<unknown>((value, key) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return (value as Record<string, unknown>)[key];
+    }
+    return undefined;
+  }, context);
 }
 
-const COMPUTED_FIELDS = new Set(["totalSpent"]);
+const COMPUTED_FIELDS = new Set(["totalSpent", "accountAgeDays", "joinedMonthDay", "todayMonthDay"]);
 
 export function hasComputedFields(rules: Record<string, unknown> | null | undefined): boolean {
   if (!rules) return false;
@@ -80,7 +85,10 @@ function checkForField(group: RuleGroup, fields: Set<string>): boolean {
   for (const item of items) {
     if ("all" in item || "any" in item) {
       if (checkForField(item, fields)) return true;
-    } else if (fields.has((item as RuleCondition).field)) {
+    } else if (
+      fields.has((item as RuleCondition).field) ||
+      (item as RuleCondition).field.startsWith("metadata.")
+    ) {
       return true;
     }
   }
@@ -92,8 +100,11 @@ const DIRECT_FIELDS = new Set([
   "phone",
   "firstName",
   "lastName",
+  "department",
+  "status",
   "tags",
   "joinedAt",
+  "lastActiveAt",
   "currentTier",
 ]);
 
@@ -142,10 +153,14 @@ function convertCondition(cond: RuleCondition): Prisma.MemberWhereInput {
       return convertTagsCondition(cond);
     case "joinedAt":
       return convertDateCondition(cond, "joinedAt");
+    case "lastActiveAt":
+      return convertDateCondition(cond, "lastActiveAt");
     case "email":
     case "phone":
     case "firstName":
     case "lastName":
+    case "department":
+    case "status":
       return convertStringCondition(cond, field);
     default:
       return {};

@@ -47,7 +47,7 @@
 - [ ] `MANUAL` Logout invalidates the session
 - [ ] `MANUAL` Navigation only shows capabilities granted to the current role
 - [ ] `MANUAL` Dashboard, Members, Credits, Point Types, Roles & Permissions, Campaigns, Coupons, Segments, Badges, Tiers, Rewards, Coalition and Gift Cards routes load
-- [ ] `MANUAL` English/Spanish locale switch persists after refresh
+- [ ] `MANUAL` English/Vietnamese locale switch persists after refresh
 - [ ] `MANUAL` Every Admin form field has a `?` tooltip with a useful definition
 - [ ] `MANUAL` Tooltip is keyboard/focus accessible and does not cover the active control
 - [ ] `MANUAL` 404 route renders the Not Found screen

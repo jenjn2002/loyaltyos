@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Award, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -34,6 +35,7 @@ interface BadgeType {
   imageUrl?: string;
   isActive: boolean;
   conditions?: unknown;
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 
 export function BadgesListPage(): JSX.Element {
@@ -86,18 +88,18 @@ export function BadgesListPage(): JSX.Element {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>All Badges</CardTitle>
+          <CardTitle>{ui("All Badges")}</CardTitle>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Type" />
+              <SelectValue placeholder={ui("Type")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="ACHIEVEMENT">Achievement</SelectItem>
-              <SelectItem value="STATUS">Status</SelectItem>
-              <SelectItem value="TEMPORAL">Temporal</SelectItem>
-              <SelectItem value="COLLECTIBLE">Collectible</SelectItem>
-              <SelectItem value="SOCIAL">Social</SelectItem>
+              <SelectItem value="all">{ui("All Types")}</SelectItem>
+              <SelectItem value="ACHIEVEMENT">{ui("Achievement")}</SelectItem>
+              <SelectItem value="STATUS">{ui("Status")}</SelectItem>
+              <SelectItem value="TEMPORAL">{ui("Temporal")}</SelectItem>
+              <SelectItem value="COLLECTIBLE">{ui("Collectible")}</SelectItem>
+              <SelectItem value="SOCIAL">{ui("Social")}</SelectItem>
             </SelectContent>
           </Select>
         </CardHeader>
@@ -109,15 +111,16 @@ export function BadgesListPage(): JSX.Element {
               ))}
             </div>
           ) : isError ? (
-            <p className="text-destructive">Failed to load badges.</p>
+            <p className="text-destructive">{ui("Failed to load badges.")}</p>
           ) : (
             <>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Badge</TableHead>
+                    <TableHead>{ui("Badge")}</TableHead>
                     <TableHead>{t("campaigns.type")}</TableHead>
                     <TableHead>{t("common.status")}</TableHead>
+                    <TableHead>{ui("Created by")}</TableHead>
                     <TableHead className="w-24" />
                   </TableRow>
                 </TableHeader>
@@ -150,6 +153,9 @@ export function BadgesListPage(): JSX.Element {
                         <UIBadge variant={badge.isActive ? "default" : "secondary"}>
                           {badge.isActive ? t("common.active") : t("common.inactive")}
                         </UIBadge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {badge.createdBy ? <><p className="font-medium">{badge.createdBy.name}</p><p className="text-xs text-muted-foreground">{badge.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">

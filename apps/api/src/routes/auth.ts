@@ -19,6 +19,7 @@ import {
 } from "../lib/microsoft-auth.js";
 import { resolveMicrosoftMember } from "../lib/microsoft-member-provisioning.js";
 import { notificationsService } from "../lib/notifications-setup.js";
+import { issueOnboardingForMember } from "../lib/occasion-issuance.js";
 import { microsoftRedirectUri, portalHomeUrl, resolvePortalUrl } from "../lib/public-urls.js";
 
 const TOKEN_MINUTES = 15;
@@ -143,7 +144,7 @@ async function triggerMagicLinkEmail(
 
     await notificationsService.sendTrigger(programId, "auth.magic_link", memberId, {
       magicLinkUrl,
-      _locale: locale ?? "es-MX",
+      _locale: locale ?? "vi-VN",
       member: {
         id: member?.id,
         email: member?.email,
@@ -282,6 +283,11 @@ export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
       where: { id: provisioning.member.id },
       data: { lastActiveAt: new Date() },
     });
+    if (provisioning.outcome === "auto_provisioned_member") {
+      void issueOnboardingForMember(state.programId, provisioning.member.id).catch((error: unknown) => {
+        request.log.error({ err: error, memberId: provisioning.member.id }, "Failed to issue onboarding campaigns");
+      });
+    }
     void recordAuthAudit(
       state.programId,
       provisioning.member.id,

@@ -2,8 +2,9 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import type { CampaignCreateInput, CampaignUpdateInput, CampaignWithVariants } from "./types.js";
 
-function campaignMatchesEvent(campaignType: string, eventType: string): boolean {
+function campaignMatchesEvent(campaignType: string, eventType: string, configuredEventType?: string | null): boolean {
   const event = eventType.toUpperCase();
+  if (configuredEventType) return configuredEventType.trim().toUpperCase() === event;
   if (["BONUS_POINTS", "FREQUENCY", "MILESTONE"].includes(campaignType)) return true;
   if (["SPEND_AND_GET", "FLASH_SALE"].includes(campaignType))
     return ["PURCHASE", "ORDER", "TRANSACTION"].includes(event);
@@ -41,11 +42,22 @@ export function createRepository(prisma: PrismaClient) {
     },
 
     async updateCampaign(id: string, input: CampaignUpdateInput): Promise<CampaignWithVariants> {
+      const { variants, ...data } = input;
       return (await prisma.campaign.update({
         where: { id },
         data: {
-          ...input,
-          conditions: input.conditions ? asJson(input.conditions) : undefined,
+          ...data,
+          conditions: data.conditions ? asJson(data.conditions) : undefined,
+          variants: variants
+            ? {
+                deleteMany: {},
+                create: variants.map((v) => ({
+                  name: v.name,
+                  trafficPct: v.trafficPct,
+                  config: asJson(v.config),
+                })),
+              }
+            : undefined,
         },
         include: { variants: true },
       })) as unknown as CampaignWithVariants;
@@ -75,6 +87,7 @@ export function createRepository(prisma: PrismaClient) {
         where: {
           programId,
           isActive: true,
+          approvalStatus: { in: ["NOT_REQUIRED", "APPROVED"] },
           deletedAt: null,
           OR: [
             { startsAt: null, endsAt: null },
@@ -86,28 +99,43 @@ export function createRepository(prisma: PrismaClient) {
         include: { variants: true },
       });
       return campaigns.filter((campaign) =>
-        campaignMatchesEvent(campaign.type, eventType),
+        campaignMatchesEvent(campaign.type, eventType, campaign.eventType),
       ) as unknown as CampaignWithVariants[];
     },
 
     async getApplicationCount(campaignId: string, memberId: string): Promise<number> {
-      return await prisma.campaignApplication.count({
-        where: { campaignId, memberId },
-      });
+      const [applications, claims] = await Promise.all([
+        prisma.campaignApplication.count({ where: { campaignId, memberId } }),
+        prisma.campaignClaim.count({ where: { campaignId, memberId } }),
+      ]);
+      return applications + claims;
     },
 
     async getTotalAwarded(campaignId: string): Promise<number> {
-      const result = await prisma.campaignApplication.aggregate({
-        where: { campaignId },
-        _sum: { pointsAwarded: true },
-      });
-      return result._sum.pointsAwarded ?? 0;
+      const [applications, claims] = await Promise.all([
+        prisma.campaignApplication.aggregate({ where: { campaignId }, _sum: { pointsAwarded: true } }),
+        prisma.campaignClaim.aggregate({ where: { campaignId }, _sum: { pointsAwarded: true } }),
+      ]);
+      return (applications._sum.pointsAwarded ?? 0) + (claims._sum.pointsAwarded ?? 0);
     },
 
     async findApplication(campaignId: string, idempotencyKey: string) {
       return prisma.campaignApplication.findUnique({
         where: { campaignId_idempotencyKey: { campaignId, idempotencyKey } },
       });
+    },
+
+    async findClaim(campaignId: string, occurrence: string) {
+      return prisma.campaignClaim.findFirst({ where: { campaignId, occurrence } });
+    },
+
+    async recordClaim(input: {
+      campaignId: string;
+      memberId: string;
+      occurrence: string;
+      pointsAwarded: number;
+    }): Promise<{ id: string }> {
+      return prisma.campaignClaim.create({ data: input, select: { id: true } });
     },
 
     async recordApplication(input: {

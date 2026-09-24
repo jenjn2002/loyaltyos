@@ -1,21 +1,22 @@
 import { createInstance } from "i18next";
 
 import enUS from "./locales/en-US.json" with { type: "json" };
-import esMX from "./locales/es-MX.json" with { type: "json" };
+import viVN from "./locales/vi-VN.json" with { type: "json" };
 
 const INTERNAL_I18N = createInstance();
 
 let initialized = false;
 
 export async function initCatalog(defaultLocale?: string): Promise<void> {
-  const lng = defaultLocale ?? "es-MX";
+  const lng = defaultLocale ?? "vi-VN";
 
   if (!initialized) {
     await INTERNAL_I18N.init({
       lng,
-      fallbackLng: "es-MX",
+      // English is the safe fallback for an incomplete locale catalog.
+      fallbackLng: "en-US",
       resources: {
-        "es-MX": { translation: esMX },
+        "vi-VN": { translation: viVN },
         "en-US": { translation: enUS },
       },
       interpolation: {
@@ -31,12 +32,12 @@ export async function initCatalog(defaultLocale?: string): Promise<void> {
 }
 
 /**
- * Look up a translation key. Uses es-MX as fallback chain.
+ * Look up a translation key. Uses en-US as fallback chain.
  */
 export function t(key: string, params?: Record<string, string | number>): string {
   if (!initialized) {
-    // Synchronous fallback: look up directly in es-MX catalog
-    return resolveFromJson(esMX, key, params);
+    // Keep the synchronous path aligned with the neutral fallback language.
+    return resolveFromJson(enUS, key, params);
   }
   return INTERNAL_I18N.t(key, { ...params, lng: INTERNAL_I18N.language });
 }
@@ -47,7 +48,7 @@ export function changeLanguage(lng: string): Promise<void> {
 }
 
 export function getCurrentLanguage(): string {
-  if (!initialized) return "es-MX";
+  if (!initialized) return "vi-VN";
   return INTERNAL_I18N.language;
 }
 
@@ -76,4 +77,4 @@ function resolveFromJson(
   return current;
 }
 
-export { enUS, esMX };
+export { enUS, viVN };

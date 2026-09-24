@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
 
 const badges = new BadgesService(prisma);
 
@@ -38,6 +40,10 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
       ...body,
       programId,
     });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "badge", badge.id, {
+      created: true,
+      name: badge.name,
+    });
     return reply.status(201).send({ data: badge });
   });
 
@@ -62,7 +68,17 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
 
     const programId = request.programId || (request.headers["x-program-id"] as string);
     const result = await badges.list(programId, query);
-    return reply.send({ data: result });
+    const creators = await createdByForEntities(
+      programId,
+      "badge",
+      result.items.map((badge) => badge.id),
+    );
+    return reply.send({
+      data: {
+        ...result,
+        items: result.items.map((badge) => ({ ...badge, createdBy: creators.get(badge.id) ?? null })),
+      },
+    });
   });
 
   // GET /admin/badges/stats — Badge distribution stats
@@ -84,6 +100,7 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
     const badge = await badges.update(id, body);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "badge", id, body);
     return reply.send({ data: badge });
   });
 
@@ -91,6 +108,7 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
   app.delete("/admin/badges/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     await badges.delete(id);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "badge", id, { isActive: false });
     return reply.status(204).send();
   });
 

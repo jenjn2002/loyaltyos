@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -154,20 +155,16 @@ export function RewardsEditorPage(): JSX.Element {
         </Button>
         <div>
           <h1 className="text-2xl font-bold">{id ? "Edit reward" : "New reward"}</h1>
-          <p className="text-sm text-muted-foreground">
-            Configure one or more accepted point types and prices.
-          </p>
+          <p className="text-sm text-muted-foreground">{ui("Configure one or more accepted point types and prices.")}</p>
         </div>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Reward details</CardTitle>
+          <CardTitle>{ui("Reward details")}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
-            <Label htmlFor="reward-name" data-help="Member-facing reward name.">
-              Name
-            </Label>
+            <Label htmlFor="reward-name" data-help={ui("Member-facing reward name.")}>{ui("Name")}</Label>
             <Input
               id="reward-name"
               value={name}
@@ -179,10 +176,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div className="md:col-span-2">
             <Label
               htmlFor="reward-description"
-              data-help="Member-facing details and fulfillment expectations."
-            >
-              Description
-            </Label>
+              data-help={ui("Member-facing details and fulfillment expectations.")}
+            >{ui("Description")}</Label>
             <Textarea
               id="reward-description"
               value={description}
@@ -194,10 +189,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div>
             <Label
               htmlFor="reward-stock"
-              data-help="Available units; leave blank for unlimited inventory."
-            >
-              Stock
-            </Label>
+              data-help={ui("Available units; leave blank for unlimited inventory.")}
+            >{ui("Stock")}</Label>
             <Input
               id="reward-stock"
               type="number"
@@ -206,16 +199,14 @@ export function RewardsEditorPage(): JSX.Element {
               onChange={(event) => {
                 setStock(event.target.value);
               }}
-              placeholder="Unlimited"
+              placeholder={ui("Unlimited")}
             />
           </div>
           <div>
             <Label
               htmlFor="reward-image"
-              data-help="Optional HTTPS image shown in the reward catalog."
-            >
-              Image URL
-            </Label>
+              data-help={ui("Optional HTTPS image shown in the reward catalog.")}
+            >{ui("Image URL")}</Label>
             <Input
               id="reward-image"
               type="url"
@@ -226,9 +217,7 @@ export function RewardsEditorPage(): JSX.Element {
             />
           </div>
           <div>
-            <Label htmlFor="reward-category" data-help="Catalog and reporting category.">
-              Category
-            </Label>
+            <Label htmlFor="reward-category" data-help={ui("Catalog and reporting category.")}>{ui("Category")}</Label>
             <Input
               id="reward-category"
               value={category}
@@ -236,7 +225,7 @@ export function RewardsEditorPage(): JSX.Element {
                 setCategory(event.target.value);
               }}
               list="reward-category-suggestions"
-              placeholder="e.g. food_drinks"
+              placeholder={ui("e.g. food_drinks")}
             />
             <datalist id="reward-category-suggestions">
               {CATEGORIES.map((value) => (
@@ -247,10 +236,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div>
             <Label
               htmlFor="reward-tier"
-              data-help="Optional minimum tier name required for redemption."
-            >
-              Tier required
-            </Label>
+              data-help={ui("Optional minimum tier name required for redemption.")}
+            >{ui("Tier required")}</Label>
             <select
               id="reward-tier"
               className={controlClass}
@@ -259,7 +246,7 @@ export function RewardsEditorPage(): JSX.Element {
                 setTierRequired(event.target.value);
               }}
             >
-              <option value="">All tiers</option>
+              <option value="">{ui("All tiers")}</option>
               {(tiers.data ?? []).map((tier) => (
                 <option key={tier.id} value={tier.name}>
                   {tier.name}
@@ -270,10 +257,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div>
             <Label
               htmlFor="available-from"
-              data-help="Optional date and time when this reward becomes redeemable."
-            >
-              Available from
-            </Label>
+              data-help={ui("Optional date and time when this reward becomes redeemable.")}
+            >{ui("Available from")}</Label>
             <Input
               id="available-from"
               type="datetime-local"
@@ -286,10 +271,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div>
             <Label
               htmlFor="available-until"
-              data-help="Optional exclusive end date and time for redemption."
-            >
-              Available until
-            </Label>
+              data-help={ui("Optional exclusive end date and time for redemption.")}
+            >{ui("Available until")}</Label>
             <Input
               id="available-until"
               type="datetime-local"
@@ -302,10 +285,8 @@ export function RewardsEditorPage(): JSX.Element {
           <div className="flex items-center justify-between rounded-md border p-3 md:col-span-2">
             <Label
               htmlFor="reward-active"
-              data-help="Publishes this reward when its availability window, stock and price rules also pass."
-            >
-              Active in catalog
-            </Label>
+              data-help={ui("Publishes this reward when its availability window, stock and price rules also pass.")}
+            >{ui("Active in catalog")}</Label>
             <Switch id="reward-active" checked={isActive} onCheckedChange={setIsActive} />
           </div>
         </CardContent>
@@ -313,13 +294,11 @@ export function RewardsEditorPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>Accepted point prices</CardTitle>
+          <CardTitle>{ui("Accepted point prices")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {redeemableTypes.length === 0 && (
-            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-              No active redeemable point type exists. Enable Redeem on a Point Type first.
-            </p>
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{ui("No active redeemable point type exists. Enable Redeem on a Point Type first.")}</p>
           )}
           {prices.map((price, index) => (
             <div
@@ -329,10 +308,8 @@ export function RewardsEditorPage(): JSX.Element {
               <div>
                 <Label
                   htmlFor={`price-type-${String(index)}`}
-                  data-help="Point type accepted as payment for this reward."
-                >
-                  Point type
-                </Label>
+                  data-help={ui("Point type accepted as payment for this reward.")}
+                >{ui("Point type")}</Label>
                 <select
                   id={`price-type-${String(index)}`}
                   className={controlClass}
@@ -361,10 +338,8 @@ export function RewardsEditorPage(): JSX.Element {
               <div>
                 <Label
                   htmlFor={`price-amount-${String(index)}`}
-                  data-help="Exact amount deducted from this point type on redemption."
-                >
-                  Price
-                </Label>
+                  data-help={ui("Exact amount deducted from this point type on redemption.")}
+                >{ui("Price")}</Label>
                 <Input
                   id={`price-amount-${String(index)}`}
                   type="number"
@@ -383,7 +358,7 @@ export function RewardsEditorPage(): JSX.Element {
                 type="button"
                 size="icon"
                 variant="ghost"
-                aria-label="Remove price"
+                aria-label={ui("Remove price")}
                 disabled={prices.length === 1}
                 onClick={() => {
                   setPrices((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -399,8 +374,7 @@ export function RewardsEditorPage(): JSX.Element {
             disabled={prices.length >= redeemableTypes.length}
             onClick={addPrice}
           >
-            <Plus /> Add accepted point type
-          </Button>
+            <Plus />{ui("Add accepted point type")}</Button>
         </CardContent>
       </Card>
       {submitError && (
@@ -420,10 +394,10 @@ export function RewardsEditorPage(): JSX.Element {
             save.mutate();
           }}
         >
-          <Save /> {save.isPending ? "Saving…" : "Save reward"}
+          <Save /> {save.isPending ? ui("Saving…") : ui("Save reward")}
         </Button>
         <Button variant="outline" asChild>
-          <Link to="/rewards">Cancel</Link>
+          <Link to="/rewards">{ui("Cancel")}</Link>
         </Button>
       </div>
     </div>

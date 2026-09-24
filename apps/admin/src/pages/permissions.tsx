@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ShieldCheck, UserCog } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
@@ -24,6 +25,7 @@ interface AdminAccount {
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 interface AccountDraft {
   role: Role;
@@ -99,11 +101,71 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "campaign.view": {
     label: "View engagement",
-    description: "Read campaigns, tiers, badges, coupons, segments and coalition data.",
+    description: "Read campaign configuration and campaign activity.",
   },
   "campaign.manage": {
     label: "Manage engagement",
-    description: "Change campaigns, tiers, badges, coupons, segments and coalition configuration.",
+    description: "Create, edit, activate, pause and archive campaigns.",
+  },
+  "campaign.execute": {
+    label: "Run campaigns",
+    description: "Run an approved campaign immediately and issue or create its member grants.",
+  },
+  "segment.view": {
+    label: "View segments",
+    description: "Read segment definitions and their matched members.",
+  },
+  "segment.manage": {
+    label: "Manage segments",
+    description: "Create, edit and delete static or dynamic member segments.",
+  },
+  "tier.view": {
+    label: "View tiers",
+    description: "Read tier levels, qualification rules and member distribution.",
+  },
+  "tier.manage": {
+    label: "Manage tiers",
+    description: "Create, edit, reorder and delete tier qualification rules.",
+  },
+  "badge.view": {
+    label: "View badges",
+    description: "Read badge definitions and member award statistics.",
+  },
+  "badge.manage": {
+    label: "Manage badges",
+    description: "Create, edit, activate and archive badges.",
+  },
+  "coupon.view": {
+    label: "View coupons",
+    description: "Read coupon codes, usage and validity settings.",
+  },
+  "coupon.manage": {
+    label: "Manage coupons",
+    description: "Create, generate, edit and deactivate coupon codes.",
+  },
+  "event.view": {
+    label: "View event definitions",
+    description: "Read trigger event definitions used by campaign automation.",
+  },
+  "event.manage": {
+    label: "Manage event definitions",
+    description: "Create, edit and deactivate campaign trigger event definitions.",
+  },
+  "issuance.view": {
+    label: "View issuance rules",
+    description: "Read legacy point issuance rules and their schedules.",
+  },
+  "issuance.manage": {
+    label: "Manage issuance rules",
+    description: "Create, edit and delete legacy point issuance rules.",
+  },
+  "recognition.view": {
+    label: "View recognition categories",
+    description: "Read categories used to classify member recognition transactions.",
+  },
+  "recognition.manage": {
+    label: "Manage recognition categories",
+    description: "Create, edit and archive member recognition categories.",
   },
   "notification.view": {
     label: "View notifications",
@@ -200,7 +262,7 @@ export function PermissionsPage(): JSX.Element {
         body: JSON.stringify({ permissions: drafts[role] ?? {} }),
       }),
     onSuccess: async () => {
-      setNotice("Role permissions saved and audit logged.");
+      setNotice(ui("Role permissions saved and audit logged."));
       await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
     },
     onError: (error: Error) => {
@@ -216,7 +278,7 @@ export function PermissionsPage(): JSX.Element {
     onSuccess: async () => {
       setNewAccount({ name: "", email: "", password: "", role: "OPERATOR" });
       setNewAccountErrors({});
-      setNotice("Administrator account created and audit logged.");
+      setNotice(ui("Administrator account created and audit logged."));
       await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
     onError: (error: Error) => {
@@ -252,7 +314,7 @@ export function PermissionsPage(): JSX.Element {
         body: JSON.stringify(accountDrafts[account.id]),
       }),
     onSuccess: async () => {
-      setNotice("Administrator role and status saved immediately.");
+      setNotice(ui("Administrator role and status saved immediately."));
       await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       await queryClient.invalidateQueries({ queryKey: ["admin-me"] });
     },
@@ -265,11 +327,9 @@ export function PermissionsPage(): JSX.Element {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <ShieldCheck /> Roles & permissions
-        </h1>
+          <ShieldCheck />{ui("Roles & permissions")}</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Owner always has every capability and cannot be locked out. Operator performs day-to-day
-          work; Auditor is read-only by default. Overrides apply program-wide and are audit logged.
+          {ui("Owner always has every capability and cannot be locked out. Operator performs day-to-day work; Auditor is read-only by default. Overrides apply program-wide and are audit logged.")}
         </p>
       </div>
       {notice && (
@@ -278,18 +338,14 @@ export function PermissionsPage(): JSX.Element {
         </div>
       )}
       {permissions.isError && (
-        <div className="rounded-md border border-destructive p-3 text-sm text-destructive">
-          Only an Owner with permission-management access can open this page.
-        </div>
+        <div className="rounded-md border border-destructive p-3 text-sm text-destructive">{ui("Only an Owner with permission-management access can open this page.")}</div>
       )}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <UserCog className="h-5 w-5" /> Administrator accounts
-          </CardTitle>
+            <UserCog className="h-5 w-5" />{ui("Administrator accounts")}</CardTitle>
           <CardDescription>
-            Assign an administrative role to each back-office user. Member accounts use the Portal
-            and never receive administrative capabilities.
+            {ui("Assign an administrative role to each back-office user. Microsoft 365 sign-ins create inactive pending accounts here; activate one to approve access. Member accounts use the Portal and never receive administrative capabilities.")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -299,9 +355,7 @@ export function PermissionsPage(): JSX.Element {
             noValidate
           >
             <div>
-              <Label htmlFor="admin-name" data-help="Display name for this administrator.">
-                Name
-              </Label>
+              <Label htmlFor="admin-name" data-help={ui("Display name for this administrator.")}>{ui("Name")}</Label>
               <Input
                 id="admin-name"
                 value={newAccount.name}
@@ -318,9 +372,7 @@ export function PermissionsPage(): JSX.Element {
               )}
             </div>
             <div>
-              <Label htmlFor="admin-email" data-help="Unique email used to sign in to Admin.">
-                Email
-              </Label>
+              <Label htmlFor="admin-email" data-help={ui("Unique email used to sign in to Admin.")}>{ui("Email")}</Label>
               <Input
                 id="admin-email"
                 type="email"
@@ -340,10 +392,8 @@ export function PermissionsPage(): JSX.Element {
             <div>
               <Label
                 htmlFor="admin-password"
-                data-help="Temporary password with at least 12 characters. Share it outside LoyaltyOS."
-              >
-                Temporary password
-              </Label>
+                data-help={ui("Temporary password with at least 12 characters. Share it outside LoyaltyOS.")}
+              >{ui("Temporary password")}</Label>
               <Input
                 id="admin-password"
                 type="password"
@@ -355,17 +405,13 @@ export function PermissionsPage(): JSX.Element {
                   setNewAccount((current) => ({ ...current, password: event.target.value }));
                 }}
               />
-              <p id="admin-password-help" className="text-xs text-muted-foreground">
-                At least 12 characters and 3 character classes.
-              </p>
+              <p id="admin-password-help" className="text-xs text-muted-foreground">{ui("At least 12 characters and 3 character classes.")}</p>
               {newAccountErrors.password && (
                 <p className="text-xs text-destructive">{newAccountErrors.password}</p>
               )}
             </div>
             <div>
-              <Label htmlFor="admin-role" data-help="Role whose capability matrix applies.">
-                Role
-              </Label>
+              <Label htmlFor="admin-role" data-help={ui("Role whose capability matrix applies.")}>{ui("Role")}</Label>
               <select
                 id="admin-role"
                 className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -377,21 +423,19 @@ export function PermissionsPage(): JSX.Element {
                   }));
                 }}
               >
-                <option value="OPERATOR">Operator</option>
-                <option value="ANALYST">Auditor</option>
+                <option value="OPERATOR">{ui("Operator")}</option>
+                <option value="ANALYST">{ui("Auditor")}</option>
               </select>
             </div>
             <Button type="submit" className="self-end" disabled={createAccount.isPending}>
-              <Plus className="h-4 w-4" /> {createAccount.isPending ? "Creating…" : "Create admin"}
+              <Plus className="h-4 w-4" /> {createAccount.isPending ? ui("Creating…") : ui("Create admin")}
             </Button>
           </form>
 
           <div className="space-y-3">
-            {accounts.isLoading && <p className="text-sm text-muted-foreground">Loading users…</p>}
+            {accounts.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading users…")}</p>}
             {accounts.isError && (
-              <p className="text-sm text-destructive">
-                Administrator accounts could not be loaded.
-              </p>
+              <p className="text-sm text-destructive">{ui("Administrator accounts could not be loaded.")}</p>
             )}
             {(accounts.data ?? []).map((account) => {
               const immutable = account.role === "SUPER_ADMIN";
@@ -408,19 +452,18 @@ export function PermissionsPage(): JSX.Element {
                     <p className="font-medium">{account.name}</p>
                     <p className="truncate text-sm text-muted-foreground">{account.email}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Last login:{" "}
+                      {ui("Last login:")} {" "}
                       {account.lastLoginAt
                         ? new Date(account.lastLoginAt).toLocaleString()
-                        : "Never"}
+                        : ui("Never")}
                     </p>
+                    <p className="text-xs text-muted-foreground">{ui("Created by")}: {account.createdBy ? `${account.createdBy.name}${account.createdBy.email ? ` · ${account.createdBy.email}` : ""}` : ui("System / legacy")}</p>
                   </div>
                   <div>
                     <Label
                       htmlFor={`account-role-${account.id}`}
-                      data-help="Changing role applies the selected capability matrix on the next request."
-                    >
-                      Assigned role
-                    </Label>
+                      data-help={ui("Changing role applies the selected capability matrix on the next request.")}
+                    >{ui("Assigned role")}</Label>
                     <select
                       id={`account-role-${account.id}`}
                       className="h-10 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60"
@@ -436,18 +479,16 @@ export function PermissionsPage(): JSX.Element {
                         }));
                       }}
                     >
-                      {immutable && <option value="SUPER_ADMIN">Owner</option>}
-                      <option value="OPERATOR">Operator</option>
-                      <option value="ANALYST">Auditor</option>
+                      {immutable && <option value="SUPER_ADMIN">{ui("Owner")}</option>}
+                      <option value="OPERATOR">{ui("Operator")}</option>
+                      <option value="ANALYST">{ui("Auditor")}</option>
                     </select>
                   </div>
                   <div className="flex h-10 items-center gap-2">
                     <Label
                       htmlFor={`account-active-${account.id}`}
-                      data-help="Inactive administrators cannot use Admin; their active sessions are revoked."
-                    >
-                      Active
-                    </Label>
+                      data-help={ui("Inactive administrators cannot use Admin; their active sessions are revoked.")}
+                    >{ui("Active")}</Label>
                     <Switch
                       id={`account-active-${account.id}`}
                       checked={draft.isActive}
@@ -467,7 +508,7 @@ export function PermissionsPage(): JSX.Element {
                       updateAccount.mutate(account);
                     }}
                   >
-                    {immutable ? "Protected" : "Save user"}
+                    {immutable ? ui("Protected") : ui("Save user")}
                   </Button>
                 </div>
               );
@@ -484,10 +525,10 @@ export function PermissionsPage(): JSX.Element {
                 <CardTitle>{role.label}</CardTitle>
                 <CardDescription>
                   {immutable
-                    ? "Full access; immutable safety role."
+                    ? ui("Full access; immutable safety role.")
                     : role.role === "OPERATOR"
-                      ? "Operational access; destructive configuration is restricted by default."
-                      : "Read-only oversight by default."}
+                      ? ui("Operational access; destructive configuration is restricted by default.")
+                      : ui("Read-only oversight by default.")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -502,8 +543,8 @@ export function PermissionsPage(): JSX.Element {
                       key={capability}
                       className="flex items-center justify-between gap-3 rounded-md border p-3"
                     >
-                      <Label htmlFor={id} data-help={copy.description} className="leading-snug">
-                        {copy.label}
+                      <Label htmlFor={id} data-help={ui(copy.description)} className="leading-snug">
+                        {ui(copy.label)}
                       </Label>
                       <Switch
                         id={id}
@@ -527,7 +568,7 @@ export function PermissionsPage(): JSX.Element {
                       save.mutate(role.role as ConfigurableRole);
                     }}
                   >
-                    {save.isPending ? "Saving…" : `Save ${role.label}`}
+                    {save.isPending ? ui("Saving…") : `${ui("Save")} ${role.label}`}
                   </Button>
                 )}
               </CardContent>

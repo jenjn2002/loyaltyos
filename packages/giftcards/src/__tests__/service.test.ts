@@ -160,7 +160,7 @@ function termsRow(overrides = {}) {
     id: "terms-1",
     programId: "prog-1",
     name: "Standard Terms",
-    locale: "es-MX",
+    locale: "vi-VN",
     body: "Terms and conditions body text.",
     version: 1,
     isActive: true,

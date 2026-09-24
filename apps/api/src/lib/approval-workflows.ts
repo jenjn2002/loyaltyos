@@ -5,6 +5,8 @@ import { LoyaltyError } from "./errors.js";
 
 export const BUILTIN_WORKFLOW_ACTIONS = [
   "POINT_EXCHANGE",
+  "POINT_ISSUANCE_PROPOSAL",
+  "CAMPAIGN_ISSUANCE_PROPOSAL",
   "LEAVE_REQUEST",
   "REWARD_REDEMPTION",
   "CUSTOM",
@@ -202,7 +204,7 @@ export function workflowScopesMayOverlap(
 ): boolean {
   const left = scopeObject(leftInput);
   const right = scopeObject(rightInput);
-  if (actionKey === "POINT_EXCHANGE") {
+  if (["POINT_EXCHANGE", "POINT_ISSUANCE_PROPOSAL", "CAMPAIGN_ISSUANCE_PROPOSAL"].includes(actionKey)) {
     return (
       listMayOverlap(stringList(left, "pointTypeIds"), stringList(right, "pointTypeIds")) &&
       rangesMayOverlap(left, right, "minAmount", "maxAmount") &&
@@ -226,7 +228,7 @@ export function workflowMatchesScope(
   context: WorkflowMatchContext = {},
 ): boolean {
   const scope = scopeObject(scopeInput);
-  if (actionKey === "POINT_EXCHANGE") {
+  if (["POINT_EXCHANGE", "POINT_ISSUANCE_PROPOSAL", "CAMPAIGN_ISSUANCE_PROPOSAL"].includes(actionKey)) {
     const pointTypeIds = stringList(scope, "pointTypeIds");
     if (pointTypeIds?.length && (!context.pointTypeId || !pointTypeIds.includes(context.pointTypeId))) return false;
     for (const [minKey, maxKey, contextKey] of [
@@ -404,11 +406,20 @@ async function validateActiveScopeConflicts(
 }
 
 export async function listWorkflows(programId: string) {
-  return prisma.approvalWorkflow.findMany({
+  const workflows = await prisma.approvalWorkflow.findMany({
     where: { programId },
     include: { steps: { include: { assignees: true }, orderBy: { stepOrder: "asc" } } },
     orderBy: [{ actionKey: "asc" }, { priority: "desc" }, { isActive: "desc" }, { createdAt: "asc" }],
   });
+  const creatorIds = [...new Set(workflows.map((workflow) => workflow.createdById).filter((id): id is string => Boolean(id)))];
+  const creators = creatorIds.length
+    ? await prisma.adminUser.findMany({ where: { id: { in: creatorIds }, programId: programId }, select: { id: true, name: true, email: true } })
+    : [];
+  const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
+  return workflows.map((workflow) => ({
+    ...workflow,
+    createdBy: workflow.createdById ? creatorMap.get(workflow.createdById) ?? null : null,
+  }));
 }
 
 export async function getWorkflow(programId: string, id: string) {

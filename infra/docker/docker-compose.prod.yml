@@ -43,6 +43,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_URL: redis://redis:6379
       PORTAL_URL: ${PORTAL_URL:-http://localhost/customer}
+      ADMIN_URL: ${ADMIN_URL:-http://localhost:5175}
       ADMIN_DEFAULT_EMAIL: ${ADMIN_DEFAULT_EMAIL}
       ADMIN_DEFAULT_NAME: ${ADMIN_DEFAULT_NAME}
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
@@ -83,8 +84,27 @@ services:
       dockerfile: apps/admin/Dockerfile
       args:
         VITE_BASE_PATH: ${ADMIN_BASE_PATH:-/admin/}
-    ports:
-      - "${ADMIN_HTTP_PORT:-8081}:80"
+    expose:
+      - "80"
+    networks:
+      - default
+      - traefik-hrm
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-hrm
+      - traefik.http.routers.loyalty-admin.rule=Host(`adminloyalty.trunglocxoay.store`)
+      - traefik.http.routers.loyalty-admin.entrypoints=websecure
+      - traefik.http.routers.loyalty-admin.tls=true
+      - traefik.http.routers.loyalty-admin.tls.certresolver=le
+      - traefik.http.routers.loyalty-admin.middlewares=loyalty-admin-headers@docker
+      - traefik.http.middlewares.loyalty-admin-headers.headers.stsSeconds=315360000
+      - traefik.http.middlewares.loyalty-admin-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.loyalty-admin-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.loyalty-admin-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.loyalty-admin-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.loyalty-admin-headers.headers.stsPreload=true
+      - traefik.http.services.loyalty-admin.loadbalancer.server.port=80
+      - traefik.http.services.loyalty-admin.loadbalancer.server.scheme=http
     depends_on:
       api:
         condition: service_healthy
@@ -96,8 +116,27 @@ services:
       dockerfile: apps/portal/Dockerfile
       args:
         VITE_BASE_PATH: ${CUSTOMER_BASE_PATH:-/customer/}
-    ports:
-      - "${CUSTOMER_HTTP_PORT:-8080}:80"
+    expose:
+      - "80"
+    networks:
+      - default
+      - traefik-hrm
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-hrm
+      - traefik.http.routers.loyalty-customer.rule=Host(`loyalty.trunglocxoay.store`)
+      - traefik.http.routers.loyalty-customer.entrypoints=websecure
+      - traefik.http.routers.loyalty-customer.tls=true
+      - traefik.http.routers.loyalty-customer.tls.certresolver=le
+      - traefik.http.routers.loyalty-customer.middlewares=loyalty-customer-headers@docker
+      - traefik.http.middlewares.loyalty-customer-headers.headers.stsSeconds=315360000
+      - traefik.http.middlewares.loyalty-customer-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.loyalty-customer-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.loyalty-customer-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.loyalty-customer-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.loyalty-customer-headers.headers.stsPreload=true
+      - traefik.http.services.loyalty-customer.loadbalancer.server.port=80
+      - traefik.http.services.loyalty-customer.loadbalancer.server.scheme=http
     depends_on:
       api:
         condition: service_healthy
@@ -106,3 +145,8 @@ services:
 volumes:
   pgdata:
   redisdata:
+
+networks:
+  default: {}
+  traefik-hrm:
+    external: true

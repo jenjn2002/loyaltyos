@@ -81,8 +81,8 @@ const memberFixture = {
   createdAt: new Date("2024-01-15"),
   updatedAt: new Date("2024-01-15"),
   program: {
-    defaultLocale: "es-MX",
-    supportedLocales: ["es-MX", "en-US"],
+    defaultLocale: "vi-VN",
+    supportedLocales: ["vi-VN", "en-US"],
   },
 };
 

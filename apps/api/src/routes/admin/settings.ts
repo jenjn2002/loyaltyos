@@ -13,7 +13,7 @@ import {
   validateMicrosoftConfig,
 } from "../../lib/microsoft-auth.js";
 import { requireCapability } from "../../lib/permissions.js";
-import { microsoftRedirectUri } from "../../lib/public-urls.js";
+import { adminMicrosoftRedirectUri, microsoftRedirectUri } from "../../lib/public-urls.js";
 
 const microsoftSettingsSchema = z.object({
   enabled: z.boolean().default(false),
@@ -50,6 +50,7 @@ function settingsResponse(config: {
     autoProvisionMembers: config.autoProvisionMembers,
     configured,
     redirectUri: microsoftRedirectUri(),
+    adminRedirectUri: adminMicrosoftRedirectUri(),
   };
 }
 
@@ -74,6 +75,7 @@ export function adminSettingsRoutes(app: FastifyInstance, _opts: unknown, done: 
               autoProvisionMembers: true,
               configured: false,
               redirectUri: microsoftRedirectUri(),
+              adminRedirectUri: adminMicrosoftRedirectUri(),
             },
       });
     },
@@ -155,7 +157,12 @@ export function adminSettingsRoutes(app: FastifyInstance, _opts: unknown, done: 
       validateMicrosoftConfig(config);
       const discovery = await discoverMicrosoft(config);
       return reply.send({
-        data: { ok: true, issuer: discovery.issuer, redirectUri: microsoftRedirectUri() },
+        data: {
+          ok: true,
+          issuer: discovery.issuer,
+          redirectUri: microsoftRedirectUri(),
+          adminRedirectUri: adminMicrosoftRedirectUri(),
+        },
       });
     },
   );

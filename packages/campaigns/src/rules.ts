@@ -23,6 +23,21 @@ export function evaluateRules(
   if (!rules || Object.keys(rules).length === 0) {
     return true;
   }
+  // PointRule used a legacy flat object such as { department: "Sales" }.
+  // Keep those migrated rules working while new campaigns use the rule-group DSL.
+  if (!("all" in rules) && !("any" in rules)) {
+    return Object.entries(rules).every(([field, expected]) => {
+      const actual = resolveField(field, context);
+      if (expected && typeof expected === "object" && !Array.isArray(expected)) {
+        const operators = expected as Record<string, unknown>;
+        if ("$eq" in operators && actual !== operators.$eq) return false;
+        if ("$gte" in operators && Number(actual) < Number(operators.$gte)) return false;
+        if ("$lte" in operators && Number(actual) > Number(operators.$lte)) return false;
+        return true;
+      }
+      return actual === expected;
+    });
+  }
   return matchesGroup(rules as unknown as RuleGroup, context);
 }
 

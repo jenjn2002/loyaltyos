@@ -8,11 +8,13 @@ import {
   ensurePointExchangeApprovalRequest,
 } from "../lib/approval-workflows.js";
 import { audit } from "../lib/audit.js";
+import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
 import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { walletService } from "../lib/wallets.js";
 import { pointExchangeApprovalHook } from "../lib/workflow-integrations.js";
+import { notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
 function idempotencyKey(request: {
   headers: Record<string, string | string[] | undefined>;
@@ -153,6 +155,18 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.get("/credits/exchange/rates", async (request, reply) => {
     return reply.send({ data: await walletService.exchangeRates(request.programId) });
+  });
+
+  app.get("/members/me/credits/exchange-requests", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const query = pageSchema.parse(request.query);
+    return reply.send({
+      data: await walletService.exchangeRequests(request.programId, {
+        memberId: request.memberId,
+        page: query.page,
+        pageSize: query.pageSize,
+      }),
+    });
   });
 
   app.post(
@@ -340,6 +354,46 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     },
   );
 
+  app.get(
+    "/admin/credits/bank/transactions",
+    { preHandler: [requireCapability("bank.view")] },
+    async (request, reply) => {
+      const query = pageSchema
+        .extend({
+          pointTypeId: z.string().optional(),
+          type: z.string().trim().min(1).max(80).optional(),
+        })
+        .parse(request.query);
+      const where: Prisma.PointBankTransactionWhereInput = {
+        programId: request.programId,
+        ...(query.pointTypeId ? { pointTypeId: query.pointTypeId } : {}),
+        ...(query.type ? { type: query.type } : {}),
+      };
+      const [items, total] = await Promise.all([
+        prisma.pointBankTransaction.findMany({
+          where,
+          include: {
+            pointType: { select: { id: true, code: true, name: true, unitLabel: true } },
+            cycle: { select: { id: true, startsAt: true, endsAt: true, status: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+        }),
+        prisma.pointBankTransaction.count({ where }),
+      ]);
+      return reply.send({
+        data: {
+          items,
+          total,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: Math.ceil(total / query.pageSize),
+        },
+      });
+    },
+  );
+
   app.post(
     "/admin/credits/adjust",
     { preHandler: [requireCapability("wallet.adjust")] },
@@ -414,27 +468,66 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     "/admin/credits/expire",
     { preHandler: [requireCapability("wallet.adjust")] },
     async (request, reply) => {
-      const expired = await walletService.expire(request.programId);
-      return reply.send({ data: { expired } });
+      const body = z.object({ pointTypeId: z.string().trim().min(1).optional() }).parse(request.body ?? {});
+      const result = await walletService.expire(request.programId, request.actor, body.pointTypeId);
+      return reply.send({ data: result });
+    },
+  );
+
+  app.post(
+    "/admin/credits/expire/reset",
+    { preHandler: [requireCapability("wallet.adjust")] },
+    async (request, reply) => {
+      const body = z
+        .object({
+          pointTypeId: z.string().trim().min(1).optional(),
+          runId: z.string().trim().min(1).optional(),
+        })
+        .parse(request.body ?? {});
+      const result = await walletService.resetExpiry(
+        request.programId,
+        request.actor,
+        body.pointTypeId,
+        body.runId,
+      );
+      await audit(
+        request.programId,
+        request.actor,
+        "CREDIT_ADJUSTMENT",
+        "point_expiration_run",
+        result.runId,
+        { restored: result.restored, runId: result.runId },
+        `Reset expiration run ${result.runId}`,
+      );
+      return reply.send({ data: result });
     },
   );
 
   app.get(
     "/admin/credits/categories",
-    { preHandler: [requireCapability("wallet.view")] },
+    { preHandler: [requireCapability("recognition.view")] },
     async (request, reply) => {
-      return reply.send({
-        data: await prisma.creditCategory.findMany({
+      const categories = await prisma.creditCategory.findMany({
           where: { programId: request.programId },
           orderBy: [{ isActive: "desc" }, { name: "asc" }],
-        }),
+        });
+      const creators = await createdByForEntities(
+        request.programId,
+        "point_category",
+        categories.map((category) => category.id),
+      );
+      return reply.send({
+        data: categories.map((category) => ({
+          ...category,
+          createdBy: creators.get(category.id) ?? null,
+        })),
       });
     },
   );
 
   app.post(
     "/admin/credits/categories",
-    { preHandler: [requireCapability("point_type.manage")] },
+    { preHandler: [requireCapability("recognition.manage")] },
     async (request, reply) => {
       const body = z
         .object({
@@ -459,7 +552,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.patch(
     "/admin/credits/categories/:id",
-    { preHandler: [requireCapability("point_type.manage")] },
+    { preHandler: [requireCapability("recognition.manage")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string() }).parse(request.params);
       const body = z
@@ -485,7 +578,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.delete(
     "/admin/credits/categories/:id",
-    { preHandler: [requireCapability("point_type.manage")] },
+    { preHandler: [requireCapability("recognition.manage")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string() }).parse(request.params);
       const category = await prisma.creditCategory.findFirst({
@@ -559,6 +652,9 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           pointExchangeApprovalHook,
         );
         const result = await prisma.pointExchangeRequest.findUniqueOrThrow({ where: { id } });
+        if (result.status === "APPROVED" || result.status === "REJECTED") {
+          await notifyCreditExchangeDecision(request.programId, id, result.status);
+        }
         await audit(
           request.programId,
           request.actor,
@@ -576,6 +672,9 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         request.actor,
         { note: body.note },
       );
+      if (result.status === "APPROVED" || result.status === "REJECTED") {
+        await notifyCreditExchangeDecision(request.programId, id, result.status);
+      }
       await audit(
         request.programId,
         request.actor,
@@ -641,6 +740,9 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         request.actor,
         { reason: body.reason },
       );
+      if (result.status === "REJECTED") {
+        await notifyCreditExchangeDecision(request.programId, id, result.status);
+      }
       await audit(
         request.programId,
         request.actor,
@@ -699,7 +801,15 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     "/admin/credits/exchange-rates",
     { preHandler: [requireCapability("exchange.view")] },
     async (request, reply) => {
-      return reply.send({ data: await walletService.exchangeRates(request.programId, false) });
+      const rates = await walletService.exchangeRates(request.programId, false);
+      const creators = await createdByForEntities(
+        request.programId,
+        "point_exchange_rate",
+        rates.map((rate) => rate.id),
+      );
+      return reply.send({
+        data: rates.map((rate) => ({ ...rate, createdBy: creators.get(rate.id) ?? null })),
+      });
     },
   );
 
@@ -708,8 +818,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     { preHandler: [requireCapability("bank.view")] },
     async (request, reply) => {
       const query = z.object({ pointTypeId: z.string().optional() }).parse(request.query);
-      return reply.send({
-        data: await prisma.pointBankCycle.findMany({
+      const cycles = await prisma.pointBankCycle.findMany({
           where: {
             programId: request.programId,
             ...(query.pointTypeId ? { pointTypeId: query.pointTypeId } : {}),
@@ -717,7 +826,14 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           include: { pointType: { select: { id: true, code: true, name: true } } },
           orderBy: { startsAt: "desc" },
           take: 100,
-        }),
+        });
+      const creators = await createdByForEntities(
+        request.programId,
+        "point_bank_cycle",
+        cycles.map((cycle) => cycle.id),
+      );
+      return reply.send({
+        data: cycles.map((cycle) => ({ ...cycle, createdBy: creators.get(cycle.id) ?? null })),
       });
     },
   );
@@ -769,6 +885,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           opening: bank?.balance ?? 0,
           note: body.note,
         },
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "point_bank_cycle", cycle.id, {
+        created: true,
+        pointTypeId: cycle.pointTypeId,
       });
       return reply.status(201).send({ data: cycle });
     },

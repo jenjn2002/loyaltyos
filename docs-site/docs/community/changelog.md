@@ -19,7 +19,7 @@ All notable changes to LoyaltyOS. Format follows [Keep a Changelog](https://keep
 - **Badges engine** — 5 badge types with condition DSL, progress tracking, event-driven auto-evaluation
 - **Tiers engine** — configurable rank hierarchy with threshold-based upgrades, inactivity downgrade
 - **Rewards engine** — 6 categories, eligibility checks, stock management, idempotent redemption
-- **Customer Portal** — React PWA with magic-link auth, i18n (en/es), rewards catalog, badges gallery, PWA manifest
+- **Customer Portal** — React PWA with magic-link auth, i18n (en/vi), rewards catalog, badges gallery, PWA manifest
 - **Loyalty Widget** — Lit Web Components, mini/full modes, themeable via CSS custom properties
 - **Magic-link auth** — passwordless login via email magic links (Resend)
 

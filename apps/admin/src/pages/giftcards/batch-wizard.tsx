@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -70,12 +71,12 @@ export function BatchWizardPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [expDate, setExpDate] = useState<Date | undefined>(undefined);
-  const [locale, setLocale] = useState("es-MX");
+  const [locale, setLocale] = useState("vi-VN");
   const [showQuantityDialog, setShowQuantityDialog] = useState(false);
   const [pendingQuantity, setPendingQuantity] = useState(0);
   const [newTermsOpen, setNewTermsOpen] = useState(false);
   const [newTermsName, setNewTermsName] = useState("");
-  const [newTermsLocale, setNewTermsLocale] = useState("es-MX");
+  const [newTermsLocale, setNewTermsLocale] = useState("vi-VN");
   const [newTermsBody, setNewTermsBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -180,7 +181,7 @@ export function BatchWizardPage(): JSX.Element {
       }
       setSubmitError(
         firstIssue
-          ? `Please complete ${String(firstIssue.path[0] ?? "the required fields")}: ${firstIssue.message}`
+          ? `Please complete ${String(firstIssue.path[0] ?? ui("the required fields"))}: ${firstIssue.message}`
           : "Please complete the required fields before creating the batch.",
       );
       return;
@@ -257,9 +258,7 @@ export function BatchWizardPage(): JSX.Element {
         <Card>
           <CardHeader>
             <CardTitle>{t("giftcards.wizard.step1")}</CardTitle>
-            <CardDescription>
-              Configure the basic properties of your gift card batch.
-            </CardDescription>
+            <CardDescription>{ui("Configure the basic properties of your gift card batch.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -271,7 +270,7 @@ export function BatchWizardPage(): JSX.Element {
             </div>
             <div>
               <Label htmlFor="prefix">{t("giftcards.prefix")}</Label>
-              <Input id="prefix" placeholder="e.g. HOLIDAY" {...form.register("prefix")} />
+              <Input id="prefix" placeholder={ui("e.g. HOLIDAY")} {...form.register("prefix")} />
             </div>
             <div>
               <Label htmlFor="quantity">{t("giftcards.quantity")} *</Label>
@@ -341,7 +340,7 @@ export function BatchWizardPage(): JSX.Element {
                       !expDate && "text-muted-foreground",
                     )}
                   >
-                    {expDate ? format(expDate, "PP") : "Pick a date"}
+                    {expDate ? format(expDate, "PP") : ui("Pick a date")}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -372,8 +371,8 @@ export function BatchWizardPage(): JSX.Element {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="es-MX">Español</SelectItem>
-                  <SelectItem value="en-US">English</SelectItem>
+                  <SelectItem value="vi-VN">{t("settings.languages.vietnamese")}</SelectItem>
+                  <SelectItem value="en-US">{t("settings.languages.english")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -386,7 +385,7 @@ export function BatchWizardPage(): JSX.Element {
                 }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a template..." />
+                  <SelectValue placeholder={ui("Select a template...")} />
                 </SelectTrigger>
                 <SelectContent>
                   {filteredTemplates.map((tpl) => (
@@ -402,9 +401,7 @@ export function BatchWizardPage(): JSX.Element {
                 </p>
               )}
               {templates?.length === 0 && (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  No terms template exists yet. Create one below before continuing.
-                </p>
+                <p className="mt-2 text-sm text-muted-foreground">{ui("No terms template exists yet. Create one below before continuing.")}</p>
               )}
             </div>
             <Separator />
@@ -449,14 +446,14 @@ export function BatchWizardPage(): JSX.Element {
             </div>
             <Separator />
             <div>
-              <p className="text-sm text-muted-foreground">Estimated total liability</p>
+              <p className="text-sm text-muted-foreground">{ui("Estimated total liability")}</p>
               <p className="text-xl font-bold">
                 {(form.watch("quantity") * form.watch("initialAmount")).toLocaleString()}{" "}
                 {form.watch("currency")}
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Estimated generation time</p>
+              <p className="text-sm text-muted-foreground">{ui("Estimated generation time")}</p>
               <p className="font-medium">
                 ~{Math.max(1, Math.ceil(form.watch("quantity") / 1000))}s
               </p>
@@ -494,7 +491,7 @@ export function BatchWizardPage(): JSX.Element {
       <AlertDialog open={showQuantityDialog} onOpenChange={setShowQuantityDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Large batch size</AlertDialogTitle>
+            <AlertDialogTitle>{ui("Large batch size")}</AlertDialogTitle>
             <AlertDialogDescription>
               Creating {pendingQuantity.toLocaleString()} gift cards will take approximately{" "}
               {Math.ceil(pendingQuantity / 1000)} seconds. Do you want to continue?
@@ -518,7 +515,7 @@ export function BatchWizardPage(): JSX.Element {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("giftcards.newTermsTemplate")}</DialogTitle>
-            <DialogDescription>Create a new terms and conditions template.</DialogDescription>
+            <DialogDescription>{ui("Create a new terms and conditions template.")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -537,8 +534,8 @@ export function BatchWizardPage(): JSX.Element {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="es-MX">Español</SelectItem>
-                  <SelectItem value="en-US">English</SelectItem>
+                  <SelectItem value="vi-VN">{t("settings.languages.vietnamese")}</SelectItem>
+                  <SelectItem value="en-US">{t("settings.languages.english")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

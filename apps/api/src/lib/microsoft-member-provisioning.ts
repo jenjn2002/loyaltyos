@@ -49,6 +49,46 @@ export function deriveMicrosoftMemberNames(identity: MicrosoftIdentityClaims): {
   return { firstName: parts[0] ?? null, lastName: null };
 }
 
+async function createMicrosoftMember(
+  tx: Prisma.TransactionClient,
+  programId: string,
+  identity: MicrosoftIdentityClaims,
+  email: string,
+  existingIdentityId?: string,
+): Promise<MicrosoftProvisioningResult> {
+  const names = deriveMicrosoftMemberNames(identity);
+  const member = await tx.member.create({
+    data: {
+      programId,
+      email,
+      firstName: names.firstName,
+      lastName: names.lastName,
+    },
+  });
+  const identityData = {
+    memberId: member.id,
+    email,
+    displayName: identity.displayName,
+  };
+  if (existingIdentityId) {
+    await tx.memberExternalIdentity.update({
+      where: { id: existingIdentityId },
+      data: identityData,
+    });
+  } else {
+    await tx.memberExternalIdentity.create({
+      data: {
+        programId,
+        provider: MICROSOFT_PROVIDER,
+        providerSubject: identity.subject,
+        tenantId: identity.tenantId,
+        ...identityData,
+      },
+    });
+  }
+  return { member, outcome: "auto_provisioned_member" };
+}
+
 async function exactIdentity(
   client: Pick<Prisma.TransactionClient, "memberExternalIdentity">,
   programId: string,
@@ -93,9 +133,18 @@ async function resolveInTransaction(
     SELECT "id" FROM "Program" WHERE "id" = ${programId} FOR UPDATE
   `);
 
+  const email = normalizeMicrosoftEmail(identity.email);
+  if (!email) throw new LoyaltyError("MICROSOFT_EMAIL_REQUIRED", 401);
+
   const linked = await exactIdentity(tx, programId, identity);
   if (linked) {
     if (!isActiveMember(linked.member)) {
+      // A deleted member is retained for ledger/audit history. When automatic
+      // provisioning is enabled, recycle the Microsoft identity onto a fresh
+      // active member instead of blocking the account forever.
+      if (autoProvisionMembers && linked.member.deletedAt !== null) {
+        return createMicrosoftMember(tx, programId, identity, email, linked.id);
+      }
       throw new LoyaltyError("MICROSOFT_MEMBER_UNAVAILABLE", 401);
     }
     return { member: linked.member, outcome: "login_existing_identity" };
@@ -105,12 +154,11 @@ async function resolveInTransaction(
     throw new LoyaltyError("MICROSOFT_IDENTITY_NOT_LINKED", 401);
   }
 
-  const email = normalizeMicrosoftEmail(identity.email);
-  if (!email) throw new LoyaltyError("MICROSOFT_EMAIL_REQUIRED", 401);
-
   const matches = await emailMatches(tx, programId, email);
   const activeMatches = matches.filter(isActiveMember);
-  const inactiveMatches = matches.filter((member) => !isActiveMember(member));
+  const inactiveMatches = matches.filter(
+    (member) => member.deletedAt === null && !isActiveMember(member),
+  );
   if (inactiveMatches.length > 0) {
     throw new LoyaltyError("MICROSOFT_MEMBER_UNAVAILABLE", 401);
   }
@@ -142,6 +190,9 @@ async function resolveInTransaction(
   const identityRecheck = await exactIdentity(tx, programId, identity);
   if (identityRecheck) {
     if (!isActiveMember(identityRecheck.member)) {
+      if (autoProvisionMembers && identityRecheck.member.deletedAt !== null) {
+        return createMicrosoftMember(tx, programId, identity, email, identityRecheck.id);
+      }
       throw new LoyaltyError("MICROSOFT_MEMBER_UNAVAILABLE", 401);
     }
     return { member: identityRecheck.member, outcome: "login_existing_identity" };
@@ -149,7 +200,11 @@ async function resolveInTransaction(
   const emailRecheck = await emailMatches(tx, programId, email);
   if (emailRecheck.length > 0) {
     const activeRecheck = emailRecheck.filter(isActiveMember);
-    if (emailRecheck.some((member) => !isActiveMember(member))) {
+    if (
+      emailRecheck.some(
+        (member) => member.deletedAt === null && !isActiveMember(member),
+      )
+    ) {
       throw new LoyaltyError("MICROSOFT_MEMBER_UNAVAILABLE", 401);
     }
     if (activeRecheck.length > 1) {
@@ -172,27 +227,7 @@ async function resolveInTransaction(
     return { member: created.member, outcome: "linked_existing_member" };
   }
 
-  const names = deriveMicrosoftMemberNames(identity);
-  const member = await tx.member.create({
-    data: {
-      programId,
-      email,
-      firstName: names.firstName,
-      lastName: names.lastName,
-    },
-  });
-  await tx.memberExternalIdentity.create({
-    data: {
-      programId,
-      memberId: member.id,
-      provider: MICROSOFT_PROVIDER,
-      providerSubject: identity.subject,
-      tenantId: identity.tenantId,
-      email,
-      displayName: identity.displayName,
-    },
-  });
-  return { member, outcome: "auto_provisioned_member" };
+  return createMicrosoftMember(tx, programId, identity, email);
 }
 
 export async function resolveMicrosoftMember(

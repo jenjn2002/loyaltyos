@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import type { ReactNode } from "react";
 import { CircleHelp } from "lucide-react";
 
@@ -12,7 +13,7 @@ type HelpTooltipProps = {
 
 export function HelpTooltip({
   children,
-  label = "Show definition",
+  label = ui("Show definition"),
   className,
 }: HelpTooltipProps): JSX.Element {
   return (

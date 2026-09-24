@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Link2, RefreshCw, Search, Unlink } from "lucide-react";
@@ -68,22 +69,20 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Linked Coalition Members</h1>
-        <p className="mt-1 text-muted-foreground">
-          Manage members linked to external coalition accounts.
-        </p>
+        <h1 className="text-3xl font-bold">{ui("Linked Coalition Members")}</h1>
+        <p className="mt-1 text-muted-foreground">{ui("Manage members linked to external coalition accounts.")}</p>
       </div>
 
       {/* Search */}
       <Card>
         <CardContent className="flex items-end gap-4 pt-6">
           <div className="space-y-2">
-            <Label htmlFor="member-search">Search Members</Label>
+            <Label htmlFor="member-search">{ui("Search Members")}</Label>
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
               <Input
                 id="member-search"
-                placeholder="Search by member ID or external ref..."
+                placeholder={ui("Search by member ID or external ref...")}
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -112,11 +111,11 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Member ID</TableHead>
-                <TableHead>External Ref</TableHead>
-                <TableHead>Provider</TableHead>
-                <TableHead>External Balance</TableHead>
-                <TableHead>Linked At</TableHead>
+                <TableHead>{ui("Member ID")}</TableHead>
+                <TableHead>{ui("External Ref")}</TableHead>
+                <TableHead>{ui("Provider")}</TableHead>
+                <TableHead>{ui("External Balance")}</TableHead>
+                <TableHead>{ui("Linked At")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -142,9 +141,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
                         setUnlinkTarget(acc);
                       }}
                     >
-                      <Unlink className="mr-1 h-3 w-3" />
-                      Unlink
-                    </Button>
+                      <Unlink className="mr-1 h-3 w-3" />{ui("Unlink")}</Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -155,10 +152,8 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
         <Card>
           <CardContent className="py-8 text-center">
             <Link2 className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="mt-2 text-muted-foreground">No linked accounts found.</p>
-            <p className="text-sm text-muted-foreground">
-              Use the API to link members to external coalition accounts.
-            </p>
+            <p className="mt-2 text-muted-foreground">{ui("No linked accounts found.")}</p>
+            <p className="text-sm text-muted-foreground">{ui("Use the API to link members to external coalition accounts.")}</p>
           </CardContent>
         </Card>
       )}
@@ -172,9 +167,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
           onClick={() => {
             setPage(page - 1);
           }}
-        >
-          Previous
-        </Button>
+        >{ui("Previous")}</Button>
         <span className="text-sm text-muted-foreground">Page {page}</span>
         <Button
           variant="outline"
@@ -183,9 +176,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
           onClick={() => {
             setPage(page + 1);
           }}
-        >
-          Next
-        </Button>
+        >{ui("Next")}</Button>
       </div>
 
       {/* Unlink Confirmation Dialog */}
@@ -197,24 +188,23 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Unlink Coalition Account</DialogTitle>
+            <DialogTitle>{ui("Unlink Coalition Account")}</DialogTitle>
             <DialogDescription>
-              This will remove the link between the member and their external coalition account. The
-              external account itself will not be affected.
+              {ui("This will remove the link between the member and their external coalition account. The external account itself will not be affected.")}
             </DialogDescription>
           </DialogHeader>
           {unlinkTarget && (
             <div className="space-y-2 text-sm">
               <p>
-                <span className="font-medium">Member:</span>{" "}
+                <span className="font-medium">{ui("Member:")}</span>{" "}
                 <code className="rounded bg-muted px-1">{unlinkTarget.memberId}</code>
               </p>
               <p>
-                <span className="font-medium">External Ref:</span>{" "}
+                <span className="font-medium">{ui("External Ref:")}</span>{" "}
                 <code className="rounded bg-muted px-1">{unlinkTarget.externalId}</code>
               </p>
               <p>
-                <span className="font-medium">Provider:</span> {unlinkTarget.provider}
+                <span className="font-medium">{ui("Provider:")}</span> {unlinkTarget.provider}
               </p>
             </div>
           )}
@@ -224,9 +214,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
               onClick={() => {
                 setUnlinkTarget(null);
               }}
-            >
-              Cancel
-            </Button>
+            >{ui("Cancel")}</Button>
             <Button
               variant="destructive"
               onClick={() => {
@@ -237,7 +225,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
               {unlinkMutation.isPending ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              Confirm Unlink
+              {ui("Confirm Unlink")}
             </Button>
           </DialogFooter>
           {unlinkMutation.isError && (

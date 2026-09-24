@@ -1,5 +1,31 @@
+import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveRestore, Copy, Plus, Save, Settings2, Trash2, X } from "lucide-react";
+import {
+  Award,
+  ArchiveRestore,
+  Banknote,
+  CircleDollarSign,
+  Coins,
+  Copy,
+  CreditCard,
+  Gift,
+  Heart,
+  Landmark,
+  Medal,
+  Plus,
+  RefreshCw,
+  Save,
+  Settings2,
+  Sparkles,
+  Star,
+  Trash2,
+  Trophy,
+  Upload,
+  WalletCards,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -67,6 +93,7 @@ interface PointType {
   archivedAt: string | null;
   metadata: Record<string, unknown> | null;
   outgoingTransferRules: TransferRule[];
+  createdBy?: { id: string; name: string; email: string | null } | null;
 }
 
 interface RuleDraft {
@@ -111,6 +138,94 @@ interface Draft {
   isActive: boolean;
   metadata: string;
   transferRules: RuleDraft[];
+}
+
+const POINT_ICON_OPTIONS: Array<{ value: string; label: string; Icon: LucideIcon }> = [
+  { value: "star", label: "Star", Icon: Star },
+  { value: "wallet", label: "Wallet", Icon: WalletCards },
+  { value: "gift", label: "Gift", Icon: Gift },
+  { value: "trophy", label: "Trophy", Icon: Trophy },
+  { value: "medal", label: "Medal", Icon: Medal },
+  { value: "award", label: "Award", Icon: Award },
+  { value: "coins", label: "Coins", Icon: Coins },
+  { value: "credit-card", label: "Credit card", Icon: CreditCard },
+  { value: "banknote", label: "Banknote", Icon: Banknote },
+  { value: "landmark", label: "Bank", Icon: Landmark },
+  { value: "circle-dollar-sign", label: "Dollar", Icon: CircleDollarSign },
+  { value: "heart", label: "Heart", Icon: Heart },
+  { value: "sparkles", label: "Sparkles", Icon: Sparkles },
+  { value: "zap", label: "Lightning", Icon: Zap },
+];
+
+function isImageIcon(value: string): boolean {
+  return value.startsWith("data:image/") || /^https?:\/\//i.test(value);
+}
+
+function iconChoice(value: string): string {
+  if (!value) return "";
+  if (isImageIcon(value)) return "__uploaded__";
+  if (POINT_ICON_OPTIONS.some((option) => option.value === value)) return value;
+  return "__custom__";
+}
+
+function PointTypeIcon({ icon, className = "h-5 w-5" }: { icon: string | null; className?: string }): JSX.Element {
+  if (icon && isImageIcon(icon)) {
+    return <img src={icon} alt="" className={`${className} rounded object-cover`} />;
+  }
+  const preset = POINT_ICON_OPTIONS.find((option) => option.value === icon);
+  if (preset) {
+    const Icon = preset.Icon;
+    return <Icon className={className} aria-hidden="true" />;
+  }
+  if (icon && icon.length <= 8) {
+    return <span className={`${className} inline-flex items-center justify-center text-base`} aria-hidden="true">{icon}</span>;
+  }
+  return <WalletCards className={className} aria-hidden="true" />;
+}
+
+function imageFileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Unsupported image type"));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error("Image must be 5 MB or smaller"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read image"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Unable to decode image"));
+      image.onload = () => {
+        const maxDimension = 256;
+        const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+        const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Unable to process image"));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("Unable to encode image"));
+            return;
+          }
+          const output = new FileReader();
+          output.onerror = () => reject(new Error("Unable to encode image"));
+          output.onload = () => resolve(String(output.result));
+          output.readAsDataURL(blob);
+        }, "image/png");
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 const blankDraft: Draft = {
@@ -258,6 +373,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
   const [draft, setDraft] = useState<Draft>(blankDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [iconUploadError, setIconUploadError] = useState<string | null>(null);
 
   const pointTypes = useQuery({
     queryKey: ["point-types", "admin"],
@@ -292,6 +408,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
   const reset = (): void => {
     setEditingId(null);
     setDraft({ ...blankDraft, transferRules: [] });
+    setIconUploadError(null);
     if (view === "editor") navigate("/point-types");
   };
 
@@ -438,6 +555,36 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
     },
   });
 
+  const expire = useMutation({
+    mutationFn: (pointTypeId: string) =>
+      fetchApi<{ expired: number; runId: string | null }>("/admin/credits/expire", {
+        method: "POST",
+        body: JSON.stringify({ pointTypeId }),
+      }),
+    onSuccess: async (result) => {
+      setNotice(`${String(result.expired)} ${ui("expired lot(s) processed.")}`);
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+
+  const resetExpire = useMutation({
+    mutationFn: (pointTypeId: string) =>
+      fetchApi<{ restored: number; runId: string }>("/admin/credits/expire/reset", {
+        method: "POST",
+        body: JSON.stringify({ pointTypeId }),
+      }),
+    onSuccess: async (result) => {
+      setNotice(`${String(result.restored)} ${ui("expired point(s) restored.")}`);
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+
   const addRule = (): void => {
     setDraft((current) => ({
       ...current,
@@ -477,7 +624,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             {view === "registry"
               ? "Point type registry"
               : editingId
-                ? `Edit ${selected?.name ?? "point type"}`
+                ? `Edit ${selected?.name ?? ui("point type")}`
                 : "Create point type"}
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
@@ -495,21 +642,16 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 onClick={() => {
                   applyTemplate.mutate();
                 }}
-              >
-                Apply optional P/R template
-              </Button>
+              >{ui("Apply optional P/R template")}</Button>
               <Button
                 onClick={() => {
                   navigate("/point-types/new");
                 }}
               >
-                <Plus /> Create point type
-              </Button>
+                <Plus />{ui("Create point type")}</Button>
             </>
           ) : (
-            <Button variant="outline" onClick={reset}>
-              Back to registry
-            </Button>
+            <Button variant="outline" onClick={reset}>{ui("Back to registry")}</Button>
           )}
         </div>
       </div>
@@ -524,20 +666,18 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
         <Card>
           <CardHeader>
             <CardTitle>
-              {editingId ? `Edit ${selected?.name ?? "point type"}` : "New point type"}
+              {editingId ? `Edit ${selected?.name ?? ui("point type")}` : "New point type"}
             </CardTitle>
-            <CardDescription>
-              Configure identity, lifecycle, member visibility and allowed business operations.
-            </CardDescription>
+            <CardDescription>{ui("Configure identity, lifecycle, member visibility and allowed business operations.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-7">
             <section>
-              <h2 className="mb-3 font-semibold">Identity</h2>
+              <h2 className="mb-3 font-semibold">{ui("Identity")}</h2>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Field
                   id="point-code"
-                  label="Code"
-                  help="Stable identifier used by APIs and bulk import columns such as point_MILES."
+                  label={ui("Code")}
+                  help={ui("Stable identifier used by APIs and bulk import columns such as point_MILES.")}
                 >
                   <Input
                     id="point-code"
@@ -551,8 +691,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="point-name"
-                  label="Name"
-                  help="Member-facing and administrator-facing point type name."
+                  label={ui("Name")}
+                  help={ui("Member-facing and administrator-facing point type name.")}
                 >
                   <Input
                     id="point-name"
@@ -560,13 +700,13 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                     onChange={(event) => {
                       update("name", event.target.value);
                     }}
-                    placeholder="Travel miles"
+                    placeholder={ui("Travel miles")}
                   />
                 </Field>
                 <Field
                   id="unit-label"
-                  label="Unit label"
-                  help="Text displayed beside a wallet amount, for example miles or credits."
+                  label={ui("Unit label")}
+                  help={ui("Text displayed beside a wallet amount, for example miles or credits.")}
                 >
                   <Input
                     id="unit-label"
@@ -578,8 +718,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="sort-order"
-                  label="Sort order"
-                  help="Lower numbers appear first in Admin and Portal wallet lists."
+                  label={ui("Sort order")}
+                  help={ui("Lower numbers appear first in Admin and Portal wallet lists.")}
                 >
                   <Input
                     id="sort-order"
@@ -592,8 +732,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="point-description"
-                  label="Description"
-                  help="Explains what this balance represents and how members may use it."
+                  label={ui("Description")}
+                  help={ui("Explains what this balance represents and how members may use it.")}
                   className="md:col-span-2"
                 >
                   <Textarea
@@ -606,22 +746,102 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="point-icon"
-                  label="Icon"
-                  help="Optional icon name or short symbol understood by the configured frontend."
+                  label={ui("Icon")}
+                  help={ui("Choose a built-in icon, enter a symbol, or upload an image for this point type.")}
                 >
-                  <Input
-                    id="point-icon"
-                    value={draft.icon}
-                    onChange={(event) => {
-                      update("icon", event.target.value);
-                    }}
-                    placeholder="star"
-                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <PointTypeIcon icon={draft.icon || null} className="h-6 w-6 shrink-0" />
+                      <select
+                        id="point-icon"
+                        className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
+                        value={iconChoice(draft.icon)}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === "__uploaded__") return;
+                          if (value === "__custom__") {
+                            update("icon", "");
+                            setIconUploadError(null);
+                            return;
+                          }
+                          update("icon", value);
+                          setIconUploadError(null);
+                        }}
+                      >
+                        <option value="">{ui("No icon")}</option>
+                        {POINT_ICON_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {ui(option.label)}
+                          </option>
+                        ))}
+                        {isImageIcon(draft.icon) && <option value="__uploaded__">{ui("Uploaded image")}</option>}
+                        <option value="__custom__">{ui("Custom symbol or name")}</option>
+                      </select>
+                    </div>
+                    {!isImageIcon(draft.icon) && (!draft.icon || iconChoice(draft.icon) === "__custom__") && (
+                      <Input
+                        aria-label={ui("Custom symbol or name")}
+                        value={draft.icon}
+                        onChange={(event) => {
+                          update("icon", event.target.value);
+                        }}
+                        placeholder={ui("For example: ✨ or a custom icon name")}
+                      />
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label
+                        htmlFor="point-icon-file"
+                        className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm font-medium hover:bg-muted"
+                      >
+                        <Upload className="h-4 w-4" />
+                        {ui("Upload image")}
+                      </label>
+                      <input
+                        id="point-icon-file"
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          const input = event.currentTarget;
+                          setIconUploadError(null);
+                          void imageFileToDataUrl(file)
+                            .then((icon) => {
+                              update("icon", icon);
+                            })
+                            .catch((error: unknown) => {
+                              setIconUploadError(
+                                error instanceof Error ? error.message : ui("Unable to upload image"),
+                              );
+                              input.value = "";
+                            });
+                        }}
+                      />
+                      {isImageIcon(draft.icon) && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            update("icon", "");
+                            setIconUploadError(null);
+                          }}
+                        >
+                          {ui("Remove image")}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {ui("Choose an icon from the list or upload a JPG, PNG, GIF or WebP image. Images are resized automatically.")}
+                    </p>
+                    {iconUploadError && <p className="text-xs text-destructive">{iconUploadError}</p>}
+                  </div>
                 </Field>
                 <Field
                   id="point-color"
-                  label="Color"
-                  help="Optional CSS color used to distinguish this wallet."
+                  label={ui("Color")}
+                  help={ui("Optional CSS color used to distinguish this wallet.")}
                 >
                   <Input
                     id="point-color"
@@ -636,12 +856,12 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             </section>
 
             <section>
-              <h2 className="mb-3 font-semibold">Expiry policy</h2>
+              <h2 className="mb-3 font-semibold">{ui("Expiry policy")}</h2>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Field
                   id="expiry-mode"
-                  label="Expiry mode"
-                  help="Never, a rolling number of days, one fixed program date, or an expiry supplied per grant."
+                  label={ui("Expiry mode")}
+                  help={ui("Never, a fixed number of days from point creation, one fixed program date, or an expiry supplied per grant.")}
                 >
                   <select
                     id="expiry-mode"
@@ -651,16 +871,16 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       update("expiryMode", event.target.value as ExpiryMode);
                     }}
                   >
-                    <option value="NEVER">Never expires</option>
-                    <option value="AFTER_DAYS">After a number of days</option>
-                    <option value="FIXED_DATE">Fixed date</option>
-                    <option value="PER_GRANT">Per grant</option>
+                    <option value="NEVER">{ui("Never expires")}</option>
+                    <option value="AFTER_DAYS">{ui("After a number of days from creation")}</option>
+                    <option value="FIXED_DATE">{ui("Fixed date")}</option>
+                    <option value="PER_GRANT">{ui("Per grant")}</option>
                   </select>
                 </Field>
                 <Field
                   id="expiry-days"
-                  label="Expiry days"
-                  help="Rolling lifetime of each grant when expiry mode is After days."
+                  label={ui("Expiry days")}
+                  help={ui("The point type expires this many days after it is created; every grant uses the same expiry date.")}
                 >
                   <Input
                     id="expiry-days"
@@ -675,8 +895,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="fixed-expiry"
-                  label="Fixed expiry date"
-                  help="All grants use this exact end date when expiry mode is Fixed date."
+                  label={ui("Fixed expiry date")}
+                  help={ui("All grants use this exact end date when expiry mode is Fixed date.")}
                 >
                   <Input
                     id="fixed-expiry"
@@ -690,8 +910,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 </Field>
                 <Field
                   id="warning-days"
-                  label="Expiry warning days"
-                  help="Comma-separated reminder offsets, for example 30, 7, 1."
+                  label={ui("Expiry warning days")}
+                  help={ui("Comma-separated reminder offsets, for example 30, 7, 1.")}
                 >
                   <Input
                     id="warning-days"
@@ -706,12 +926,12 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             </section>
 
             <section>
-              <h2 className="mb-3 font-semibold">Availability and visibility</h2>
+              <h2 className="mb-3 font-semibold">{ui("Availability and visibility")}</h2>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <Toggle
                   id="point-active"
-                  label="Active"
-                  help="Allows new operations with this type; turning it off keeps all balances and history."
+                  label={ui("Active")}
+                  help={ui("Allows new operations with this type; turning it off keeps all balances and history.")}
                   checked={draft.isActive}
                   onCheckedChange={(checked) => {
                     setDraft((current) => ({
@@ -723,8 +943,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="point-primary"
-                  label="Primary type"
-                  help="Fallback used by events and integrations that omit pointTypeId. Only one type can be primary."
+                  label={ui("Primary type")}
+                  help={ui("Fallback used by events and integrations that omit pointTypeId. Only one type can be primary.")}
                   checked={draft.isPrimary}
                   onCheckedChange={(checked) => {
                     setDraft((current) => ({
@@ -736,8 +956,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="show-profile"
-                  label="Show on member profile"
-                  help="Makes this wallet available to the member-facing Portal."
+                  label={ui("Show on member profile")}
+                  help={ui("Makes this wallet available to the member-facing Portal.")}
                   checked={draft.showOnMemberProfile}
                   onCheckedChange={(checked) => {
                     update("showOnMemberProfile", checked);
@@ -745,8 +965,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="show-zero"
-                  label="Show zero balance"
-                  help="Shows the wallet even when the member has not received this type yet."
+                  label={ui("Show zero balance")}
+                  help={ui("Shows the wallet even when the member has not received this type yet.")}
                   checked={draft.showZeroBalance}
                   onCheckedChange={(checked) => {
                     update("showZeroBalance", checked);
@@ -754,8 +974,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="negative-balance"
-                  label="Allow negative balance"
-                  help="Permits debit below zero; normally disabled for stored-value programs."
+                  label={ui("Allow negative balance")}
+                  help={ui("Permits debit below zero; normally disabled for stored-value programs.")}
                   checked={draft.allowNegativeBalance}
                   onCheckedChange={(checked) => {
                     update("allowNegativeBalance", checked);
@@ -763,8 +983,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="manual-adjustment"
-                  label="Allow manual adjustment"
-                  help="Lets an authorized operator add or remove this balance with an audit reason."
+                  label={ui("Allow manual adjustment")}
+                  help={ui("Lets an authorized operator add or remove this balance with an audit reason.")}
                   checked={draft.allowManualAdjustment}
                   onCheckedChange={(checked) => {
                     update("allowManualAdjustment", checked);
@@ -774,12 +994,12 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             </section>
 
             <section>
-              <h2 className="mb-3 font-semibold">Capabilities</h2>
+              <h2 className="mb-3 font-semibold">{ui("Capabilities")}</h2>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <Toggle
                   id="bank-enabled"
-                  label="Use credit bank"
-                  help="Positive issuance must be funded from a governed central pool."
+                  label={ui("Use credit bank")}
+                  help={ui("Positive issuance must be funded from a governed central pool.")}
                   checked={draft.bankEnabled}
                   onCheckedChange={(checked) => {
                     update("bankEnabled", checked);
@@ -787,8 +1007,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="give-enabled"
-                  label="Enable Give"
-                  help="Allows member-to-member transfers only through the transfer matrix below."
+                  label={ui("Enable Give")}
+                  help={ui("Allows member-to-member transfers only through the transfer matrix below.")}
                   checked={draft.giveEnabled}
                   onCheckedChange={(checked) => {
                     setDraft((current) => ({
@@ -800,8 +1020,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="redeemable"
-                  label="Redeemable"
-                  help="Allows this type to be configured as a price for rewards."
+                  label={ui("Redeemable")}
+                  help={ui("Allows this type to be configured as a price for rewards.")}
                   checked={draft.redeemable}
                   onCheckedChange={(checked) => {
                     update("redeemable", checked);
@@ -809,8 +1029,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="exchangeable"
-                  label="Exchangeable"
-                  help="Allows members to submit exchange requests against versioned rates."
+                  label={ui("Exchangeable")}
+                  help={ui("Allows members to submit exchange requests against versioned rates.")}
                   checked={draft.exchangeable}
                   onCheckedChange={(checked) => {
                     setDraft((current) => ({
@@ -822,8 +1042,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 />
                 <Toggle
                   id="cash-eligible"
-                  label="Cash eligible"
-                  help="Allows cash payout rates; exchange must also be enabled."
+                  label={ui("Cash eligible")}
+                  help={ui("Allows cash payout rates; exchange must also be enabled.")}
                   checked={draft.cashEligible}
                   disabled={!draft.exchangeable}
                   onCheckedChange={(checked) => {
@@ -836,17 +1056,16 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             {draft.giveEnabled && (
               <section className="space-y-4 rounded-lg border p-4">
                 <div>
-                  <h2 className="font-semibold">Give policy and transfer matrix</h2>
+                  <h2 className="font-semibold">{ui("Give policy and transfer matrix")}</h2>
                   <p className="text-sm text-muted-foreground">
-                    No destination is implicit. A source can transfer only to the types explicitly
-                    listed here, with the configured conversion ratio.
+                    {ui("No destination is implicit. A source can transfer only to the types explicitly listed here, with the configured conversion ratio.")}
                   </p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <Field
                     id="give-source"
-                    label="Give source"
-                    help="Choose owned balance, a renewable allowance, or let members explicitly choose either source for each Give."
+                    label={ui("Give source")}
+                    help={ui("Choose owned balance, a renewable allowance, or let members explicitly choose either source for each Give.")}
                   >
                     <select
                       id="give-source"
@@ -856,15 +1075,15 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                         update("giveSource", event.target.value as GiveSource);
                       }}
                     >
-                      <option value="BALANCE">Owned balance</option>
-                      <option value="ALLOWANCE">Separate allowance</option>
-                      <option value="BOTH">Member chooses balance or allowance</option>
+                      <option value="BALANCE">{ui("Owned balance")}</option>
+                      <option value="ALLOWANCE">{ui("Separate allowance")}</option>
+                      <option value="BOTH">{ui("Member chooses balance or allowance")}</option>
                     </select>
                   </Field>
                   <Field
                     id="allowance-amount"
-                    label="Allowance per cycle"
-                    help="Give budget allocated independently from owned balance each cycle."
+                    label={ui("Allowance per cycle")}
+                    help={ui("Give budget allocated independently from owned balance each cycle.")}
                   >
                     <Input
                       id="allowance-amount"
@@ -879,8 +1098,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   </Field>
                   <Field
                     id="allowance-cycle"
-                    label="Allowance cycle days"
-                    help="Number of days before a fresh Give allowance is created."
+                    label={ui("Allowance cycle days")}
+                    help={ui("Number of days before a fresh Give allowance is created.")}
                   >
                     <Input
                       id="allowance-cycle"
@@ -894,8 +1113,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   </Field>
                   <Field
                     id="max-recipients"
-                    label="Maximum recipients"
-                    help="Maximum unique members accepted in one Give request."
+                    label={ui("Maximum recipients")}
+                    help={ui("Maximum unique members accepted in one Give request.")}
                   >
                     <Input
                       id="max-recipients"
@@ -910,8 +1129,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   </Field>
                   <Field
                     id="pair-limit"
-                    label="Pair limit"
-                    help="Optional maximum one member may Give to the same recipient in the period."
+                    label={ui("Pair limit")}
+                    help={ui("Optional maximum one member may Give to the same recipient in the period.")}
                   >
                     <Input
                       id="pair-limit"
@@ -921,13 +1140,13 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       onChange={(event) => {
                         update("pairLimit", event.target.value);
                       }}
-                      placeholder="No limit"
+                      placeholder={ui("No limit")}
                     />
                   </Field>
                   <Field
                     id="pair-period"
-                    label="Pair limit period days"
-                    help="Rolling window used to calculate the giver-to-recipient limit."
+                    label={ui("Pair limit period days")}
+                    help={ui("Rolling window used to calculate the giver-to-recipient limit.")}
                   >
                     <Input
                       id="pair-period"
@@ -941,8 +1160,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   </Field>
                   <Toggle
                     id="carry-over"
-                    label="Carry over allowance"
-                    help="Adds unused allowance to the next cycle instead of discarding it."
+                    label={ui("Carry over allowance")}
+                    help={ui("Adds unused allowance to the next cycle instead of discarding it.")}
                     checked={draft.allowanceCarryOver}
                     disabled={draft.giveSource === "BALANCE"}
                     onCheckedChange={(checked) => {
@@ -951,8 +1170,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   />
                   <Toggle
                     id="require-message"
-                    label="Require Give message"
-                    help="Rejects Give operations that do not include a recognition message."
+                    label={ui("Require Give message")}
+                    help={ui("Rejects Give operations that do not include a recognition message.")}
                     checked={draft.requireGiveMessage}
                     onCheckedChange={(checked) => {
                       update("requireGiveMessage", checked);
@@ -960,8 +1179,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   />
                   <Toggle
                     id="multi-recipient"
-                    label="Allow multiple recipients"
-                    help="Allows one request to recognize more than one unique member."
+                    label={ui("Allow multiple recipients")}
+                    help={ui("Allows one request to recognize more than one unique member.")}
                     checked={draft.allowMultiRecipient}
                     onCheckedChange={(checked) => {
                       setDraft((current) => ({
@@ -981,8 +1200,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                     >
                       <Field
                         id={`rule-target-${String(index)}`}
-                        label="Destination type"
-                        help="Only this point type may be received from the current source type."
+                        label={ui("Destination type")}
+                        help={ui("Only this point type may be received from the current source type.")}
                       >
                         <select
                           id={`rule-target-${String(index)}`}
@@ -992,7 +1211,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             updateRule(index, "destinationPointTypeId", event.target.value);
                           }}
                         >
-                          <option value="SELF">Same type (self)</option>
+                          <option value="SELF">{ui("Same type (self)")}</option>
                           {activeTypes
                             .filter((type) => type.id !== editingId)
                             .map((type) => (
@@ -1004,8 +1223,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       </Field>
                       <Field
                         id={`rule-source-${String(index)}`}
-                        label="Source amount"
-                        help="Number of source units consumed for this ratio."
+                        label={ui("Source amount")}
+                        help={ui("Number of source units consumed for this ratio.")}
                       >
                         <Input
                           id={`rule-source-${String(index)}`}
@@ -1019,8 +1238,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       </Field>
                       <Field
                         id={`rule-destination-${String(index)}`}
-                        label="Destination amount"
-                        help="Number of destination units granted for each source ratio."
+                        label={ui("Destination amount")}
+                        help={ui("Number of destination units granted for each source ratio.")}
                       >
                         <Input
                           id={`rule-destination-${String(index)}`}
@@ -1034,8 +1253,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       </Field>
                       <Toggle
                         id={`rule-active-${String(index)}`}
-                        label="Enabled"
-                        help="Temporarily enables or disables this exact transfer path."
+                        label={ui("Enabled")}
+                        help={ui("Temporarily enables or disables this exact transfer path.")}
                         checked={rule.isActive}
                         onCheckedChange={(checked) => {
                           updateRule(index, "isActive", checked);
@@ -1045,7 +1264,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                         type="button"
                         size="icon"
                         variant="ghost"
-                        aria-label="Remove transfer rule"
+                        aria-label={ui("Remove transfer rule")}
                         onClick={() => {
                           setDraft((current) => ({
                             ...current,
@@ -1060,8 +1279,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                     </div>
                   ))}
                   <Button type="button" variant="outline" onClick={addRule}>
-                    <Plus /> Add allowed destination
-                  </Button>
+                    <Plus />{ui("Add allowed destination")}</Button>
                 </div>
               </section>
             )}
@@ -1069,8 +1287,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
             <section>
               <Field
                 id="point-metadata"
-                label="Advanced metadata (JSON)"
-                help="Extension data for integrations and future custom behavior without adding fixed database columns."
+                label={ui("Advanced metadata (JSON)")}
+                help={ui("Extension data for integrations and future custom behavior without adding fixed database columns.")}
               >
                 <Textarea
                   id="point-metadata"
@@ -1090,12 +1308,10 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   save.mutate();
                 }}
               >
-                <Save /> {save.isPending ? "Saving…" : "Save point type"}
+                <Save /> {save.isPending ? ui("Saving…") : ui("Save point type")}
               </Button>
               {editingId && (
-                <Button variant="outline" onClick={reset}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={reset}>{ui("Cancel")}</Button>
               )}
             </div>
           </CardContent>
@@ -1105,18 +1321,15 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
       {view === "registry" && (
         <Card>
           <CardHeader>
-            <CardTitle>Point type registry</CardTitle>
+            <CardTitle>{ui("Point type registry")}</CardTitle>
             <CardDescription>
-              P and R have no special lock. Delete any unused type; a used type is safely archived
-              and removed from member profiles.
+              {ui("P and R have no special lock. Delete any unused type; a used type is safely archived and removed from member profiles.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {pointTypes.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {pointTypes.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading…")}</p>}
             {!pointTypes.isLoading && (pointTypes.data ?? []).length === 0 && (
-              <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No point types configured. Create one or apply the optional P/R template.
-              </p>
+              <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">{ui("No point types configured. Create one or apply the optional P/R template.")}</p>
             )}
             {(pointTypes.data ?? []).map((pointType) => (
               <div
@@ -1126,23 +1339,22 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <PointTypeIcon icon={pointType.icon} className="h-5 w-5" />
                       <span className="font-semibold">{pointType.name}</span>
                       <span className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
                         {pointType.code}
                       </span>
                       {pointType.isPrimary && (
-                        <span className="rounded bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                          Primary
-                        </span>
+                        <span className="rounded bg-primary px-2 py-0.5 text-xs text-primary-foreground">{ui("Primary")}</span>
                       )}
                       {pointType.archivedAt ? (
-                        <span className="rounded bg-muted px-2 py-0.5 text-xs">Archived</span>
+                        <span className="rounded bg-muted px-2 py-0.5 text-xs">{ui("Archived")}</span>
                       ) : !pointType.isActive ? (
-                        <span className="rounded bg-muted px-2 py-0.5 text-xs">Inactive</span>
+                        <span className="rounded bg-muted px-2 py-0.5 text-xs">{ui("Inactive")}</span>
                       ) : null}
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {pointType.description ?? "No description"}
+                      {pointType.description ?? ui("No description")}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {pointType.expiryMode.replaceAll("_", " ")} · Give{" "}
@@ -1150,6 +1362,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       · {pointType.outgoingTransferRules.length} allowed destination(s) · Portal{" "}
                       {pointType.showOnMemberProfile ? "visible" : "hidden"}
                     </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{ui("Created by")}: {pointType.createdBy ? `${pointType.createdBy.name}${pointType.createdBy.email ? ` · ${pointType.createdBy.email}` : ""}` : ui("System / legacy")}</p>
                     {pointType.outgoingTransferRules.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {pointType.outgoingTransferRules.map((rule) => (
@@ -1174,19 +1387,42 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                           restore.mutate(pointType.id);
                         }}
                       >
-                        <ArchiveRestore /> Restore
-                      </Button>
+                        <ArchiveRestore />{ui("Restore")}</Button>
                     ) : (
                       <>
+                        {pointType.isActive && pointType.expiryMode !== "NEVER" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={expire.isPending || resetExpire.isPending}
+                              onClick={() => {
+                                if (!window.confirm(ui("Run expiry for this point type now?"))) return;
+                                expire.mutate(pointType.id);
+                              }}
+                            >
+                              <RefreshCw />{ui("Run expiry")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={expire.isPending || resetExpire.isPending}
+                              onClick={() => {
+                                if (!window.confirm(ui("Reset the most recent expiry run for this point type?"))) return;
+                                resetExpire.mutate(pointType.id);
+                              }}
+                            >
+                              <RefreshCw />{ui("Reset expiry")}
+                            </Button>
+                          </>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => {
                             navigate(`/point-types/${pointType.id}/edit`);
                           }}
-                        >
-                          Edit
-                        </Button>
+                        >{ui("Edit")}</Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -1204,8 +1440,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             if (name) clone.mutate({ pointType, code, name });
                           }}
                         >
-                          <Copy /> Clone
-                        </Button>
+                          <Copy />{ui("Clone")}</Button>
                         <Button
                           size="sm"
                           variant="destructive"
@@ -1219,8 +1454,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                               remove.mutate(pointType);
                           }}
                         >
-                          <Trash2 /> Delete
-                        </Button>
+                          <Trash2 />{ui("Delete")}</Button>
                       </>
                     )}
                   </div>

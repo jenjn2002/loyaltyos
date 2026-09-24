@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -24,9 +25,33 @@ interface TierItem {
   name: string;
   rank: number;
   minPoints: number;
+  qualificationRules?: unknown;
+  qualificationOperator?: "AND" | "OR";
   color?: string;
   iconUrl?: string;
   benefits?: unknown;
+  createdBy?: { id: string; name: string; email: string | null } | null;
+}
+
+interface TierRequirement {
+  pointTypeId: string;
+  minPoints: number;
+}
+
+function tierRequirements(tier: TierItem): TierRequirement[] {
+  if (Array.isArray(tier.qualificationRules)) {
+    const parsed = tier.qualificationRules.filter(
+      (rule): rule is { pointTypeId?: unknown; minPoints?: unknown } =>
+        typeof rule === "object" && rule !== null,
+    ).filter(
+      (rule): rule is { pointTypeId: string; minPoints: number } =>
+        typeof rule.pointTypeId === "string" && typeof rule.minPoints === "number",
+    );
+    if (parsed.length > 0) return parsed;
+  }
+  return tier.pointTypeId
+    ? [{ pointTypeId: tier.pointTypeId, minPoints: tier.minPoints }]
+    : [];
 }
 
 interface PointTypeItem {
@@ -43,9 +68,9 @@ export function TiersListPage(): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newTier, setNewTier] = useState(false);
   const [formData, setFormData] = useState({
-    pointTypeId: "",
     name: "",
-    minPoints: 0,
+    requirements: [] as TierRequirement[],
+    qualificationOperator: "AND" as "AND" | "OR",
     color: "#94a3b8",
     benefits: "{}",
   });
@@ -67,6 +92,9 @@ export function TiersListPage(): JSX.Element {
     (pointType) => pointType.isActive && !pointType.archivedAt,
   );
 
+  const initialRequirements = (): TierRequirement[] =>
+    activePointTypes[0] ? [{ pointTypeId: activePointTypes[0].id, minPoints: 0 }] : [];
+
   const handleReorder = async (index: number, direction: "up" | "down") => {
     if (!tiers) return;
     const newTiers = [...tiers];
@@ -87,22 +115,26 @@ export function TiersListPage(): JSX.Element {
   };
 
   const handleCreate = async () => {
+    const firstRequirement = formData.requirements[0];
+    if (!firstRequirement || formData.requirements.some((rule) => !rule.pointTypeId)) return;
     await fetchApi("/admin/tiers", {
       method: "POST",
       body: JSON.stringify({
-        pointTypeId: formData.pointTypeId,
+        pointTypeId: firstRequirement.pointTypeId,
         name: formData.name,
         rank: (tiers?.length ?? 0) + 1,
-        minPoints: formData.minPoints,
+        minPoints: firstRequirement.minPoints,
+        qualificationRules: formData.requirements,
+        qualificationOperator: formData.qualificationOperator,
         color: formData.color,
         benefits: JSON.parse(formData.benefits || "{}") as unknown,
       }),
     });
     setNewTier(false);
     setFormData({
-      pointTypeId: tiers?.[0]?.pointTypeId ?? activePointTypes[0]?.id ?? "",
       name: "",
-      minPoints: 0,
+      requirements: initialRequirements(),
+      qualificationOperator: "AND",
       color: "#94a3b8",
       benefits: "{}",
     });
@@ -110,12 +142,16 @@ export function TiersListPage(): JSX.Element {
   };
 
   const handleUpdate = async (id: string) => {
+    const firstRequirement = formData.requirements[0];
+    if (!firstRequirement || formData.requirements.some((rule) => !rule.pointTypeId)) return;
     await fetchApi(`/admin/tiers/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        pointTypeId: formData.pointTypeId,
+        pointTypeId: firstRequirement.pointTypeId,
         name: formData.name,
-        minPoints: formData.minPoints,
+        minPoints: firstRequirement.minPoints,
+        qualificationRules: formData.requirements,
+        qualificationOperator: formData.qualificationOperator,
         color: formData.color,
         benefits: JSON.parse(formData.benefits || "{}") as unknown,
       }),
@@ -127,13 +163,107 @@ export function TiersListPage(): JSX.Element {
   const openEditor = (tier: TierItem) => {
     setEditingId(tier.id);
     setFormData({
-      pointTypeId: tier.pointTypeId ?? tiers?.[0]?.pointTypeId ?? "",
       name: tier.name,
-      minPoints: tier.minPoints,
+      requirements: tierRequirements(tier),
+      qualificationOperator: tier.qualificationOperator === "OR" ? "OR" : "AND",
       color: tier.color ?? "#94a3b8",
       benefits: tier.benefits ? JSON.stringify(tier.benefits, null, 2) : "{}",
     });
   };
+
+  const addRequirement = () => {
+    const available = activePointTypes.find(
+      (pointType) => !formData.requirements.some((rule) => rule.pointTypeId === pointType.id),
+    );
+    if (!available) return;
+    setFormData((form) => ({
+      ...form,
+              requirements: [...form.requirements, { pointTypeId: available.id, minPoints: 0 }],
+    }));
+  };
+
+  const updateRequirement = (index: number, patch: Partial<TierRequirement>) => {
+    setFormData((form) => ({
+      ...form,
+      requirements: form.requirements.map((rule, ruleIndex) =>
+        ruleIndex === index ? { ...rule, ...patch } : rule,
+      ),
+    }));
+  };
+
+  const removeRequirement = (index: number) => {
+    setFormData((form) => ({
+      ...form,
+      requirements: form.requirements.filter((_, ruleIndex) => ruleIndex !== index),
+    }));
+  };
+
+  const renderRequirements = (requirements: TierRequirement[], editable: boolean) => (
+    <div className="space-y-2">
+      {requirements.map((rule, index) => (
+        <div className="flex items-center gap-1" key={`${rule.pointTypeId}-${String(index)}`}>
+          {editable ? (
+            <select
+              aria-label={ui("Qualification point type")}
+              className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
+              value={rule.pointTypeId}
+              onChange={(event) => {
+                updateRequirement(index, { pointTypeId: event.target.value });
+              }}
+            >
+              <option value="">{ui("Select point type")}</option>
+              {activePointTypes.map((pointType) => (
+                <option key={pointType.id} value={pointType.id}>
+                  {pointType.name} ({pointType.code})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm">
+              {activePointTypes.find((pointType) => pointType.id === rule.pointTypeId)?.name ?? rule.pointTypeId}
+            </span>
+          )}
+          {editable ? (
+            <Input
+              className="h-9 w-24"
+              type="number"
+              min={0}
+              value={rule.minPoints}
+              onChange={(event) => {
+                updateRequirement(index, { minPoints: Number(event.target.value) });
+              }}
+            />
+          ) : (
+            <span className="text-xs text-muted-foreground">≥ {rule.minPoints.toLocaleString()}</span>
+          )}
+          {editable && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              title={ui("Remove")}
+              onClick={() => {
+                removeRequirement(index);
+              }}
+            >
+              <Trash2 className="h-3 w-3 text-destructive" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {editable && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={formData.requirements.length >= activePointTypes.length}
+          onClick={addRequirement}
+        >
+          <Plus className="mr-1 h-3 w-3" />{ui("Add point type")}
+        </Button>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -143,25 +273,23 @@ export function TiersListPage(): JSX.Element {
           onClick={() => {
             setNewTier(true);
             setFormData({
-              pointTypeId: tiers?.[0]?.pointTypeId ?? activePointTypes[0]?.id ?? "",
               name: "",
-              minPoints: 0,
+              requirements: initialRequirements(),
+              qualificationOperator: "AND",
               color: "#94a3b8",
               benefits: "{}",
             });
           }}
           disabled={newTier}
         >
-          <Plus className="mr-2 h-4 w-4" />
-          New Tier
-        </Button>
+          <Plus className="mr-2 h-4 w-4" />{ui("New Tier")}</Button>
       </div>
 
       {!isLoading && tiers && tiers.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Distribution</CardTitle>
-            <CardDescription>Tier hierarchy from highest to lowest rank.</CardDescription>
+            <CardTitle>{ui("Distribution")}</CardTitle>
+            <CardDescription>{ui("Tier hierarchy from highest to lowest rank.")}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col items-center gap-2">
@@ -178,10 +306,12 @@ export function TiersListPage(): JSX.Element {
                 >
                   {tier.name}
                   <span className="ml-2 text-xs text-muted-foreground">
-                    ({">"} {tier.minPoints.toLocaleString()}{" "}
-                    {activePointTypes.find((pointType) => pointType.id === tier.pointTypeId)
-                      ?.code ?? "points"}
-                    )
+                    ({tierRequirements(tier)
+                      .map(
+                        (rule) =>
+                          `${rule.minPoints.toLocaleString()} ${activePointTypes.find((pointType) => pointType.id === rule.pointTypeId)?.code ?? "points"}`,
+                      )
+                      .join(tier.qualificationOperator === "OR" ? " OR " : " AND ")})
                   </span>
                 </div>
               ))}
@@ -192,7 +322,7 @@ export function TiersListPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Tiers</CardTitle>
+          <CardTitle>{ui("All Tiers")}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -202,62 +332,50 @@ export function TiersListPage(): JSX.Element {
               ))}
             </div>
           ) : isError ? (
-            <p className="text-destructive">Failed to load tiers.</p>
+            <p className="text-destructive">{ui("Failed to load tiers.")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">Rank</TableHead>
+                  <TableHead className="w-12">{ui("Rank")}</TableHead>
                   <TableHead>{t("common.name")}</TableHead>
-                  <TableHead>Qualification point type</TableHead>
-                  <TableHead>Min Points</TableHead>
-                  <TableHead>Color</TableHead>
+                  <TableHead>{ui("Qualification rules")}</TableHead>
+                  <TableHead>{ui("Min Points")}</TableHead>
+                  <TableHead>{ui("Logic")}</TableHead>
+                  <TableHead>{ui("Color")}</TableHead>
+                  <TableHead>{ui("Created by")}</TableHead>
                   <TableHead className="w-32" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {newTier && (
                   <TableRow>
-                    <TableCell className="text-muted-foreground">New</TableCell>
+                    <TableCell className="text-muted-foreground">{ui("New")}</TableCell>
                     <TableCell>
                       <Input
                         value={formData.name}
                         onChange={(e) => {
                           setFormData((f) => ({ ...f, name: e.target.value }));
                         }}
-                        placeholder="Tier name"
+                        placeholder={ui("Tier name")}
                       />
                     </TableCell>
+                    <TableCell colSpan={2}>{renderRequirements(formData.requirements, true)}</TableCell>
                     <TableCell>
                       <select
-                        aria-label="Qualification point type"
-                        data-help="All tiers in this ladder qualify from lifetime earned value in this one point type."
-                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                        value={formData.pointTypeId}
-                        disabled={Boolean(tiers?.length)}
+                        aria-label={ui("Logic")}
+                        className="h-9 rounded-md border bg-background px-2 text-xs"
+                        value={formData.qualificationOperator}
                         onChange={(event) => {
                           setFormData((form) => ({
                             ...form,
-                            pointTypeId: event.target.value,
+                            qualificationOperator: event.target.value as "AND" | "OR",
                           }));
                         }}
                       >
-                        <option value="">Select point type</option>
-                        {activePointTypes.map((pointType) => (
-                          <option key={pointType.id} value={pointType.id}>
-                            {pointType.name} ({pointType.code})
-                          </option>
-                        ))}
+                        <option value="AND">{ui("AND")}</option>
+                        <option value="OR">{ui("OR")}</option>
                       </select>
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={formData.minPoints}
-                        onChange={(e) => {
-                          setFormData((f) => ({ ...f, minPoints: Number(e.target.value) }));
-                        }}
-                      />
                     </TableCell>
                     <TableCell>
                       <Input
@@ -269,10 +387,11 @@ export function TiersListPage(): JSX.Element {
                         className="h-8 w-12"
                       />
                     </TableCell>
+                    <TableCell />
                     <TableCell>
                       <Button
                         size="sm"
-                        disabled={!formData.pointTypeId || !formData.name.trim()}
+                        disabled={!formData.requirements.length || !formData.name.trim()}
                         onClick={() => {
                           void handleCreate();
                         }}
@@ -301,20 +420,31 @@ export function TiersListPage(): JSX.Element {
                       )}
                     </TableCell>
                     <TableCell>
-                      {activePointTypes.find((pointType) => pointType.id === tier.pointTypeId)
-                        ?.name ?? "Unconfigured"}
+                      {editingId === tier.id
+                        ? renderRequirements(formData.requirements, true)
+                        : renderRequirements(tierRequirements(tier), false)}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === tier.id ? null : <span>--</span>}
                     </TableCell>
                     <TableCell>
                       {editingId === tier.id ? (
-                        <Input
-                          type="number"
-                          value={formData.minPoints}
-                          onChange={(e) => {
-                            setFormData((f) => ({ ...f, minPoints: Number(e.target.value) }));
+                        <select
+                          aria-label={ui("Logic")}
+                          className="h-9 rounded-md border bg-background px-2 text-xs"
+                          value={formData.qualificationOperator}
+                          onChange={(event) => {
+                            setFormData((form) => ({
+                              ...form,
+                              qualificationOperator: event.target.value as "AND" | "OR",
+                            }));
                           }}
-                        />
+                        >
+                          <option value="AND">{ui("AND")}</option>
+                          <option value="OR">{ui("OR")}</option>
+                        </select>
                       ) : (
-                        <span>{tier.minPoints.toLocaleString()}</span>
+                        <Badge variant="outline">{tier.qualificationOperator === "OR" ? ui("OR") : ui("AND")}</Badge>
                       )}
                     </TableCell>
                     <TableCell>
@@ -322,6 +452,9 @@ export function TiersListPage(): JSX.Element {
                         className="h-6 w-6 rounded-full border"
                         style={{ backgroundColor: tier.color ?? "#ccc" }}
                       />
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {tier.createdBy ? <><p className="font-medium">{tier.createdBy.name}</p><p className="text-xs text-muted-foreground">{tier.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -382,7 +515,7 @@ export function TiersListPage(): JSX.Element {
                 ))}
                 {tiers?.length === 0 && !newTier && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       {t("common.noResults")}
                     </TableCell>
                   </TableRow>

@@ -40,6 +40,7 @@ export function createRepository(prisma: PrismaClient) {
             rules: data.rules as Prisma.InputJsonValue,
           }),
           ...(data.memberIds !== undefined && { memberIds: data.memberIds }),
+          ...(data.isActive !== undefined && { isActive: data.isActive }),
         },
       });
     },
@@ -124,9 +125,12 @@ export function createRepository(prisma: PrismaClient) {
         phone: member.phone,
         firstName: member.firstName,
         lastName: member.lastName,
+        department: member.department,
         metadata: member.metadata as Record<string, unknown> | null,
         tags: member.tags,
+        status: member.status,
         joinedAt: member.joinedAt,
+        lastActiveAt: member.lastActiveAt,
         deletedAt: member.deletedAt,
         totalSpent,
         currentTier,
@@ -155,9 +159,12 @@ export function createRepository(prisma: PrismaClient) {
         phone: m.phone,
         firstName: m.firstName,
         lastName: m.lastName,
+        department: m.department,
         metadata: m.metadata as Record<string, unknown> | null,
         tags: m.tags,
+        status: m.status,
         joinedAt: m.joinedAt,
+        lastActiveAt: m.lastActiveAt,
         deletedAt: m.deletedAt,
         totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
         currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,
@@ -167,11 +174,16 @@ export function createRepository(prisma: PrismaClient) {
     async findMembersByIds(
       ids: string[],
       pagination?: PaginationParams,
+      programId?: string,
     ): Promise<{ items: MemberWithComputedFields[]; total: number }> {
       const page = pagination?.page ?? 1;
       const pageSize = pagination?.pageSize ?? 20;
 
-      const where: Prisma.MemberWhereInput = { id: { in: ids }, deletedAt: null };
+      const where: Prisma.MemberWhereInput = {
+        id: { in: ids },
+        deletedAt: null,
+        ...(programId ? { programId } : {}),
+      };
 
       const [items, total] = await Promise.all([
         prisma.member.findMany({
@@ -200,9 +212,12 @@ export function createRepository(prisma: PrismaClient) {
           phone: m.phone,
           firstName: m.firstName,
           lastName: m.lastName,
+          department: m.department,
           metadata: m.metadata as Record<string, unknown> | null,
           tags: m.tags,
+          status: m.status,
           joinedAt: m.joinedAt,
+          lastActiveAt: m.lastActiveAt,
           deletedAt: m.deletedAt,
           totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
           currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,
@@ -250,9 +265,12 @@ export function createRepository(prisma: PrismaClient) {
           phone: m.phone,
           firstName: m.firstName,
           lastName: m.lastName,
+          department: m.department,
           metadata: m.metadata as Record<string, unknown> | null,
           tags: m.tags,
+          status: m.status,
           joinedAt: m.joinedAt,
+          lastActiveAt: m.lastActiveAt,
           deletedAt: m.deletedAt,
           totalSpent: m.pointWallets[0]?.totalEarned ?? 0,
           currentTier: m.memberTiers.length > 0 ? (m.memberTiers[0]?.tier?.name ?? null) : null,

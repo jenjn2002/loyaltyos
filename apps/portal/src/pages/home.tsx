@@ -1,20 +1,97 @@
-import { useQuery } from "@tanstack/react-query";
+import { ui } from "@/lib/ui-text";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Award, ChevronRight, Gift, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 
 import { MemberLoginForm } from "../components/member-login-form";
+import { PointTypeIcon } from "../components/point-type-icon";
 import { fetchApi } from "../lib/api-client";
 import { isAuthenticated } from "../lib/auth";
-import type { BadgeProgress, Balance, CreditBalance, Reward, TierStatus } from "../types";
+import type { BadgeProgress, Balance, CampaignClaim, CreditBalance, Reward, TierStatus } from "../types";
 
-function BalanceCard({ balance }: { balance: Balance }) {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function remainingExpiryDays(expiryAt: string | null): number | null {
+  if (!expiryAt) return null;
+  const expiryDate = new Date(expiryAt);
+  if (!Number.isFinite(expiryDate.getTime())) return null;
+  const today = new Date();
+  const expiryDay = Date.UTC(expiryDate.getFullYear(), expiryDate.getMonth(), expiryDate.getDate());
+  const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.ceil((expiryDay - currentDay) / DAY_MS));
+}
+
+function useExpiryRefresh(): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 60_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+}
+
+function expiryLabel(wallet: CreditBalance): string {
+  if (wallet.expiryMode === "NEVER") return ui("Does not expire");
+  if (wallet.expiryMode === "AFTER_DAYS" || wallet.expiryMode === "FIXED_DATE") {
+    const expiryAt = wallet.expiryAt ?? wallet.fixedExpiryAt;
+    const days = remainingExpiryDays(expiryAt);
+    if (days === 0) return ui("Expires today");
+    if (days !== null) return `${ui("Expires in")} ${String(days)} ${ui("days")}`;
+    return wallet.expiryMode === "AFTER_DAYS"
+      ? `${ui("Expires")} ${String(wallet.expiryDays)} ${ui("days from point creation")}`
+      : ui("Fixed expiry date");
+  }
+  return ui("Expiry is set for each grant");
+}
+
+function BalanceCard({
+  balance,
+  creditWallets,
+}: {
+  balance: Balance;
+  creditWallets: CreditBalance[];
+}) {
   const { t } = useTranslation();
+  useExpiryRefresh();
   return (
-    <div className="rounded-2xl bg-[var(--color-primary)] p-6 text-white shadow-lg">
-      <p className="text-sm font-medium opacity-80">{t("balance")}</p>
-      <p className="mt-1 text-4xl font-bold">{balance.total.toLocaleString()}</p>
-      <div className="mt-3 flex gap-4 text-xs opacity-75">
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">{t("balance")}</p>
+          <p className="mt-1 text-4xl font-bold text-[var(--color-text)]">{balance.total.toLocaleString()}</p>
+        </div>
+        <Link to="/credits" className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface)]">
+          {ui("View details")}
+        </Link>
+      </div>
+      {(balance.wallets ?? []).length > 0 && (
+        <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--color-border)] pt-3">
+          {(balance.wallets ?? []).map((wallet) => {
+            const creditWallet = creditWallets.find((item) => item.pointTypeId === wallet.pointTypeId);
+            return (
+              <div key={wallet.pointTypeId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+                <p className="flex items-center gap-1 truncate text-xs text-[var(--color-text-secondary)]">
+                  <PointTypeIcon icon={wallet.icon ?? creditWallet?.icon} className="h-3.5 w-3.5 shrink-0" />
+                  {wallet.name}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-[var(--color-text)]">{wallet.balance.toLocaleString()}</p>
+                <p className="text-[10px] text-[var(--color-text-secondary)]">{wallet.unitLabel}</p>
+                {creditWallet && (
+                  <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                    {expiryLabel(creditWallet)}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="mt-3 flex gap-4 text-xs text-[var(--color-text-secondary)]">
         <span>
           {t("confirmed")}: {balance.confirmed.toLocaleString()}
         </span>
@@ -23,38 +100,6 @@ function BalanceCard({ balance }: { balance: Balance }) {
         </span>
       </div>
     </div>
-  );
-}
-
-function CreditWalletCard({ wallets }: { wallets: CreditBalance[] }) {
-  return (
-    <Link
-      to="/credits"
-      className="block rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5"
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-[var(--color-text-secondary)]">Credit wallets</p>
-        <span className="text-xs font-semibold text-[var(--color-primary)]">Manage</span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        {wallets.map((wallet) => (
-          <div key={wallet.pointTypeId}>
-            <p className="truncate text-xs text-[var(--color-text-secondary)]">{wallet.name}</p>
-            <p className="text-2xl font-bold">{wallet.balance.toLocaleString()}</p>
-            {wallet.allowance && (
-              <p className="text-xs text-[var(--color-text-secondary)]">
-                Give remaining: {wallet.allowance.remaining.toLocaleString()}
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-      {wallets.length === 0 && (
-        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
-          No visible wallets configured
-        </p>
-      )}
-    </Link>
   );
 }
 
@@ -110,7 +155,7 @@ function TopRewards({ rewards }: { rewards: Reward[] }) {
     <section aria-labelledby="top-rewards-heading">
       <div className="flex items-center justify-between">
         <h2 id="top-rewards-heading" className="text-lg font-semibold">
-          {t("rewardsCatalog")}
+          {t("rewardsAvailable")}
         </h2>
         <Link to="/rewards" className="flex items-center gap-1 text-sm text-[var(--color-primary)]">
           {t("viewDetails")} <ChevronRight className="h-4 w-4" />
@@ -182,6 +227,52 @@ function BadgePreview({ badges }: { badges: BadgeProgress[] }) {
   );
 }
 
+function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | null {
+  const queryClient = useQueryClient();
+  const claim = useMutation({
+    mutationFn: (id: string) =>
+      fetchApi(`/members/me/campaign-claims/${id}/claim`, { method: "POST", body: "{}" }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["campaign-claims"] }),
+        queryClient.invalidateQueries({ queryKey: ["balance"] }),
+        queryClient.invalidateQueries({ queryKey: ["credits"] }),
+      ]);
+    },
+  });
+  if (claims.length === 0) return null;
+  return (
+    <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" aria-labelledby="campaign-claims-heading">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 id="campaign-claims-heading" className="text-lg font-semibold">{ui("Points waiting for you")}</h2>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{claims.length.toLocaleString()} {ui("pending claims")}</p>
+        </div>
+        <Link to="/notifications" className="text-sm font-medium text-[var(--color-primary)]">{ui("View notifications")}</Link>
+      </div>
+      <div className="mt-3 max-h-80 divide-y divide-[var(--color-border)] overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+        {claims.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-3 p-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium">{item.campaign.name}</p>
+              <p className="text-sm text-[var(--color-text-secondary)]">{item.pointsAwarded.toLocaleString()} {item.campaign.pointType?.unitLabel ?? ui("points")}</p>
+            </div>
+            <button
+              type="button"
+              disabled={claim.isPending}
+              onClick={() => claim.mutate(item.id)}
+              className="shrink-0 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {claim.isPending ? ui("Claiming…") : ui("Claim points")}
+            </button>
+          </div>
+        ))}
+      </div>
+      {claim.isError && <p role="alert" className="mt-2 text-sm text-red-700">{claim.error instanceof Error ? claim.error.message : ui("Unable to claim points.")}</p>}
+    </section>
+  );
+}
+
 export default function Home() {
   const { t } = useTranslation();
   const authed = isAuthenticated();
@@ -216,6 +307,12 @@ export default function Home() {
     enabled: authed,
   });
 
+  const claims = useQuery({
+    queryKey: ["campaign-claims", "pending"],
+    queryFn: () => fetchApi<{ items: CampaignClaim[] }>("/members/me/campaign-claims?status=PENDING&page=1&pageSize=20"),
+    enabled: authed,
+  });
+
   return (
     <div className="mx-auto max-w-lg space-y-6 px-4 py-6">
       <h1 className="text-2xl font-bold">{t("home")}</h1>
@@ -233,14 +330,13 @@ export default function Home() {
         </div>
       ) : (
         <>
-          {(balance.isError || tier.isError || rewards.isError || badges.isError) && (
+          {(balance.isError || tier.isError || rewards.isError || badges.isError || claims.isError) && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              Session expired or account data could not be loaded. Please sign in again from
-              Profile.
+              {ui("Session expired or account data could not be loaded. Please sign in again from Profile.")}
             </div>
           )}
-          {credits.data && <CreditWalletCard wallets={credits.data} />}
-          {balance.data && <BalanceCard balance={balance.data} />}
+          {claims.data && <CampaignClaims claims={claims.data.items} />}
+          {balance.data && <BalanceCard balance={balance.data} creditWallets={credits.data ?? []} />}
           {tier.data ? <TierCard tier={tier.data} /> : null}
           {rewards.data && rewards.data.length > 0 && <TopRewards rewards={rewards.data} />}
           {badges.data && <BadgePreview badges={badges.data} />}

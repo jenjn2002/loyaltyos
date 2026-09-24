@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
 import { fetchApi } from "../lib/api-client";
-import type { PaginatedResponse, Reward } from "../types";
+import type { MemberRewardRedemption, PaginatedResponse, Reward } from "../types";
 
 function useWishlist() {
   const read = (): string[] => {
@@ -62,10 +62,15 @@ export default function Rewards() {
     queryFn: () => fetchApi<string[]>("/rewards/categories"),
   });
 
+  const redemptions = useQuery({
+    queryKey: ["reward-redemptions", "me"],
+    queryFn: () => fetchApi<MemberRewardRedemption[]>("/members/me/reward-redemptions"),
+  });
+
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("rewardsCatalog")}</h1>
+        <h1 className="text-2xl font-bold">{t("rewardsAvailable")}</h1>
         <button
           onClick={() => {
             setWishlistOnly(!wishlistOnly);
@@ -183,6 +188,34 @@ export default function Rewards() {
             );
           })}
         </div>
+      )}
+
+      {redemptions.data && (
+        <details className="rounded-2xl border border-[var(--color-border)] p-4">
+          <summary className="cursor-pointer list-none text-lg font-semibold">{t("rewarded")}</summary>
+          <div className="mt-3 space-y-2">
+            {redemptions.data.length === 0 ? (
+              <p className="text-sm text-[var(--color-text-secondary)]">{t("noRewarded")}</p>
+            ) : (
+              redemptions.data.map((redemption) => (
+                <div
+                  key={redemption.id}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{redemption.reward.name}</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      {redemption.pointsSpent.toLocaleString()} {redemption.pointType?.unitLabel ?? "points"} · {new Date(redemption.redeemedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full border px-2 py-1 text-xs font-semibold">
+                    {redemption.fulfillmentStatus}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
