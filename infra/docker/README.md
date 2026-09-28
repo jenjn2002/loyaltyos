@@ -1,12 +1,141 @@
 # LoyaltyOS Docker deployment runbook
 
-This runbook covers the current Docker Compose deployments for production and
-the production-data sandbox. Production and sandbox use separate Compose
-projects, databases, Redis instances, and named volumes. Both frontends are
-published through the standalone Traefik stack in `infra/traefik`; PostgreSQL,
-Redis, and the API are not published directly to the Internet.
+This guide has two distinct deployment paths:
 
-The Compose labels in this repository currently serve these hostnames:
+1. HTTP on public IPv4 ports for isolated deployment checks only. It creates
+   fresh, empty databases and does not replace the running production or
+   sandbox stacks.
+2. HTTPS on domains through the standalone Traefik stack for production and
+   the production-data sandbox.
+
+PostgreSQL, Redis, and the API are never published directly to the Internet.
+
+## Part 1: HTTP-only on public IPv4 ports (isolated test stacks)
+
+Use this path to verify deployment or access a clean test installation without
+DNS, SSL, or Traefik labels. These are additional Compose projects with their
+own databases, Redis instances, and volumes; they do not copy production data
+or change the existing production/sandbox services. The test overlays replace
+all signing/encryption/database secrets with test-only values and disable
+external integrations. Do not use them with real member data, real credentials,
+or as a permanent public production setup: HTTP does not encrypt logins or
+sessions, and the test API intentionally uses non-secure cookies.
+
+The checked-in overlays bind IPv4 ports on `161.118.206.195`:
+
+| Test stack | Customer | Admin |
+| --- | --- | --- |
+| Production-style, empty database | `http://161.118.206.195:18080` | `http://161.118.206.195:18081` |
+| Sandbox-style, empty database | `http://161.118.206.195:18090` | `http://161.118.206.195:18091` |
+
+These overlays use Compose `!reset`/`!override` merge tags and require Docker
+Compose v2.24.4 or newer; see the [Compose merge reference](https://docs.docker.com/reference/compose-file/merge/).
+
+Change the address in both `*.http-test.yml` files if deploying on a different
+server. Allow inbound TCP ports `18080`, `18081`, `18090`, and `18091` in the
+cloud firewall/security group while testing. Docker binds these ports on
+`0.0.0.0`; Docker-published ports may bypass UFW rules. Close the firewall
+rules when the public test endpoints are no longer needed.
+
+The HTTP overlays use the existing private `.env.production` and `.env.staging`
+files to satisfy the base Compose files, then override app credentials and
+secrets with the separate `.env.http-test` values. Create the regular private
+env files from their examples if they are not already present, as described in
+Part 2. Create and lock down the HTTP test secrets:
+
+```bash
+cp infra/docker/.env.http-test.example infra/docker/.env.http-test
+chmod 600 infra/docker/.env.http-test
+
+# Paste these generated assignments into infra/docker/.env.http-test.
+printf 'LOYALTY_HTTP_TEST_ADMIN_PASSWORD=Aa1!%s\n' "$(openssl rand -hex 32)"
+for name in \
+  LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_PROD \
+  LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_SANDBOX \
+  LOYALTY_HTTP_TEST_API_KEY_SALT \
+  LOYALTY_HTTP_TEST_KMS_MASTER_KEY \
+  LOYALTY_HTTP_TEST_GIFTCARD_HMAC_SECRET \
+  LOYALTY_HTTP_TEST_HANDOFF_SECRET; do
+  printf '%s=%s\n' "$name" "$(openssl rand -hex 32)"
+done
+printf 'LOYALTY_HTTP_TEST_JWT_SECRET=%s\n' "$(openssl rand -hex 64)"
+```
+
+Validate first; `--quiet` prevents resolved environment values from printing:
+
+```bash
+docker compose -p loyaltyos-prod-http-test \
+  -f infra/docker/docker-compose.prod.yml \
+  -f infra/docker/docker-compose.prod.http-test.yml \
+  --env-file infra/docker/.env.production \
+  --env-file infra/docker/.env.http-test config --quiet
+
+docker compose -p loyaltyos-staging-http-test \
+  -f infra/docker/docker-compose.staging.yml \
+  -f infra/docker/docker-compose.staging.http-test.yml \
+  --env-file infra/docker/.env.staging \
+  --env-file infra/docker/.env.http-test config --quiet
+```
+
+Deploy the production-style test stack:
+
+```bash
+docker compose -p loyaltyos-prod-http-test \
+  -f infra/docker/docker-compose.prod.yml \
+  -f infra/docker/docker-compose.prod.http-test.yml \
+  --env-file infra/docker/.env.production \
+  --env-file infra/docker/.env.http-test up -d --build
+```
+
+Build the sandbox-style images first, then run its migration and app services.
+Its customer/admin frontends join a dedicated public bridge for the port
+bindings while the API, database, and Redis stay on the isolated backend
+network:
+
+```bash
+docker compose -p loyaltyos-staging-http-test \
+  -f infra/docker/docker-compose.staging.yml \
+  -f infra/docker/docker-compose.staging.http-test.yml \
+  --env-file infra/docker/.env.staging \
+  --env-file infra/docker/.env.http-test build api admin portal
+
+docker compose -p loyaltyos-staging-http-test \
+  -f infra/docker/docker-compose.staging.yml \
+  -f infra/docker/docker-compose.staging.http-test.yml \
+  --env-file infra/docker/.env.staging \
+  --env-file infra/docker/.env.http-test up -d postgres redis mailhog
+
+docker compose -p loyaltyos-staging-http-test \
+  -f infra/docker/docker-compose.staging.yml \
+  -f infra/docker/docker-compose.staging.http-test.yml \
+  --env-file infra/docker/.env.staging \
+  --env-file infra/docker/.env.http-test up -d migration
+
+docker compose -p loyaltyos-staging-http-test \
+  -f infra/docker/docker-compose.staging.yml \
+  -f infra/docker/docker-compose.staging.http-test.yml \
+  --env-file infra/docker/.env.staging \
+  --env-file infra/docker/.env.http-test up -d api admin portal
+```
+
+Check all four frontends and their API health routes:
+
+```bash
+curl -f http://161.118.206.195:18080/healthz
+curl -f http://161.118.206.195:18081/healthz
+curl -f http://161.118.206.195:18090/healthz
+curl -f http://161.118.206.195:18091/healthz
+```
+
+The test admin emails are `http-prod-test@loyaltyos.invalid` and
+`http-sandbox-test@loyaltyos.invalid`; both use the test-only password from
+`.env.http-test`. These empty databases contain no customer accounts. Stop the
+test projects with the same Compose arguments and `down`; add `-v` only when
+you intentionally want to delete their test databases.
+
+## Part 2: HTTPS with domains (production and production-data sandbox)
+
+The normal deployment uses Traefik labels and the following hostnames:
 
 | Environment | Customer | Admin |
 | --- | --- | --- |
@@ -18,7 +147,7 @@ files, the sandbox `PORTAL_URL`/`ADMIN_URL` in
 `docker-compose.staging.yml`, the production URLs in `.env.production`, and
 the frontend switch URLs in the Dockerfiles/Compose build args as applicable.
 
-## 1. Prepare the server and DNS
+### 1. Prepare the server and DNS
 
 On the Linux server:
 
@@ -40,8 +169,9 @@ On the Linux server:
    If the repository is already present, instead `cd` to that checkout; do not
    create a second checkout with a different Compose project context.
 
-3. Point the four hostnames in the table above to this server's public IPv4
-   address with DNS `A` records. Add `AAAA` records only if the server's IPv6
+3. For each hostname you plan to use, ensure its DNS `A` record points to this
+   server's public IPv4 address. If the record is already correct, no change is
+   needed; just verify resolution. Add `AAAA` records only if the server's IPv6
    address is reachable from the Internet. Check propagation with, for example:
 
    ```bash
@@ -77,7 +207,7 @@ docker volume inspect docker_traefik_letsencrypt >/dev/null 2>&1 || \
 
 Do not delete `docker_traefik_letsencrypt`; it stores issued certificates.
 
-## 2. Configure production
+### 2. Configure production
 
 Create the private production environment file and restrict its permissions:
 
@@ -110,7 +240,7 @@ exact value from production into `.env.staging`; do not rotate the production
 value merely to set up sandbox. Generate separate values for the other
 sandbox secrets.
 
-## 3. Start Traefik and production
+### 3. Start Traefik and production
 
 Validate the Compose configuration before starting it. `--quiet` avoids
 printing resolved environment values to the terminal:
@@ -159,7 +289,7 @@ other optional integration variables are documented in
 `.env.production.example`. Sandbox always routes email to its private MailHog
 container and disables copied external credentials during sanitization.
 
-## 4. Configure and start the production-data sandbox
+### 4. Configure and start the production-data sandbox
 
 ### Security and prerequisites
 
@@ -294,7 +424,7 @@ sandbox still contains personal data.
 - Do not use `docker compose down -v` as a routine restart/upgrade command; it
   deletes the named data volumes for the selected Compose project.
 
-## 5. Upgrades and routine operations
+### 5. Upgrades and routine operations
 
 Back up the relevant database before upgrading. Keep Compose project names,
 environment files, and named volumes unchanged. From the repository root:
@@ -366,7 +496,7 @@ If a route returns 404, check its hostname against the Compose router label. If
 it returns 502, check the frontend/API health and that the frontend is attached
 to the expected Docker networks.
 
-## 6. Service and volume reference
+### 6. Service and volume reference
 
 | Service | Port | Purpose |
 | --- | ---: | --- |

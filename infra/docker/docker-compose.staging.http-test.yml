@@ -1,0 +1,58 @@
+# Temporary override for an isolated HTTP-only deployment smoke test.
+# Do not use this configuration with production data or real credentials.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_SANDBOX:?set a test-only database password}
+
+  migration:
+    image: loyaltyos-staging-http-test-api:latest
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loyaltyos}:${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_SANDBOX}@postgres:5432/${POSTGRES_DB:-loyaltyos_staging}
+
+  api:
+    image: loyaltyos-staging-http-test-api:latest
+    environment:
+      ADMIN_DEFAULT_EMAIL: http-sandbox-test@loyaltyos.invalid
+      ADMIN_DEFAULT_NAME: HTTP Sandbox Test
+      ADMIN_DEFAULT_PASSWORD: ${LOYALTY_HTTP_TEST_ADMIN_PASSWORD:?set a random test-only admin password}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loyaltyos}:${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_SANDBOX}@postgres:5432/${POSTGRES_DB:-loyaltyos_staging}
+      POSTGRES_PASSWORD: ${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_SANDBOX}
+      JWT_SECRET: ${LOYALTY_HTTP_TEST_JWT_SECRET:?set test-only secrets}
+      API_KEY_SALT: ${LOYALTY_HTTP_TEST_API_KEY_SALT:?set test-only secrets}
+      KMS_MASTER_KEY: ${LOYALTY_HTTP_TEST_KMS_MASTER_KEY:?set test-only secrets}
+      GIFTCARD_HMAC_SECRET: ${LOYALTY_HTTP_TEST_GIFTCARD_HMAC_SECRET:?set test-only secrets}
+      ENV_HANDOFF_SECRET: ${LOYALTY_HTTP_TEST_HANDOFF_SECRET:?set a test-only handoff secret}
+      PORTAL_URL: http://161.118.206.195:18090
+      ADMIN_URL: http://161.118.206.195:18091
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://161.118.206.195:18090,http://161.118.206.195:18091
+
+  admin:
+    build:
+      args:
+        VITE_LOYALTYOS_SWITCH_URL: http://161.118.206.195:18081
+    ports:
+      - "0.0.0.0:18091:80"
+    labels: !reset {}
+    networks: !override [staging-backend, http-public]
+
+  portal:
+    ports:
+      - "0.0.0.0:18090:80"
+    labels: !reset {}
+    networks: !override [staging-backend, http-public]
+
+volumes:
+  staging_pgdata:
+    name: loyaltyos_staging_http_test_pgdata
+  staging_redisdata:
+    name: loyaltyos_staging_http_test_redisdata
+
+networks:
+  staging-backend:
+    name: loyaltyos-staging-http-test-backend
+  staging-egress:
+    name: loyaltyos-staging-http-test-egress
+  http-public:
+    name: loyaltyos-staging-http-test-public

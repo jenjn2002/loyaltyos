@@ -8,6 +8,7 @@ build/
 .env.*.local
 infra/docker/.env.production
 infra/docker/.env.staging
+infra/docker/.env.http-test
 *.log
 .DS_Store
 coverage/

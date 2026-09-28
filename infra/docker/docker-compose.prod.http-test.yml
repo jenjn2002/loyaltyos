@@ -1,0 +1,59 @@
+# Temporary override for an isolated HTTP-only deployment smoke test.
+# Do not use this configuration with production data or real credentials.
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_PROD:?set a test-only database password}
+
+  redis:
+    ports: !reset []
+
+  api:
+    environment:
+      ADMIN_DEFAULT_EMAIL: http-prod-test@loyaltyos.invalid
+      ADMIN_DEFAULT_NAME: HTTP Production Test
+      ADMIN_DEFAULT_PASSWORD: ${LOYALTY_HTTP_TEST_ADMIN_PASSWORD:?set a random test-only admin password}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loyaltyos}:${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_PROD}@postgres:5432/${POSTGRES_DB:-loyaltyos}
+      POSTGRES_PASSWORD: ${LOYALTY_HTTP_TEST_POSTGRES_PASSWORD_PROD}
+      JWT_SECRET: ${LOYALTY_HTTP_TEST_JWT_SECRET:?set test-only secrets}
+      API_KEY_SALT: ${LOYALTY_HTTP_TEST_API_KEY_SALT:?set test-only secrets}
+      KMS_MASTER_KEY: ${LOYALTY_HTTP_TEST_KMS_MASTER_KEY:?set test-only secrets}
+      GIFTCARD_HMAC_SECRET: ${LOYALTY_HTTP_TEST_GIFTCARD_HMAC_SECRET:?set test-only secrets}
+      ENV_HANDOFF_SECRET: ${LOYALTY_HTTP_TEST_HANDOFF_SECRET:?set a test-only handoff secret}
+      PORTAL_URL: http://161.118.206.195:18080
+      ADMIN_URL: http://161.118.206.195:18081
+      COOKIE_SECURE: "false"
+      CORS_ORIGIN: ""
+      CORS_ORIGINS: http://161.118.206.195:18080,http://161.118.206.195:18081
+      SMTP_HOST: localhost
+      SMTP_PORT: 1025
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: http-test@loyaltyos.invalid
+      RESEND_API_KEY: ""
+      TWILIO_ACCOUNT_SID: ""
+      TWILIO_AUTH_TOKEN: ""
+      TWILIO_PHONE_NUMBER: ""
+      ONESIGNAL_APP_ID: ""
+      ONESIGNAL_API_KEY: ""
+      APPRECIO_API_BASE: http://127.0.0.1:9/disabled
+      APPRECIO_PUBLIC_TOKEN: ""
+      APPRECIO_PRIVATE_TOKEN: ""
+      APPRECIO_IDENTIFIER_TYPE: email
+      APPRECIO_TIMEOUT_MS: 1000
+
+  admin:
+    build:
+      args:
+        VITE_LOYALTYOS_SWITCH_URL: http://161.118.206.195:18091
+    ports:
+      - "0.0.0.0:18081:80"
+    labels: !reset {}
+    networks: !reset [default]
+
+  portal:
+    ports:
+      - "0.0.0.0:18080:80"
+    labels: !reset {}
+    networks: !reset [default]
