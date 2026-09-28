@@ -1,6 +1,6 @@
 import { ui } from "@/lib/ui-text";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,9 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -42,6 +45,8 @@ export function CouponsListPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [modeFilter, setModeFilter] = useState<string>("all");
+  const [editing, setEditing] = useState<Coupon | null>(null);
+  const [editDraft, setEditDraft] = useState({ discountValue: "", maxUses: "", expiresAt: "" });
   const pageSize = 20;
 
   const modeLabels: Record<string, string> = {
@@ -64,6 +69,25 @@ export function CouponsListPage(): JSX.Element {
     await fetchApi(`/admin/coupons/${id}`, { method: "DELETE" });
     void queryClient.invalidateQueries({ queryKey: ["coupons"] });
   };
+  const updateCoupon = useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: Record<string, unknown> }) =>
+      fetchApi(`/admin/coupons/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: async () => {
+      setEditing(null);
+      await queryClient.invalidateQueries({ queryKey: ["coupons"] });
+    },
+  });
+  const saveEdit = (): void => {
+    if (!editing) return;
+    const body: Record<string, unknown> = {};
+    if (editDraft.discountValue !== "") body.discountValue = Number(editDraft.discountValue);
+    body.maxUses = editDraft.maxUses === "" ? null : Number(editDraft.maxUses);
+    body.expiresAt = editDraft.expiresAt === "" ? null : new Date(editDraft.expiresAt).toISOString();
+    updateCoupon.mutate({ id: editing.id, body });
+  };
+  const toggleActive = (coupon: Coupon): void => {
+    updateCoupon.mutate({ id: coupon.id, body: { isActive: !coupon.isActive } });
+  };
 
   return (
     <div className="space-y-6">
@@ -82,7 +106,7 @@ export function CouponsListPage(): JSX.Element {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{ui("All Coupons")}</CardTitle>
-          <Select value={modeFilter} onValueChange={setModeFilter}>
+          <Select value={modeFilter} onValueChange={(value) => { setModeFilter(value); setPage(1); }}>
             <SelectTrigger className="w-36">
               <SelectValue placeholder={ui("Mode")} />
             </SelectTrigger>
@@ -154,16 +178,16 @@ export function CouponsListPage(): JSX.Element {
                         {c.createdBy ? <><p className="font-medium">{c.createdBy.name}</p><p className="text-xs text-muted-foreground">{c.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          onClick={() => {
-                            void handleDelete(c.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="sm" title={ui("Edit coupon")} onClick={() => {
+                            const date = c.expiresAt ? new Date(c.expiresAt) : null;
+                            if (date) date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+                            setEditing(c);
+                            setEditDraft({ discountValue: c.discountValue == null ? "" : String(c.discountValue), maxUses: c.maxUses == null ? "" : String(c.maxUses), expiresAt: date?.toISOString().slice(0, 16) ?? "" });
+                          }}><Pencil className="h-4 w-4" /></Button>
+                          <Button variant="outline" size="sm" disabled={updateCoupon.isPending} onClick={() => toggleActive(c)}>{c.isActive ? ui("Deactivate") : ui("Reactivate")}</Button>
+                          {c.isActive && <Button variant="ghost" size="sm" className="text-destructive" title={ui("Deactivate coupon")} onClick={() => { void handleDelete(c.id); }}><Trash2 className="h-4 w-4" /></Button>}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -200,6 +224,18 @@ export function CouponsListPage(): JSX.Element {
           )}
         </CardContent>
       </Card>
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{ui("Edit coupon")}</DialogTitle><DialogDescription>{editing?.code}</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label htmlFor="coupon-edit-value">{ui("Discount value")}</Label><Input id="coupon-edit-value" type="number" min={0} value={editDraft.discountValue} onChange={(event) => setEditDraft((current) => ({ ...current, discountValue: event.target.value }))} /></div>
+            <div><Label htmlFor="coupon-edit-max-uses">{ui("Maximum uses")}</Label><Input id="coupon-edit-max-uses" type="number" min={1} value={editDraft.maxUses} onChange={(event) => setEditDraft((current) => ({ ...current, maxUses: event.target.value }))} /></div>
+            <div><Label htmlFor="coupon-edit-expires">{ui("Expires")}</Label><Input id="coupon-edit-expires" type="datetime-local" value={editDraft.expiresAt} onChange={(event) => setEditDraft((current) => ({ ...current, expiresAt: event.target.value }))} /></div>
+            {updateCoupon.isError && <p role="alert" className="text-sm text-destructive">{updateCoupon.error.message}</p>}
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEditing(null)}>{ui("Cancel")}</Button><Button disabled={updateCoupon.isPending} onClick={saveEdit}>{updateCoupon.isPending ? ui("Saving…") : ui("Save changes")}</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

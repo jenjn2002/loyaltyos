@@ -48,6 +48,8 @@ services:
       ADMIN_DEFAULT_NAME: ${ADMIN_DEFAULT_NAME}
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      LOYALTYOS_ENVIRONMENT: production
+      ENV_HANDOFF_SECRET: ${ENV_HANDOFF_SECRET:?ENV_HANDOFF_SECRET is required}
       API_KEY_SALT: ${API_KEY_SALT}
       COOKIE_SECURE: ${COOKIE_SECURE:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
@@ -83,7 +85,8 @@ services:
       context: ../..
       dockerfile: apps/admin/Dockerfile
       args:
-        VITE_BASE_PATH: ${ADMIN_BASE_PATH:-/admin/}
+        VITE_LOYALTYOS_ENVIRONMENT: production
+        VITE_LOYALTYOS_SWITCH_URL: https://adminloyalty-sandbox.trunglocxoay.store
     expose:
       - "80"
     networks:
@@ -115,7 +118,7 @@ services:
       context: ../..
       dockerfile: apps/portal/Dockerfile
       args:
-        VITE_BASE_PATH: ${CUSTOMER_BASE_PATH:-/customer/}
+        VITE_LOYALTYOS_ENVIRONMENT: production
     expose:
       - "80"
     networks:

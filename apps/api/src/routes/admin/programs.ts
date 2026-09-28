@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { audit } from "../../lib/audit.js";
 
 const updateProgramSchema = z.object({
   defaultLocale: z.string().refine(isSupportedLocale, "Unsupported locale").optional(),
@@ -18,7 +19,12 @@ export function adminProgramsRoutes(app: FastifyInstance, _opts: unknown, done: 
   app.get("/admin/programs/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
 
-    const program = await prisma.program.findUnique({
+    if (id !== request.programId) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Program not found" },
+      });
+    }
+    const program = await prisma.program.findFirst({
       where: { id },
       select: {
         id: true,
@@ -48,6 +54,18 @@ export function adminProgramsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateProgramSchema.parse(request.body);
 
+    if (id !== request.programId) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Program not found" },
+      });
+    }
+    const existing = await prisma.program.findFirst({ where: { id }, select: { id: true } });
+    if (!existing) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "Program not found" },
+      });
+    }
+
     const program = await prisma.program.update({
       where: { id },
       data: body,
@@ -63,6 +81,10 @@ export function adminProgramsRoutes(app: FastifyInstance, _opts: unknown, done: 
         createdAt: true,
         updatedAt: true,
       },
+    });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "program", id, {
+      operation: "UPDATE",
+      ...body,
     });
 
     return reply.send({ data: program });

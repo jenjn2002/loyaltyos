@@ -125,6 +125,10 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
     async (request, reply) => {
       const { id } = z.object({ id: z.string() }).parse(request.params);
       const batch = await giftCardService.cancelBatch(id);
+      await audit(request.programId, request.actor, "OTHER", "gift_card_batch", id, {
+        action: "CANCEL_BATCH",
+        status: batch.status,
+      });
       return reply.send({ data: batch });
     },
   );
@@ -345,6 +349,10 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
 
   app.post(`${prefix}/refund`, { preHandler: [requireAdmin] }, async (request, reply) => {
     const body = refundBodySchema.parse(request.body);
+    const foundCard = await prisma.giftCard.findFirst({
+      where: { code: normalizeCode(body.code), batch: { programId: request.programId } },
+      select: { id: true },
+    });
 
     const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
     if (!idempotencyKey) {
@@ -373,6 +381,12 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       },
       createRedisLocks(redis),
     );
+    await audit(request.programId, request.actor, "OTHER", "gift_card", foundCard?.id ?? null, {
+      action: "REFUND",
+      amount: body.amount,
+      codeSuffix: normalizeCode(body.code).slice(-4),
+      reason: body.reason ?? null,
+    }, body.reason);
     return reply.send({ data: result });
   });
 
@@ -380,6 +394,10 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
 
   app.post(`${prefix}/cancel`, { preHandler: [requireAdmin] }, async (request, reply) => {
     const body = cancelBodySchema.parse(request.body);
+    const foundCard = await prisma.giftCard.findFirst({
+      where: { code: normalizeCode(body.code), batch: { programId: request.programId } },
+      select: { id: true },
+    });
 
     const { getRedisConnection } = await import("../../lib/queue.js");
     const { createRedisLocks } = await import("@loyaltyos/giftcards");
@@ -390,7 +408,7 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       });
     }
 
-    const card = await giftCardService.cancelCard(
+    const cancelledCard = await giftCardService.cancelCard(
       {
         code: body.code,
         createdById: request.adminId ?? undefined,
@@ -398,7 +416,11 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       },
       createRedisLocks(redis),
     );
-    return reply.send({ data: card });
+    await audit(request.programId, request.actor, "OTHER", "gift_card", foundCard?.id ?? cancelledCard?.id ?? null, {
+      action: "CANCEL",
+      codeSuffix: normalizeCode(body.code).slice(-4),
+    });
+    return reply.send({ data: cancelledCard });
   });
 
   // ── Transactions (moved from public routes — A.1) ──
@@ -462,12 +484,21 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateTermsSchema.parse(request.body);
     const template = await giftCardService.updateTermsTemplate(id, body);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "gift_card_terms_template", id, {
+      operation: "UPDATE",
+      name: body.name,
+      locale: body.locale,
+      bodyChanged: body.body !== undefined,
+    });
     return reply.send({ data: template });
   });
 
   app.delete(`${prefix}/terms/:id`, { preHandler: [requireAdmin] }, async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     await giftCardService.deleteTermsTemplate(id);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "gift_card_terms_template", id, {
+      operation: "DELETE",
+    });
     return reply.status(204).send();
   });
 
@@ -504,6 +535,11 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
 
   app.post(`${prefix}/redeem`, { preHandler: [requireAdmin] }, async (request, reply) => {
     const body = adminRedeemBodySchema.parse(request.body);
+    const normalizedCode = normalizeCode(body.code);
+    const cardRef = await prisma.giftCard.findFirst({
+      where: { code: normalizedCode, batch: { programId: request.programId } },
+      select: { id: true },
+    });
 
     const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
     if (!idempotencyKey) {
@@ -533,6 +569,13 @@ export function adminGiftCardsRoutes(app: FastifyInstance, _opts: unknown, done:
       },
       createRedisLocks(redis),
     );
+    await audit(request.programId, request.actor, "OTHER", "gift_card", cardRef?.id ?? null, {
+      action: "REDEEM",
+      amount: body.amount,
+      memberId: body.memberId ?? null,
+      orderRef: body.orderRef ?? null,
+      codeSuffix: normalizedCode.slice(-4),
+    });
     return reply.send({ data: result });
   });
 

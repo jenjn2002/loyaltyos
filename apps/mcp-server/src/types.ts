@@ -14,7 +14,7 @@ export interface PointTransaction {
   id: string;
   memberId: string;
   amount: number;
-  type: "earn" | "burn" | "expire" | "adjust";
+  type: string;
   description: string;
   createdAt: string;
 }
@@ -23,13 +23,14 @@ export interface Campaign {
   id: string;
   name: string;
   type: string;
-  status: "active" | "draft" | "paused" | "ended";
-  startDate: string;
-  endDate: string | null;
+  isActive: boolean;
+  approvalStatus?: string;
+  startsAt: string | null;
+  endsAt: string | null;
   segmentId: string | null;
-  rules: Record<string, unknown>;
-  stackable: boolean;
-  budgetCap: number | null;
+  conditions: Record<string, unknown> | null;
+  isStackable: boolean;
+  maxBudget: number | null;
   membersReached?: number;
   pointsIssued?: number;
   redemptions?: number;
@@ -62,58 +63,40 @@ export interface BadgeProgress {
 
 export interface Coupon {
   id: string;
-  name: string;
-  type: string;
-  value: number;
-  code?: string;
-  quantity?: number;
-  expiresAt?: string | null;
-  minPurchaseAmount?: number | null;
-  maxUsesPerMember?: number;
-  segmentId?: string | null;
+  programId: string;
+  code: string;
+  mode: "SHARED" | "INDIVIDUAL" | "LIMITED";
+  discountType: string;
+  discountValue: number | null;
+  usedCount: number;
+  maxUses: number | null;
+  expiresAt: string | null;
 }
 
 export interface Reward {
   id: string;
   name: string;
-  description: string;
-  type: string;
-  pointCost: number;
+  description: string | null;
+  pointPrices: Array<{ pointTypeId: string; amount: number; pointType: { id: string; code: string; name: string; unitLabel: string } }>;
   stock: number | null;
   imageUrl: string | null;
 }
 
 export interface AnalyticsDashboard {
   activeMembers: number;
-  newMembers: number;
-  pointsIssued: number;
-  pointsRedeemed: number;
-  redemptionRate: number;
-  totalLiability: number;
-  topCampaigns: {
-    id: string;
-    name: string;
-    pointsIssued: number;
-    membersReached: number;
-  }[];
-  period: string;
+  inactiveMembers: number;
+  newMembersLast30Days: number;
+  totalPointsIssued: number;
+  totalPointsRedeemed: number;
+  pointExchanged: number;
+  currentPointBalance: number;
+  redemptionRatio: number;
+  pointTypeMetrics: Array<Record<string, unknown>>;
+  pointBanks: Array<Record<string, unknown>>;
+  topRewards: Array<Record<string, unknown>>;
 }
 
-export interface CampaignAnalytics {
-  campaignId: string;
-  name: string;
-  membersEligible: number;
-  membersReached: number;
-  pointsIssued: number;
-  budgetUsed: number;
-  budgetRemaining: number | null;
-  conversionRate: number;
-  dailyTrend: {
-    date: string;
-    pointsIssued: number;
-    membersReached: number;
-  }[];
-}
+export type CampaignAnalytics = Record<string, unknown>;
 
 export interface LoyaltyOSError {
   statusCode: number;

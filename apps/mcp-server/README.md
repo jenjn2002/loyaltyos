@@ -54,10 +54,10 @@ Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json
 
 ## Remote Agent Integration (SSE)
 
-When running in SSE mode, the server exposes an HTTP endpoint at `POST /mcp`:
+When running in SSE mode, set `MCP_API_KEY` to a private client credential. Requests to `POST /mcp` must send it as `Authorization: Bearer <MCP_API_KEY>`:
 
 ```bash
-MCP_TRANSPORT=sse MCP_SERVER_PORT=3010 pnpm dev:sse
+MCP_TRANSPORT=sse MCP_API_KEY=replace-with-a-long-random-secret MCP_SERVER_PORT=3010 pnpm dev:sse
 ```
 
 Connect remote agents to `http://localhost:3010/mcp`.

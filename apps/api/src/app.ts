@@ -25,12 +25,14 @@ import { adminCoalitionRoutes } from "./routes/admin/coalition.js";
 import { adminCouponsRoutes } from "./routes/admin/coupons.js";
 import { adminCreditUsersRoutes } from "./routes/admin/credit-users.js";
 import { adminEventDefinitionsRoutes } from "./routes/admin/event-definitions.js";
+import { adminExportsRoutes } from "./routes/admin/exports.js";
 import { adminGiftCardsRoutes } from "./routes/admin/giftcards.js";
 import { adminIssuanceRoutes } from "./routes/admin/issuance.js";
 import { adminLogsRoutes } from "./routes/admin/logs.js";
 import { adminMemberFieldsRoutes } from "./routes/admin/member-fields.js";
 import { adminNotificationsRoutes } from "./routes/admin/notifications.js";
 import { adminProgramsRoutes } from "./routes/admin/programs.js";
+import { adminProjectsRoutes } from "./routes/admin/projects.js";
 import { adminRewardsRoutes } from "./routes/admin/rewards.js";
 import { adminSegmentsRoutes } from "./routes/admin/segments.js";
 import { adminSettingsRoutes } from "./routes/admin/settings.js";
@@ -38,6 +40,7 @@ import { adminTiersRoutes } from "./routes/admin/tiers.js";
 import { adminWorkflowsRoutes } from "./routes/admin/workflows.js";
 import { authRoutes } from "./routes/auth.js";
 import { campaignClaimsRoutes } from "./routes/campaign-claims.js";
+import { checkInRoutes } from "./routes/check-ins.js";
 import { coalitionRoutes } from "./routes/coalition.js";
 import { couponsRoutes } from "./routes/coupons.js";
 import { creditsRoutes } from "./routes/credits.js";
@@ -129,6 +132,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
       "X-Program-Id",
       "Idempotency-Key",
     ],
+    exposedHeaders: ["X-Export-Row-Count"],
     maxAge: 86400,
   });
 
@@ -185,6 +189,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(healthRoutes, { prefix: "/" });
   await app.register(membersRoutes, { prefix: "/api/v1" });
   await app.register(campaignClaimsRoutes, { prefix: "/api/v1" });
+  await app.register(checkInRoutes, { prefix: "/api/v1" });
   await app.register(pointTypesRoutes, { prefix: "/api/v1" });
   await app.register(eventsRoutes, { prefix: "/api/v1" });
   await app.register(adminCampaignsRoutes, { prefix: "/api/v1" });
@@ -196,6 +201,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(adminCouponsRoutes, { prefix: "/api/v1" });
   await app.register(adminCreditUsersRoutes, { prefix: "/api/v1" });
   await app.register(adminEventDefinitionsRoutes, { prefix: "/api/v1" });
+  await app.register(adminExportsRoutes, { prefix: "/api/v1" });
   await app.register(adminGiftCardsRoutes, { prefix: "/api/v1" });
   await app.register(adminIssuanceRoutes, { prefix: "/api/v1" });
   await app.register(adminLogsRoutes, { prefix: "/api/v1" });
@@ -211,6 +217,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(coalitionRoutes, { prefix: "/api/v1" });
   await app.register(adminCoalitionRoutes, { prefix: "/api/v1" });
   await app.register(adminProgramsRoutes, { prefix: "/api/v1" });
+  await app.register(adminProjectsRoutes, { prefix: "/api/v1" });
 
   return app;
 }

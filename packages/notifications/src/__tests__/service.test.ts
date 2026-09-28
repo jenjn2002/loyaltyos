@@ -14,6 +14,7 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
     findMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     count: vi.fn(),
   },
   webhookSubscription: {
@@ -21,7 +22,9 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
     findMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     delete: vi.fn(),
+    deleteMany: vi.fn(),
     count: vi.fn(),
   },
   member: {
@@ -474,16 +477,16 @@ describe("NotificationsService.getWebhook", () => {
     mockPrisma.webhookSubscription.findFirst.mockResolvedValue(wh);
 
     const svc = new NotificationsService(mockPrisma as never);
-    const result = await svc.getWebhook("wh-1");
+    const result = await svc.getWebhook("wh-1", "prog-1");
 
-    expect(result.id).toBe("wh-1");
+    expect(result?.id).toBe("wh-1");
   });
 
   it("throws when webhook not found", async () => {
     mockPrisma.webhookSubscription.findFirst.mockResolvedValue(null);
 
     const svc = new NotificationsService(mockPrisma as never);
-    await expect(svc.getWebhook("nonexistent")).rejects.toThrow("Webhook not found");
+    await expect(svc.getWebhook("nonexistent", "prog-1")).resolves.toBeNull();
   });
 });
 
@@ -523,37 +526,29 @@ describe("NotificationsService.updateWebhook", () => {
       updatedAt: new Date(),
     };
     mockPrisma.webhookSubscription.findFirst.mockResolvedValue(wh);
-    mockPrisma.webhookSubscription.update.mockResolvedValue({
+    mockPrisma.webhookSubscription.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.webhookSubscription.findFirst.mockResolvedValue({
       ...wh,
       url: "https://new.example.com/webhook",
     });
 
     const svc = new NotificationsService(mockPrisma as never);
-    const result = await svc.updateWebhook("wh-1", { url: "https://new.example.com/webhook" });
+    const result = await svc.updateWebhook("wh-1", "prog-1", { url: "https://new.example.com/webhook" });
 
-    expect(result.url).toBe("https://new.example.com/webhook");
+    expect(result?.url).toBe("https://new.example.com/webhook");
+    expect(result).not.toHaveProperty("secret");
   });
 });
 
 describe("NotificationsService.deleteWebhook", () => {
   it("deletes a webhook", async () => {
-    const wh = {
-      id: "wh-1",
-      programId: "prog-1",
-      url: "https://example.com/webhook",
-      events: ["points.earned"],
-      secret: "whsec_1234567890123456",
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    mockPrisma.webhookSubscription.findFirst.mockResolvedValue(wh);
+    mockPrisma.webhookSubscription.deleteMany.mockResolvedValue({ count: 1 });
 
     const svc = new NotificationsService(mockPrisma as never);
-    await svc.deleteWebhook("wh-1");
+    await svc.deleteWebhook("wh-1", "prog-1");
 
-    expect(mockPrisma.webhookSubscription.delete).toHaveBeenCalledWith({
-      where: { id: "wh-1" },
+    expect(mockPrisma.webhookSubscription.deleteMany).toHaveBeenCalledWith({
+      where: { id: "wh-1", programId: "prog-1" },
     });
   });
 });

@@ -18,6 +18,7 @@ import { CoalitionTransactionsPage } from "@/pages/coalition/transactions";
 import { CouponBulkGeneratePage } from "@/pages/coupon-bulk-generate";
 import { CouponsListPage } from "@/pages/coupons-list";
 import { CreditsManagementPage } from "@/pages/credits-management";
+import { DataExportPage } from "@/pages/data-export";
 import { DashboardPage } from "@/pages/dashboard";
 import { EventDefinitionsPage } from "@/pages/event-definitions";
 import { BatchDetailPage } from "@/pages/giftcards/batch-detail";
@@ -31,9 +32,11 @@ import { LogsPage } from "@/pages/logs";
 import { MemberDetailPage } from "@/pages/member-detail";
 import { MemberFieldsPage } from "@/pages/member-fields";
 import { MembersListPage } from "@/pages/members-list";
+import { NotificationTemplatesPage } from "@/pages/notification-templates";
 import { IssuanceRulesPage } from "@/pages/issuance-rules";
 import { PermissionsPage } from "@/pages/permissions";
 import { PointTypesPage } from "@/pages/point-types";
+import { ProjectsPage } from "@/pages/projects";
 import { RewardsEditorPage } from "@/pages/rewards/rewards-editor";
 import { RewardsListPage } from "@/pages/rewards/rewards-list";
 import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
@@ -81,6 +84,8 @@ export function App(): JSX.Element {
         >
           <Route index element={<DashboardPage />} />
           <Route path="/members" element={<MembersListPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/exports" element={<DataExportPage />} />
           <Route path="/members/:id" element={<MemberDetailPage />} />
           <Route path="/member-fields" element={<MemberFieldsPage />} />
           <Route path="/credits" element={<Navigate to="/credits/wallets" replace />} />
@@ -106,6 +111,7 @@ export function App(): JSX.Element {
           <Route path="/campaigns/new" element={<CampaignBuilderPage />} />
           <Route path="/campaigns/:id/edit" element={<CampaignBuilderPage />} />
           <Route path="/event-definitions" element={<EventDefinitionsPage />} />
+          <Route path="/notification-templates" element={<NotificationTemplatesPage />} />
           <Route path="/coupons" element={<CouponsListPage />} />
           <Route path="/coupons/generate" element={<CouponBulkGeneratePage />} />
           <Route path="/segments" element={<SegmentsListPage />} />

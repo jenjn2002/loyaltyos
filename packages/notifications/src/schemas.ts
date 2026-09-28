@@ -17,6 +17,7 @@ export const templateCreateSchema = z.object({
 
 export const templateUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  channel: channelEnum.optional(),
   subject: z.string().optional(),
   bodyHtml: z.string().optional(),
   bodyText: z.string().optional(),

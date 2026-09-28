@@ -1,6 +1,6 @@
 import { BadgesService, TiersService } from "@loyaltyos/badges";
 import type { Prisma } from "@prisma/client";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
@@ -46,12 +46,50 @@ const adjustSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
-function requireSelfOrAdmin(
-  request: { memberId: string | null; adminId: string | null; apiKeyScope: string },
+function isMissingMemberFieldValue(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+}
+
+async function validateMemberMetadata(
+  programId: string,
+  metadata: Record<string, unknown> | undefined,
+  previousMetadata: Record<string, unknown> = {},
+): Promise<void> {
+  const fields = await prisma.memberFieldDefinition.findMany({
+    where: { programId },
+    select: { key: true, label: true, type: true, required: true, options: true, isActive: true },
+  });
+  const byKey = new Map(fields.map((field) => [field.key, field]));
+  for (const [key, value] of Object.entries(metadata ?? {})) {
+    const field = byKey.get(key);
+    if (!field) throw new LoyaltyError("MEMBER_FIELD_UNKNOWN", 400, { field: key });
+    if (!field.isActive && (!(key in previousMetadata) || JSON.stringify(previousMetadata[key]) !== JSON.stringify(value))) {
+      throw new LoyaltyError("MEMBER_FIELD_ARCHIVED", 400, { field: key });
+    }
+  }
+  for (const field of fields.filter((item) => item.isActive)) {
+    const value = metadata?.[field.key];
+    if (field.required && isMissingMemberFieldValue(value)) {
+      throw new LoyaltyError("MEMBER_FIELD_REQUIRED", 400, { field: field.key, label: field.label });
+    }
+    if (isMissingMemberFieldValue(value)) continue;
+    const valid = field.type === "TEXT" ? typeof value === "string"
+      : field.type === "NUMBER" ? typeof value === "number" && Number.isFinite(value)
+        : field.type === "BOOLEAN" ? typeof value === "boolean"
+          : field.type === "DATE" ? typeof value === "string" && !Number.isNaN(Date.parse(value))
+            : field.type === "SELECT" && typeof value === "string" && Array.isArray(field.options) && field.options.includes(value);
+    if (!valid) throw new LoyaltyError("MEMBER_FIELD_VALUE_INVALID", 400, { field: field.key, label: field.label });
+  }
+}
+
+async function requireSelfOrAdmin(
+  request: FastifyRequest,
   memberId: string,
-): void {
-  if (request.memberId !== memberId && request.adminId == null && request.apiKeyScope !== "SERVER")
-    throw new LoyaltyError("FORBIDDEN", 403);
+  capability: "member.view" | "member.manage",
+): Promise<void> {
+  if (request.memberId === memberId) return;
+  if (!request.adminId) throw new LoyaltyError("FORBIDDEN", 403);
+  await assertCapability(request, capability);
 }
 
 export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
@@ -60,6 +98,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     { preHandler: [requireCapability("member.manage")] },
     async (request, reply) => {
       const body = createMemberSchema.parse(request.body);
+      await validateMemberMetadata(request.programId, body.metadata);
       if (body.password && !body.username) {
         throw new LoyaltyError("USERNAME_REQUIRED_FOR_PASSWORD", 400);
       }
@@ -207,7 +246,12 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     if (!member) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Member not found" } });
     }
-    return reply.send({ data: member });
+    const memberFields = await prisma.memberFieldDefinition.findMany({
+      where: { programId: request.programId, isActive: true },
+      select: { key: true, label: true, type: true, required: true, options: true, sortOrder: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+    return reply.send({ data: { ...member, memberFields } });
   });
 
   const patchMeSchema = z.object({
@@ -216,6 +260,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     lastName: z.string().max(120).optional(),
     department: z.string().max(120).optional(),
     photoUrl: z.string().url().nullable().optional(),
+    metadata: z.record(z.unknown()).optional(),
   });
 
   /** PATCH /members/me — update authenticated member's locale */
@@ -243,9 +288,19 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         throw new LoyaltyError("INVALID_INPUT", 400);
       }
 
+      const data: Record<string, unknown> = { ...body };
+      if (body.metadata !== undefined) {
+        const currentMetadata = member.metadata && typeof member.metadata === "object" && !Array.isArray(member.metadata)
+          ? member.metadata as Record<string, unknown>
+          : {};
+        const mergedMetadata = { ...currentMetadata, ...body.metadata };
+        await validateMemberMetadata(request.programId, mergedMetadata, currentMetadata);
+        data.metadata = mergedMetadata as Prisma.InputJsonValue;
+      }
+
       const updated = await prisma.member.update({
         where: { id: memberId },
-        data: body,
+        data: data as Prisma.MemberUpdateInput,
       });
 
       return reply.send({ data: updated });
@@ -282,6 +337,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         where,
         select: {
           id: true,
+          email: true,
           firstName: true,
           lastName: true,
           department: true,
@@ -364,16 +420,34 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       if (body.department !== undefined) data.department = body.department;
       if (body.photoUrl !== undefined) data.photoUrl = body.photoUrl;
       if (body.tags !== undefined) data.tags = body.tags;
-      if (body.metadata !== undefined) data.metadata = body.metadata;
 
       const existing = await prisma.member.findFirst({
         where: { id, programId: request.programId },
-        select: { id: true },
       });
       if (!existing) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      if (body.metadata !== undefined) {
+        const currentMetadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+          ? existing.metadata as Record<string, unknown>
+          : {};
+        const mergedMetadata = { ...currentMetadata, ...body.metadata };
+        await validateMemberMetadata(request.programId, mergedMetadata, currentMetadata);
+        data.metadata = mergedMetadata as Prisma.InputJsonValue;
+      }
       const member = await prisma.member.update({
         where: { id: existing.id },
         data: data as Prisma.MemberUpdateInput,
+      });
+      const changeDetails = Object.fromEntries(
+        Object.entries(data).map(([key]) => [
+          key,
+          key === "photoUrl" || key === "metadata"
+            ? { changed: true }
+            : { before: (existing as Record<string, unknown>)[key], after: (member as Record<string, unknown>)[key] },
+        ]),
+      );
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "member", id, {
+        changedFields: Object.keys(data),
+        changes: changeDetails,
       });
       return reply.send({ data: member });
     },
@@ -600,29 +674,10 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .status(401)
         .send({ error: { code: "UNAUTHORIZED", message: "Authentication required" } });
     }
-    const [wallets, pendingClaims] = await Promise.all([
-      walletService.memberWallets(memberId, request.programId),
-      prisma.campaignClaim.aggregate({
-        where: {
-          memberId,
-          status: "PENDING",
-          campaign: { programId: request.programId, deletedAt: null },
-        },
-        _sum: { pointsAwarded: true },
-      }),
-    ]);
-    // The program now supports multiple configurable credit wallets. The old
-    // balance card used to read only the primary wallet, which made a member
-    // with a non-primary balance appear to have zero points.
-    const confirmed = wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
-    const pending = pendingClaims._sum.pointsAwarded ?? 0;
-    const primary = wallets.find((wallet) => wallet.isPrimary) ?? wallets[0];
+    const wallets = await walletService.memberWallets(memberId, request.programId);
+    // Point types are separate currencies, so never add balances across types.
     return reply.send({
       data: {
-        confirmed,
-        pending,
-        total: confirmed + pending,
-        pointTypeId: primary?.pointTypeId ?? null,
         wallets,
       },
     });
@@ -641,12 +696,22 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         page: z.coerce.number().int().min(1).optional().default(1),
         pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
         type: z.string().optional(),
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
       })
       .parse(request.query);
 
     const result = await walletService.history(request.programId, {
       memberId,
-      action: query.type,
+      ...(query.type === "EARN"
+        ? { actions: ["EARN", "GRANT"] }
+        : query.type === "EXPIRY"
+          ? { action: "EXPIRATION" }
+          : query.type
+            ? { action: query.type }
+            : {}),
+      from: query.from,
+      to: query.to,
       page: query.page,
       pageSize: query.pageSize,
     });
@@ -736,6 +801,13 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         idempotencyKey,
         body.expiresAt ? new Date(body.expiresAt) : undefined,
       );
+      await audit(request.programId, request.actor, "CREDIT_ADJUSTMENT", "point_wallet", result.id, {
+        memberId: id,
+        pointTypeId: body.pointTypeId,
+        amount: result.amount,
+        beforeBalance: result.balanceAfter - result.amount,
+        afterBalance: result.balanceAfter,
+      }, body.reason);
       return reply.status(201).send({ data: result });
     },
   );
@@ -772,7 +844,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   // POST /members/:id/devices — idempotent upsert by token
   app.post("/members/:id/devices", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    requireSelfOrAdmin(request, id);
+    await requireSelfOrAdmin(request, id, "member.manage");
     const body = deviceCreateSchema.parse(request.body);
 
     const member = await prisma.member.findFirst({
@@ -810,7 +882,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     const { id, deviceId } = z
       .object({ id: z.string(), deviceId: z.string() })
       .parse(request.params);
-    requireSelfOrAdmin(request, id);
+    await requireSelfOrAdmin(request, id, "member.manage");
 
     const device = await prisma.memberDevice.findFirst({
       where: { id: deviceId, memberId: id, programId: request.programId },
@@ -869,7 +941,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   // GET /members/:id/preferences
   app.get("/members/:id/preferences", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    requireSelfOrAdmin(request, id);
+    await requireSelfOrAdmin(request, id, "member.view");
     const prefs = await notificationsService.getMemberPreferences(id, request.programId);
     return reply.send({ data: prefs });
   });
@@ -877,7 +949,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   // PATCH /members/:id/preferences
   app.patch("/members/:id/preferences", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    requireSelfOrAdmin(request, id);
+    await requireSelfOrAdmin(request, id, "member.manage");
     const body = preferenceUpdateSchema.parse(request.body);
 
     await notificationsService.upsertMemberPreference(

@@ -50,7 +50,7 @@ export function createRepository(prisma: PrismaClient) {
           conditions: data.conditions ? asJson(data.conditions) : undefined,
           variants: variants
             ? {
-                deleteMany: {},
+                updateMany: { where: { isActive: true }, data: { isActive: false } },
                 create: variants.map((v) => ({
                   name: v.name,
                   trafficPct: v.trafficPct,
@@ -59,7 +59,7 @@ export function createRepository(prisma: PrismaClient) {
               }
             : undefined,
         },
-        include: { variants: true },
+        include: { variants: { where: { isActive: true } } },
       })) as unknown as CampaignWithVariants;
     },
 
@@ -74,7 +74,7 @@ export function createRepository(prisma: PrismaClient) {
     async findById(id: string): Promise<CampaignWithVariants | null> {
       return (await prisma.campaign.findFirst({
         where: { id, deletedAt: null },
-        include: { variants: true },
+        include: { variants: { where: { isActive: true } } },
       })) as unknown as CampaignWithVariants | null;
     },
 
@@ -96,7 +96,7 @@ export function createRepository(prisma: PrismaClient) {
             { startsAt: { lte: now }, endsAt: { gte: now } },
           ],
         },
-        include: { variants: true },
+        include: { variants: { where: { isActive: true } } },
       });
       return campaigns.filter((campaign) =>
         campaignMatchesEvent(campaign.type, eventType, campaign.eventType),
@@ -133,6 +133,7 @@ export function createRepository(prisma: PrismaClient) {
       campaignId: string;
       memberId: string;
       occurrence: string;
+      variantId?: string | null;
       pointsAwarded: number;
     }): Promise<{ id: string }> {
       return prisma.campaignClaim.create({ data: input, select: { id: true } });

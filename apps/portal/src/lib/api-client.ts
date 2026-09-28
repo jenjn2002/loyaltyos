@@ -38,7 +38,13 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
     throw new ApiError(401, "Session expired");
   }
 
-  const body = (await response.json()) as { data?: T; error?: { message: string } };
+  const body = (await response.json()) as { data?: T; error?: { code?: string; message: string } };
+  if (response.status === 403 && body.error?.code === "MEMBER_INACTIVE") {
+    sessionStorage.removeItem("auth-token");
+    sessionStorage.removeItem("member-id");
+    sessionStorage.removeItem("program-id");
+    window.dispatchEvent(new CustomEvent("loyaltyos:auth-required"));
+  }
   if (!response.ok) {
     throw new ApiError(response.status, body.error?.message ?? `Request failed`);
   }

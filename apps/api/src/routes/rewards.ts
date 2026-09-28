@@ -51,6 +51,8 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.get("/rewards", async (request, reply) => {
     const query = rewardListQuerySchema.parse(request.query);
+    const rewardIds = query.ids?.split(",").filter(Boolean);
+    if (rewardIds && rewardIds.length > 500) throw new LoyaltyError("REWARD_ID_FILTER_TOO_LARGE", 400);
     const now = new Date();
     const where: Prisma.RewardWhereInput = {
       programId: request.programId,
@@ -61,6 +63,7 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         { OR: [{ availableUntil: null }, { availableUntil: { gt: now } }] },
       ],
       ...(query.category ? { category: query.category } : {}),
+      ...(rewardIds ? { id: { in: rewardIds } } : {}),
       ...(query.tierRequired ? { tierRequired: query.tierRequired } : {}),
       ...(query.minPoints !== undefined || query.maxPoints !== undefined
         ? {
@@ -74,7 +77,6 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     const [items, total] = await Promise.all([
       prisma.reward.findMany({
         where,
-        include: { redemptions: { select: { id: true, memberId: true } } },
         orderBy: { createdAt: "desc" },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
@@ -105,13 +107,31 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       ? await walletService.memberWallets(request.memberId, request.programId)
       : [];
     const walletByType = new Map(wallets.map((wallet) => [wallet.pointTypeId, wallet]));
+    let tierEligible = true;
+    let tierReason: string | undefined;
+    if (request.memberId && reward.tierRequired) {
+      const [requiredTier, memberTier] = await Promise.all([
+        prisma.tier.findFirst({
+          where: { programId: request.programId, name: reward.tierRequired },
+          select: { rank: true },
+        }),
+        prisma.memberTier.findFirst({
+          where: { memberId: request.memberId, downgradedAt: null },
+          include: { tier: { select: { name: true, rank: true } } },
+          orderBy: { tier: { rank: "desc" } },
+        }),
+      ]);
+      tierEligible = Boolean(requiredTier && memberTier && memberTier.tier.rank >= requiredTier.rank);
+      if (!tierEligible) tierReason = `Tier \"${reward.tierRequired}\" required`;
+    }
     return reply.send({
       data: {
         ...reward,
+        ...(request.memberId ? { eligible: tierEligible, ...(tierReason ? { reason: tierReason } : {}) } : {}),
         pointPrices: prices.map((price) => ({
           ...price,
           availableBalance: walletByType.get(price.pointTypeId)?.balance ?? 0,
-          eligible: (walletByType.get(price.pointTypeId)?.balance ?? 0) >= price.amount,
+          eligible: tierEligible && (walletByType.get(price.pointTypeId)?.balance ?? 0) >= price.amount,
         })),
       },
     });
@@ -119,24 +139,44 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
 
   app.get("/members/me/reward-redemptions", async (request, reply) => {
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
-    const redemptions = await prisma.rewardRedemption.findMany({
-      where: { memberId: request.memberId, reward: { programId: request.programId } },
-      orderBy: { redeemedAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        rewardId: true,
-        pointTypeId: true,
-        pointsSpent: true,
-        fulfillmentStatus: true,
-        redeemedAt: true,
-        fulfilledAt: true,
-        cancelledAt: true,
-        pointType: { select: { code: true, name: true, unitLabel: true } },
-        reward: { select: { name: true, description: true } },
+    const query = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      pageSize: z.coerce.number().int().min(1).max(100).default(10),
+    }).parse(request.query);
+    const where: Prisma.RewardRedemptionWhereInput = {
+      memberId: request.memberId,
+      reward: { programId: request.programId },
+    };
+    const [items, total] = await Promise.all([
+      prisma.rewardRedemption.findMany({
+        where,
+        orderBy: { redeemedAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          rewardId: true,
+          pointTypeId: true,
+          pointsSpent: true,
+          fulfillmentStatus: true,
+          redeemedAt: true,
+          fulfilledAt: true,
+          cancelledAt: true,
+          pointType: { select: { code: true, name: true, unitLabel: true } },
+          reward: { select: { name: true, description: true } },
+        },
+      }),
+      prisma.rewardRedemption.count({ where }),
+    ]);
+    return reply.send({
+      data: {
+        items,
+        total,
+        page: query.page,
+        pageSize: query.pageSize,
+        totalPages: Math.ceil(total / query.pageSize),
       },
     });
-    return reply.send({ data: redemptions });
   });
 
   app.post(

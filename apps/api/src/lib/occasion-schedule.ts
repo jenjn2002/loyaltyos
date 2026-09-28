@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const automationSchema = z.object({
-  mode: z.enum(["EXTERNAL", "MANUAL", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE", "ONCE"]).default("EXTERNAL"),
+  mode: z.enum(["EXTERNAL", "MANUAL", "MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE", "ONCE"]).default("EXTERNAL"),
   timezone: z.string().default("Asia/Ho_Chi_Minh").refine((value) => {
     try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; }
   }, "Invalid timezone"),
@@ -18,7 +18,7 @@ export const automationSchema = z.object({
 export type OccasionSchedule = z.infer<typeof automationSchema>;
 
 export const ANNUAL_MEMBER_DATE_MODES = ["MEMBER_DATE_ANNUAL", "ANNIVERSARY"] as const;
-export const STANDING_OCCASION_MODES = ["ONBOARDING", ...ANNUAL_MEMBER_DATE_MODES, "ANNUAL_DATE"] as const;
+export const STANDING_OCCASION_MODES = ["MEMBER_CHECK_IN", "ONBOARDING", ...ANNUAL_MEMBER_DATE_MODES, "ANNUAL_DATE"] as const;
 
 export function isStandingOccasionMode(mode: string | undefined): boolean {
   return STANDING_OCCASION_MODES.includes(mode as (typeof STANDING_OCCASION_MODES)[number]);
@@ -45,7 +45,7 @@ export function occasionKey(config: OccasionSchedule, member: { joinedAt: Date; 
   const today = localDate(now, config.timezone);
   // Manual and external definitions are only event keys for campaign
   // configuration. Neither one is emitted by the occasion scheduler.
-  if (config.mode === "EXTERNAL" || config.mode === "MANUAL") return null;
+  if (config.mode === "EXTERNAL" || config.mode === "MANUAL" || config.mode === "MEMBER_CHECK_IN") return null;
   if (config.mode === "ONCE") return config.date === today ? today : null;
   if (config.mode === "ANNUAL_DATE") return config.monthDay && matchesMonthDay(config.monthDay, today, config.leapDayPolicy) ? today : null;
   const metadata = member.metadata as Record<string, unknown> | null;

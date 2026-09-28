@@ -31,8 +31,8 @@ export function evaluateRules(
       if (expected && typeof expected === "object" && !Array.isArray(expected)) {
         const operators = expected as Record<string, unknown>;
         if ("$eq" in operators && actual !== operators.$eq) return false;
-        if ("$gte" in operators && Number(actual) < Number(operators.$gte)) return false;
-        if ("$lte" in operators && Number(actual) > Number(operators.$lte)) return false;
+        if ("$gte" in operators && !matchesNumeric(actual, operators.$gte, (value, threshold) => value >= threshold)) return false;
+        if ("$lte" in operators && !matchesNumeric(actual, operators.$lte, (value, threshold) => value <= threshold)) return false;
         return true;
       }
       return actual === expected;
@@ -69,10 +69,10 @@ function matchesCondition(condition: RuleCondition, context: Record<string, unkn
 
   if (condition.eq !== undefined && actual !== condition.eq) return false;
   if (condition.neq !== undefined && actual === condition.neq) return false;
-  if (condition.gt !== undefined && Number(actual) <= condition.gt) return false;
-  if (condition.lt !== undefined && Number(actual) >= condition.lt) return false;
-  if (condition.gte !== undefined && Number(actual) < condition.gte) return false;
-  if (condition.lte !== undefined && Number(actual) > condition.lte) return false;
+  if (condition.gt !== undefined && !matchesNumeric(actual, condition.gt, (value, threshold) => value > threshold)) return false;
+  if (condition.lt !== undefined && !matchesNumeric(actual, condition.lt, (value, threshold) => value < threshold)) return false;
+  if (condition.gte !== undefined && !matchesNumeric(actual, condition.gte, (value, threshold) => value >= threshold)) return false;
+  if (condition.lte !== undefined && !matchesNumeric(actual, condition.lte, (value, threshold) => value <= threshold)) return false;
 
   if (condition.in !== undefined) {
     if (!Array.isArray(condition.in) || !condition.in.some((v) => v === actual)) {
@@ -81,8 +81,10 @@ function matchesCondition(condition: RuleCondition, context: Record<string, unkn
   }
 
   if (condition.between !== undefined) {
-    const num = Number(actual);
-    if (num < condition.between[0] || num > condition.between[1]) return false;
+    const num = toFiniteNumber(actual);
+    const lower = toFiniteNumber(condition.between[0]);
+    const upper = toFiniteNumber(condition.between[1]);
+    if (num === undefined || lower === undefined || upper === undefined || num < lower || num > upper) return false;
   }
 
   if (condition.contains !== undefined) {
@@ -96,4 +98,21 @@ function matchesCondition(condition: RuleCondition, context: Record<string, unkn
 
 function resolveField(field: string, context: Record<string, unknown>): unknown {
   return context[field];
+}
+
+function matchesNumeric(
+  value: unknown,
+  threshold: unknown,
+  predicate: (value: number, threshold: number) => boolean,
+): boolean {
+  const numericValue = toFiniteNumber(value);
+  const numericThreshold = toFiniteNumber(threshold);
+  return numericValue !== undefined && numericThreshold !== undefined && predicate(numericValue, numericThreshold);
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) return undefined;
+  if (typeof value !== "number" && typeof value !== "string" && !(value instanceof Date)) return undefined;
+  const numericValue = value instanceof Date ? value.getTime() : Number(value);
+  return Number.isFinite(numericValue) ? numericValue : undefined;
 }

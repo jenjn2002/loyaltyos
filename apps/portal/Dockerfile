@@ -17,6 +17,12 @@ RUN turbo prune @loyaltyos/portal --docker
 # so normal source changes reuse the expensive pnpm install layer.
 FROM toolchain AS builder
 WORKDIR /app
+
+ARG VITE_LOYALTYOS_ENVIRONMENT=production
+ARG VITE_LOYALTYOS_SWITCH_URL=https://loyalty-sandbox.trunglocxoay.store
+ENV VITE_LOYALTYOS_ENVIRONMENT=${VITE_LOYALTYOS_ENVIRONMENT}
+ENV VITE_LOYALTYOS_SWITCH_URL=${VITE_LOYALTYOS_SWITCH_URL}
+
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
@@ -24,8 +30,6 @@ RUN --mount=type=cache,id=loyaltyos-pnpm-store,target=/pnpm/store \
 
 COPY --from=pruner /app/out/full/ .
 COPY --from=pruner /app/tsconfig.base.json ./tsconfig.base.json
-ARG VITE_BASE_PATH=/customer/
-ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 RUN pnpm --filter @loyaltyos/portal build
 
 # Stage 2: Serve with nginx + brotli

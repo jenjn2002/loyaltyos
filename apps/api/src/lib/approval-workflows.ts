@@ -1,4 +1,4 @@
-import { type AdminRole, Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { prisma } from "../db.js";
 import { LoyaltyError } from "./errors.js";
@@ -7,12 +7,14 @@ export const BUILTIN_WORKFLOW_ACTIONS = [
   "POINT_EXCHANGE",
   "POINT_ISSUANCE_PROPOSAL",
   "CAMPAIGN_ISSUANCE_PROPOSAL",
+  "PROJECT_PLAN_APPROVAL",
+  "PROJECT_POINT_ISSUANCE",
   "LEAVE_REQUEST",
   "REWARD_REDEMPTION",
   "CUSTOM",
 ] as const;
 
-export interface WorkflowAssignmentInput { adminUserId?: string; role?: AdminRole }
+export interface WorkflowAssignmentInput { adminUserId?: string; role?: string }
 export interface WorkflowStepInput {
   name: string;
   approvalMode: "ANY" | "ALL" | "COUNT";
@@ -85,12 +87,10 @@ interface AssigneeSnapshot {
   adminId: string;
   email: string;
   name: string;
-  role: AdminRole;
+  role: string;
   assignedVia: "USER" | "ROLE";
-  assignedRole?: AdminRole;
+  assignedRole?: string;
 }
-
-const ADMIN_ROLES = new Set<AdminRole>(["SUPER_ADMIN", "OPERATOR", "ANALYST"]);
 
 function isPrismaClient(db: WorkflowDb): db is PrismaClient {
   return "$transaction" in db;
@@ -306,8 +306,6 @@ export function validateWorkflowDefinition(input: WorkflowDefinitionInput): void
       const hasUser = Boolean(assignee.adminUserId);
       const hasRole = Boolean(assignee.role);
       if (hasUser === hasRole) throw new LoyaltyError("WORKFLOW_ASSIGNEE_INVALID", 400);
-      if (assignee.role && !ADMIN_ROLES.has(assignee.role))
-        throw new LoyaltyError("WORKFLOW_ROLE_INVALID", 400);
       const key = assignee.adminUserId
         ? `user:${assignee.adminUserId}`
         : `role:${assignee.role ?? ""}`;
@@ -348,6 +346,17 @@ async function validateAssignedUsers(
     ),
   ];
   if (roles.length) {
+    const customRoles = roles.filter(
+      (role) => role !== "SUPER_ADMIN" && role !== "OPERATOR" && role !== "ANALYST",
+    );
+    if (customRoles.length) {
+      const definitions = await tx.adminRoleDefinition.findMany({
+        where: { programId, role: { in: customRoles } },
+        select: { role: true },
+      });
+      if (definitions.length !== customRoles.length)
+        throw new LoyaltyError("WORKFLOW_ROLE_INVALID", 400);
+    }
     const activeRoles = await tx.adminUser.groupBy({
       by: ["role"],
       where: { programId, isActive: true, role: { in: roles } },
@@ -448,6 +457,7 @@ export async function saveWorkflow(
       ? await tx.approvalWorkflow.update({
           where: { id },
           data: {
+            actionKey: input.actionKey,
             name: input.name.trim(),
             description: input.description?.trim() ?? null,
             priority,
@@ -727,10 +737,20 @@ function includesApprover(step: { assigneesSnapshot: unknown }, adminId: string)
 
 export async function listApprovalRequests(
   programId: string,
-  input: { inboxForAdminId?: string; status?: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" },
+  input: { inboxForAdminId?: string; status?: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; resolvedOnly?: boolean },
 ) {
+  const isInbox = Boolean(input.inboxForAdminId);
   const requests = await prisma.approvalRequest.findMany({
-    where: { programId, ...(input.status ? { status: input.status } : {}) },
+    where: {
+      programId,
+      ...(input.status
+        ? { status: input.status }
+        : input.resolvedOnly
+          ? { status: { in: ["APPROVED", "REJECTED", "CANCELLED"] } }
+          : isInbox
+            ? { status: "PENDING" }
+          : {}),
+    },
     include: {
       workflow: { select: { actionKey: true, name: true } },
       steps: {
@@ -739,15 +759,31 @@ export async function listApprovalRequests(
       },
     },
     orderBy: { requestedAt: "desc" },
-    take: 200,
   });
-  if (!input.inboxForAdminId) return requests;
+  const withWorkflowSnapshotName = requests.map((request) => {
+    const snapshot = request.workflowSnapshot && typeof request.workflowSnapshot === "object" && !Array.isArray(request.workflowSnapshot)
+      ? request.workflowSnapshot as Record<string, unknown>
+      : {};
+    const currentWorkflow = request.workflow ?? { name: "Workflow", actionKey: request.actionKey };
+    const workflowName = typeof snapshot.name === "string" ? snapshot.name : currentWorkflow.name;
+    const actionKey = typeof snapshot.actionKey === "string" ? snapshot.actionKey : currentWorkflow.actionKey;
+    return { ...request, workflow: { ...currentWorkflow, name: workflowName, actionKey } };
+  });
+  if (!input.inboxForAdminId) return withWorkflowSnapshotName;
   const inboxAdminId = input.inboxForAdminId;
-  return requests.filter((request) => {
+  const inbox = withWorkflowSnapshotName.filter((request) => {
     if (request.status !== "PENDING" || request.currentStepOrder == null) return false;
     const step = request.steps.find((candidate) => candidate.stepOrder === request.currentStepOrder);
     return Boolean(step && step.status === "PENDING" && includesApprover(step, inboxAdminId));
   });
+  const visibleInbox = inbox;
+  if (visibleInbox.length === 0) return [];
+  const reads = await prisma.adminApprovalNotificationRead.findMany({
+    where: { adminUserId: inboxAdminId, approvalRequestId: { in: visibleInbox.map((request) => request.id) } },
+    select: { approvalRequestId: true },
+  });
+  const readIds = new Set(reads.map((read) => read.approvalRequestId));
+  return visibleInbox.map((request) => ({ ...request, isRead: readIds.has(request.id) }));
 }
 
 export async function decideApprovalRequest(
@@ -872,6 +908,9 @@ export async function decideApprovalRequestWithClient(
           await tx.approvalRequest.update({
             where: { id: request.id },
             data: { currentStepOrder: next.stepOrder },
+          });
+          await tx.adminApprovalNotificationRead.deleteMany({
+            where: { approvalRequestId: request.id },
           });
         } else {
           if (hook) {

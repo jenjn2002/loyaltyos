@@ -16,14 +16,9 @@ describe("RewardsCatalogSchema", () => {
     }
   });
 
-  it("accepts type filter", () => {
-    const result = RewardsCatalogSchema.safeParse({ type: "discount" });
+  it("accepts category filter supported by the REST API", () => {
+    const result = RewardsCatalogSchema.safeParse({ category: "wellness" });
     expect(result.success).toBe(true);
-  });
-
-  it("rejects invalid type", () => {
-    const result = RewardsCatalogSchema.safeParse({ type: "invalid_type" });
-    expect(result.success).toBe(false);
   });
 
   it("accepts maxCost and offset", () => {
@@ -42,18 +37,16 @@ describe("RewardCreateSchema", () => {
     const result = RewardCreateSchema.safeParse({
       name: "10% Discount Voucher",
       description: "Get 10% off your next purchase",
-      type: "discount",
-      pointCost: 500,
+      pointPrices: [{ pointTypeId: "point-type-1", amount: 500 }],
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects pointCost less than 1", () => {
+  it("rejects non-positive point price", () => {
     const result = RewardCreateSchema.safeParse({
       name: "Free item",
       description: "A free product",
-      type: "product",
-      pointCost: 0,
+      pointPrices: [{ pointTypeId: "point-type-1", amount: 0 }],
     });
     expect(result.success).toBe(false);
   });
@@ -62,13 +55,12 @@ describe("RewardCreateSchema", () => {
     const result = RewardCreateSchema.safeParse({
       name: "Exclusive Experience",
       description: "VIP access to summer event",
-      type: "experience",
-      pointCost: 5000,
+      pointPrices: [{ pointTypeId: "point-type-1", amount: 5000 }],
       stock: 100,
       imageUrl: "https://example.com/image.png",
-      availableFromDate: "2024-06-01T00:00:00Z",
-      availableUntilDate: "2024-08-01T00:00:00Z",
-      tierRestriction: ["gold", "platinum"],
+      availableFrom: "2024-06-01T00:00:00Z",
+      availableUntil: "2024-08-01T00:00:00Z",
+      tierRequired: "Gold",
     });
     expect(result.success).toBe(true);
   });
@@ -78,7 +70,7 @@ describe("RewardCreateSchema", () => {
       name: "Bad Reward",
       description: "Bad",
       type: "invalid",
-      pointCost: 100,
+      pointPrices: [{ pointTypeId: "point-type-1", amount: 100 }],
     });
     expect(result.success).toBe(false);
   });
@@ -87,8 +79,7 @@ describe("RewardCreateSchema", () => {
     const result = RewardCreateSchema.safeParse({
       name: "",
       description: "Something",
-      type: "discount",
-      pointCost: 100,
+      pointPrices: [{ pointTypeId: "point-type-1", amount: 100 }],
     });
     expect(result.success).toBe(false);
   });

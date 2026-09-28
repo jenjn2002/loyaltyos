@@ -1,3 +1,4 @@
+import { ui } from "@/lib/ui-text";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Filter, RotateCcw, XCircle } from "lucide-react";
 import { useState } from "react";
@@ -51,7 +52,7 @@ function cleanTransactionReason(reason: string | null): string {
 function transactionTitle(tx: PointTransaction, labels: TransactionLabels): string {
   const reason = cleanTransactionReason(tx.reason);
   if (tx.source.startsWith("reward:")) return reason || labels.reward;
-  if (tx.source.startsWith("campaign:")) return reason || labels.campaign;
+  if (tx.source.startsWith("campaign:")) return tx.sourceLabel || reason || labels.campaign;
   if (tx.source === "member:exchange") return labels.exchange;
   if (tx.source.startsWith("admin:")) return labels.admin;
   if (tx.source.startsWith("member:give")) return labels.recognition;
@@ -62,6 +63,7 @@ function transactionTitle(tx: PointTransaction, labels: TransactionLabels): stri
 export default function Transactions() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<string>("");
+  const [page, setPage] = useState(1);
   const labels: TransactionLabels = {
     exchange: t("transactionTitles.exchange"),
     reward: t("transactionTitles.reward"),
@@ -71,12 +73,23 @@ export default function Transactions() {
     system: t("transactionTitles.system"),
     transaction: t("transactionTitles.transaction"),
   };
+  const filterLabels: Record<string, string> = {
+    EARN: t("transactionTypes.EARN"),
+    REDEEM: t("transactionTypes.REDEEM"),
+    ADJUSTMENT: t("transactionTypes.ADJUST"),
+    GIVE_IN: ui("Received by me"),
+    GIVE_OUT: ui("Given by me"),
+    GIVE_ALLOWANCE_OUT: ui("Give allowance used"),
+    EXCHANGE: t("transactionTitles.exchange"),
+    EXPIRY: t("transactionTypes.EXPIRE"),
+    REVERSAL: t("transactionTypes.REVERSE"),
+  };
 
   const { data, isLoading } = useQuery({
-    queryKey: ["transactions", filter],
+    queryKey: ["transactions", filter, page],
     queryFn: () =>
       fetchApi<PaginatedResponse<PointTransaction>>(
-        `/members/me/transactions?page=1&pageSize=50${filter && filter !== "ALL" ? `&type=${filter}` : ""}`,
+        `/members/me/transactions?page=${String(page)}&pageSize=50${filter && filter !== "ALL" ? `&type=${filter}` : ""}`,
       ),
   });
 
@@ -94,6 +107,7 @@ export default function Transactions() {
           "ADJUSTMENT",
           "GIVE_IN",
           "GIVE_OUT",
+          "GIVE_ALLOWANCE_OUT",
           "EXCHANGE",
           "EXPIRY",
           "REVERSAL",
@@ -102,6 +116,7 @@ export default function Transactions() {
             key={type}
             onClick={() => {
               setFilter(type);
+              setPage(1);
             }}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
               filter === type
@@ -109,7 +124,7 @@ export default function Transactions() {
                 : "border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"
             }`}
           >
-            {type === "" ? t("filterAll") : t(`transactionTypes.${type}`)}
+            {type === "" ? t("filterAll") : filterLabels[type]}
           </button>
         ))}
       </div>
@@ -170,6 +185,28 @@ export default function Transactions() {
             );
           })}
         </ul>
+      )}
+
+      {data && data.totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((value) => value - 1)}
+            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 disabled:opacity-40"
+          >
+            {t("previous")}
+          </button>
+          <span>{page} / {data.totalPages}</span>
+          <button
+            type="button"
+            disabled={page >= data.totalPages}
+            onClick={() => setPage((value) => value + 1)}
+            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 disabled:opacity-40"
+          >
+            {t("next")}
+          </button>
+        </div>
       )}
     </div>
   );

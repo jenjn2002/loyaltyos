@@ -109,9 +109,37 @@ function resolveIssuancePolicy(
 async function ownedCampaign(id: string, programId: string) {
   const campaign = await prisma.campaign.findFirst({
     where: { id, programId, deletedAt: null },
+    include: { variants: { where: { isActive: true } } },
   });
   if (!campaign) throw new LoyaltyError("CAMPAIGN_NOT_FOUND", 404);
   return campaign;
+}
+
+function assertVariantConfiguration(
+  abTesting: boolean,
+  variants: Array<{ trafficPct: number; config?: unknown }>,
+): void {
+  if (!abTesting) return;
+  if (variants.length < 2 || Math.abs(variants.reduce((total, variant) => total + variant.trafficPct, 0) - 100) > 0.01) {
+    throw new LoyaltyError("CAMPAIGN_VARIANTS_INVALID", 400);
+  }
+  for (const variant of variants) {
+    const config = variant.config && typeof variant.config === "object" && !Array.isArray(variant.config)
+      ? variant.config as Record<string, unknown>
+      : {};
+    if (config.multiplier !== undefined && (!Number.isSafeInteger(config.multiplier) || (config.multiplier as number) <= 0)) {
+      throw new LoyaltyError("CAMPAIGN_VARIANT_MULTIPLIER_INVALID", 400);
+    }
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
 
 export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
@@ -126,6 +154,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
     if (!saveAsDraft && issuancePolicy === "APPROVAL_REQUIRED" && !body.justification?.trim()) throw new LoyaltyError("JUSTIFICATION_REQUIRED", 400);
     if (definition && definition.key !== "purchase" && body.type !== "BONUS_POINTS") throw new LoyaltyError("OCCASION_REQUIRES_BONUS_POINTS_CAMPAIGN", 400);
     if (definition && definition.key !== "purchase" && (!Number.isSafeInteger(body.multiplier) || !body.multiplier || body.multiplier <= 0)) throw new LoyaltyError("CAMPAIGN_GRANT_INVALID", 400);
+    assertVariantConfiguration(body.abTesting ?? false, body.variants ?? []);
     await assertPointType(programId, body.pointTypeId);
     if (body.segmentId) await assertSegment(programId, body.segmentId);
     if (body.startsAt && body.endsAt && body.endsAt <= body.startsAt)
@@ -181,7 +210,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
       prisma.campaign.count({ where }),
     ]);
@@ -284,6 +313,11 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         endsAt: true,
         maxBudget: true,
         segmentId: true,
+        abTesting: true,
+        variants: {
+          select: { id: true, name: true, isActive: true, createdAt: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        },
       },
     });
     if (!campaign) throw new LoyaltyError("CAMPAIGN_NOT_FOUND", 404);
@@ -297,14 +331,14 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
     const [applications, applicationTotal, claims, claimTotal] = await Promise.all([
       prisma.campaignApplication.findMany({
         where: { campaignId: id, ...memberFilter },
-        orderBy: { createdAt: "desc" },
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: query.page * query.pageSize,
         select: {
           id: true,
           memberId: true,
           eventId: true,
           pointsAwarded: true,
+          variantId: true,
           metadata: true,
           createdAt: true,
         },
@@ -316,13 +350,13 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       prisma.campaignClaim.findMany({
         where: { campaignId: id, ...memberFilter },
         orderBy: { createdAt: "desc" },
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
+        take: query.page * query.pageSize,
         select: {
           id: true,
           memberId: true,
           occurrence: true,
           pointsAwarded: true,
+          variantId: true,
           status: true,
           claimedAt: true,
           createdAt: true,
@@ -339,7 +373,35 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       prisma.campaignClaim.count({ where: { campaignId: id, status: "CLAIMED", ...memberFilter } }),
       prisma.campaignClaim.count({ where: { campaignId: id, status: "PENDING", ...memberFilter } }),
     ]);
+    const variantResults = campaign.variants.length > 0
+      ? await Promise.all(campaign.variants.map(async (variant) => {
+          const [applicationsByVariant, claimsByVariant, claimCountByVariant] = await Promise.all([
+            prisma.campaignApplication.aggregate({
+              where: { campaignId: id, variantId: variant.id, ...memberFilter },
+              _count: { _all: true },
+              _sum: { pointsAwarded: true },
+            }),
+            prisma.campaignClaim.aggregate({
+              where: { campaignId: id, variantId: variant.id, status: "CLAIMED", ...memberFilter },
+              _sum: { pointsAwarded: true },
+            }),
+            prisma.campaignClaim.count({
+              where: { campaignId: id, variantId: variant.id, ...memberFilter },
+            }),
+          ]);
+          return {
+            id: variant.id,
+            name: variant.name,
+            members: applicationsByVariant._count._all + claimCountByVariant,
+            pointsAwarded: (applicationsByVariant._sum.pointsAwarded ?? 0) + (claimsByVariant._sum.pointsAwarded ?? 0),
+            isCurrent: variant.isActive,
+            createdAt: variant.createdAt,
+            version: campaign.variants.findIndex((candidate) => candidate.id === variant.id) + 1,
+          };
+        }))
+      : [];
     const membersById = new Map(activeMembers.map((member) => [member.id, member]));
+    const variantNames = new Map(campaign.variants.map((variant) => [variant.id, variant.name]));
     const now = new Date();
     const total = totalApplications + totalClaims;
     const claimedClaims = claimedClaimCount;
@@ -367,20 +429,25 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         issuedCount,
         totalPoints,
         pendingClaims,
+        variantResults,
         items: [
           ...applications.map((application) => ({
           ...application,
+          variantName: application.variantId ? variantNames.get(application.variantId) ?? null : null,
           member: membersById.get(application.memberId) ?? null,
             recordType: "ISSUED" as const,
           })),
           ...claims.map((claim) => ({
             ...claim,
+            variantName: claim.variantId ? variantNames.get(claim.variantId) ?? null : null,
             eventId: null,
             metadata: { eventType: campaign.eventType, occurrence: claim.occurrence },
             member: membersById.get(claim.memberId) ?? null,
             recordType: claim.status === "CLAIMED" ? "ISSUED" as const : "CLAIM" as const,
           })),
-        ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+        ]
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+          .slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
         page: query.page,
         pageSize: query.pageSize,
         totalPages: Math.ceil(total / query.pageSize),
@@ -394,6 +461,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
     const body = updateSchema.parse(request.body);
     const saveAsDraft = body.saveAsDraft === true;
     const existing = await ownedCampaign(id, request.programId);
+    assertVariantConfiguration(body.abTesting ?? existing.abTesting, body.variants ?? existing.variants);
     if (existing.approvalStatus === "PENDING") throw new LoyaltyError("CAMPAIGN_APPROVAL_PENDING", 409);
     const key = body.eventType === undefined ? existing.eventType : body.eventType;
     const definition = key ? await prisma.eventDefinition.findUnique({ where: { programId_key: { programId: request.programId, key: key.toLowerCase() } } }) : null;
@@ -431,16 +499,39 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         isActive: !saveAsDraft && !requiresReapproval && issuancePolicy !== "APPROVAL_REQUIRED",
       } });
       if (variants !== undefined) {
-        await tx.campaignVariant.deleteMany({ where: { campaignId: id } });
-        if (variants.length > 0) {
-          await tx.campaignVariant.createMany({
-            data: variants.map((variant) => ({
-              campaignId: id,
-              name: variant.name,
-              trafficPct: variant.trafficPct,
-              config: variant.config as Prisma.InputJsonValue | undefined,
-            })),
+        const activeVariants = await tx.campaignVariant.findMany({
+          where: { campaignId: id, isActive: true },
+          orderBy: { createdAt: "asc" },
+        });
+        const currentSignatures = activeVariants.map((variant) => canonicalJson({
+          name: variant.name,
+          trafficPct: variant.trafficPct,
+          config: variant.config ?? {},
+        })).sort();
+        const nextSignatures = variants.map((variant) => canonicalJson({
+          name: variant.name,
+          trafficPct: variant.trafficPct,
+          config: variant.config ?? {},
+        })).sort();
+        const unchanged = currentSignatures.length === nextSignatures.length
+          && currentSignatures.every((signature, index) => signature === nextSignatures[index]);
+        if (!unchanged) {
+          // Keep old variant rows for past applications/claims; only the new
+          // active version is used for future assignment.
+          await tx.campaignVariant.updateMany({
+            where: { campaignId: id, isActive: true },
+            data: { isActive: false },
           });
+          if (variants.length > 0) {
+            await tx.campaignVariant.createMany({
+              data: variants.map((variant) => ({
+                campaignId: id,
+                name: variant.name,
+                trafficPct: variant.trafficPct,
+                config: variant.config as Prisma.InputJsonValue | undefined,
+              })),
+            });
+          }
         }
       }
       return tx.campaign.findUniqueOrThrow({ where: { id }, include: { variants: true } });
@@ -452,8 +543,14 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
   // DELETE /admin/campaigns/:id — Soft delete campaign
   app.delete("/admin/campaigns/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    await ownedCampaign(id, request.programId);
+    const campaign = await ownedCampaign(id, request.programId);
     await campaigns.archive(id);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "campaign", id, {
+      operation: "DELETE",
+      name: campaign.name,
+      previousApprovalStatus: campaign.approvalStatus,
+      previousIsActive: campaign.isActive,
+    });
     return reply.status(204).send();
   });
 
@@ -467,8 +564,14 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         maxUsesPerMember: z.number().int().min(0).optional(),
         segmentId: z.string().min(1).nullable().optional(),
         eventType: z.string().trim().max(80).nullable().optional(),
+        abTesting: z.boolean().optional(),
+        variants: z.array(z.object({
+          trafficPct: z.number().min(0).max(100),
+          config: z.record(z.unknown()).optional(),
+        })).optional(),
       })
       .parse(request.body);
+    assertVariantConfiguration(body.abTesting ?? false, body.variants ?? []);
 
     let estimatedMembers: number | undefined;
     if (body.segmentId) {
@@ -492,6 +595,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       multiplier: body.multiplier,
       maxBudget: body.maxBudget,
       maxUsesPerMember: body.maxUsesPerMember,
+      variants: body.abTesting ? body.variants : undefined,
       estimatedMembers,
       isPurchase: !body.eventType || body.eventType.toLowerCase() === "purchase",
     });
@@ -504,6 +608,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
 
     const campaign = await prisma.campaign.findFirst({
       where: { id, programId: request.programId },
+      include: { variants: { where: { isActive: true } } },
     });
     if (!campaign) {
       return reply
@@ -516,6 +621,14 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       type: campaign.type,
       multiplier: campaign.multiplier,
       maxBudget: campaign.maxBudget ?? undefined,
+      variants: campaign.abTesting
+        ? campaign.variants.filter((variant) => variant.isActive).map((variant) => ({
+            trafficPct: variant.trafficPct,
+            config: variant.config && typeof variant.config === "object" && !Array.isArray(variant.config)
+              ? variant.config as Record<string, unknown>
+              : undefined,
+          }))
+        : undefined,
     });
     return reply.send({ data: result });
   });
@@ -524,7 +637,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
   app.post("/admin/campaigns/:id/lifecycle", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const { action } = lifecycleSchema.parse(request.body);
-    await ownedCampaign(id, request.programId);
+    const campaign = await ownedCampaign(id, request.programId);
 
     switch (action) {
       case "activate":
@@ -538,6 +651,14 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
         break;
     }
 
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "campaign", id, {
+      operation: "LIFECYCLE",
+      lifecycleAction: action,
+      name: campaign.name,
+      previousApprovalStatus: campaign.approvalStatus,
+      previousIsActive: campaign.isActive,
+    });
+
     return reply.send({ data: { id, action } });
   });
 
@@ -550,8 +671,18 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
     }
     if (campaign.endsAt && campaign.endsAt < new Date()) throw new LoyaltyError("CAMPAIGN_ENDED", 409);
 
-    const occurrence = `manual:${campaign.updatedAt.toISOString()}`;
     const eventType = campaign.eventType ?? "manual";
+    const eventDefinition = campaign.eventType
+      ? await prisma.eventDefinition.findUnique({
+          where: { programId_key: { programId: request.programId, key: campaign.eventType.toLowerCase() } },
+          select: { automation: true },
+        })
+      : null;
+    const automation = eventDefinition?.automation as { mode?: string } | undefined;
+    const oneShotManualEvent = automation?.mode === "MANUAL";
+    const occurrence = oneShotManualEvent
+      ? `manual:${campaign.id}`
+      : `manual:${campaign.updatedAt.toISOString()}`;
     let processed = 0;
     let issued = 0;
     let cursor: string | undefined;
@@ -578,6 +709,23 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       cursor = members.length === 200 ? members[members.length - 1]!.id : undefined;
     } while (cursor);
 
+    if (oneShotManualEvent) {
+      const completedAt = new Date();
+      await prisma.campaignManualExecution.upsert({
+        where: { campaignId: campaign.id },
+        create: { campaignId: campaign.id, status: "COMPLETED", startedAt: completedAt, completedAt },
+        update: { status: "COMPLETED", completedAt, error: null },
+      });
+    }
+
+    await audit(request.programId, request.actor, "CREDIT_BULK", "campaign", campaign.id, {
+      operation: "RUN_NOW",
+      name: campaign.name,
+      processed,
+      issued,
+      mode: campaign.issuanceMode,
+      occurrence,
+    });
     return reply.send({ data: { campaignId: campaign.id, processed, issued, mode: campaign.issuanceMode, occurrence } });
   });
 
@@ -600,6 +748,11 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       if (!approval) throw new LoyaltyError("POINT_ISSUANCE_WORKFLOW_NOT_CONFIGURED", 409);
       await tx.campaign.update({ where: { id }, data: { approvalStatus: "PENDING", isActive: false } });
       return approval;
+    });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "campaign", id, {
+      operation: "SUBMIT_FOR_APPROVAL",
+      approvalRequestId: approval.id,
+      approvalStatus: "PENDING",
     });
     return reply.status(201).send({ data: approval });
   });

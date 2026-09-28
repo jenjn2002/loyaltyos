@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
+import { createdByForEntities } from "../../lib/created-by.js";
+import { LoyaltyError } from "../../lib/errors.js";
 import { notificationsService as notifications } from "../../lib/notifications-setup.js";
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -24,12 +26,34 @@ const templateCreateBody = z.object({
 
 const templateUpdateBody = z.object({
   name: z.string().min(1).max(100).optional(),
+  channel: channelEnum.optional(),
   subject: z.string().optional(),
   bodyHtml: z.string().optional(),
   bodyText: z.string().optional(),
   triggerEvent: z.string().optional(),
   transactional: z.boolean().optional(),
   fallbackChannel: channelEnum.optional().nullable(),
+});
+
+const templateBulkBody = z.object({
+  upserts: z.array(z.object({
+    id: z.string().min(1).optional(),
+    name: z.string().min(1).max(100),
+    locale: z.string().min(2).max(20),
+    channel: channelEnum,
+    subject: z.string().optional(),
+    bodyHtml: z.string().optional(),
+    bodyText: z.string().optional(),
+    triggerEvent: z.string().optional(),
+    transactional: z.boolean().optional(),
+    fallbackChannel: channelEnum.nullable().optional(),
+  })).max(20),
+  deleteIds: z.array(z.string().min(1)).max(20).default([]),
+}).superRefine((body, ctx) => {
+  const ids = [...body.upserts.flatMap(({ id }) => (id ? [id] : [])), ...body.deleteIds];
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Duplicate notification template ID." });
+  const names = body.upserts.map(({ name, locale }) => `${name.trim().toLocaleLowerCase()}::${locale.toLowerCase()}`);
+  if (new Set(names).size !== names.length) ctx.addIssue({ code: "custom", message: "Duplicate template name and locale." });
 });
 
 const webhookCreateBody = z.object({
@@ -75,7 +99,76 @@ export function adminNotificationsRoutes(
 
     const programId = getProgramId(request);
     const result = await notifications.listTemplates(programId, query);
-    return reply.send({ data: result });
+    const creators = await createdByForEntities(
+      programId,
+      "NotificationTemplate",
+      result.items.map((template) => template.id),
+    );
+    return reply.send({
+      data: {
+        ...result,
+        items: result.items.map((template) => ({
+          ...template,
+          createdBy: creators.get(template.id) ?? null,
+        })),
+      },
+    });
+  });
+
+  app.get("/admin/notification-templates/triggers", async (request, reply) => {
+    const rows = await prisma.notificationTemplate.findMany({
+      where: { programId: getProgramId(request), triggerEvent: { not: null } },
+      distinct: ["triggerEvent"],
+      select: { triggerEvent: true },
+      orderBy: { triggerEvent: "asc" },
+    });
+    return reply.send({ data: rows.flatMap((row) => row.triggerEvent ? [row.triggerEvent] : []) });
+  });
+
+  app.post("/admin/notification-templates/bulk", async (request, reply) => {
+    const body = templateBulkBody.parse(request.body);
+    const programId = getProgramId(request);
+    const existingIds = [
+      ...body.upserts.flatMap(({ id }) => id ? [id] : []),
+      ...body.deleteIds,
+    ];
+    const existingTemplates = existingIds.length
+      ? await prisma.notificationTemplate.findMany({
+          where: { id: { in: existingIds }, programId },
+          select: { id: true, name: true, channel: true },
+        })
+      : [];
+    if (existingTemplates.length !== existingIds.length)
+      throw new LoyaltyError("NOTIFICATION_TEMPLATE_NOT_FOUND", 404);
+
+    const saved = await prisma.$transaction(async (tx) => {
+      if (body.deleteIds.length > 0) {
+        const removed = existingTemplates.filter((template) => body.deleteIds.includes(template.id));
+        await tx.notificationTemplate.deleteMany({ where: { id: { in: body.deleteIds }, programId } });
+        for (const template of removed) {
+          await audit(programId, request.actor, "DELETE_NOTIFICATION_TEMPLATE", "NotificationTemplate", template.id, {
+            name: template.name,
+            channel: template.channel,
+          }, undefined, tx);
+        }
+      }
+
+      const results = [];
+      for (const template of body.upserts) {
+        const { id, ...data } = template;
+        const result = id
+          ? await tx.notificationTemplate.update({ where: { id }, data })
+          : await tx.notificationTemplate.create({ data: { ...data, programId } });
+        await audit(programId, request.actor, id ? "UPDATE_NOTIFICATION_TEMPLATE" : "CREATE_NOTIFICATION_TEMPLATE", "NotificationTemplate", result.id, {
+          name: result.name,
+          locale: result.locale,
+          channel: result.channel,
+        }, undefined, tx);
+        results.push(result);
+      }
+      return results;
+    });
+    return reply.send({ data: saved });
   });
 
   // POST /admin/notification-templates
@@ -374,15 +467,18 @@ export function adminNotificationsRoutes(
   // GET /admin/webhooks/:id
   app.get("/admin/webhooks/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const webhook = await notifications.getWebhook(id);
-    return reply.send({ data: webhook });
+    const webhook = await notifications.getWebhook(id, getProgramId(request));
+    if (!webhook) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Webhook not found" } });
+    const { secret: _secret, ...safeWebhook } = webhook;
+    return reply.send({ data: safeWebhook });
   });
 
   // PATCH /admin/webhooks/:id
   app.patch("/admin/webhooks/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = webhookUpdateBody.parse(request.body);
-    const webhook = await notifications.updateWebhook(id, body);
+    const webhook = await notifications.updateWebhook(id, getProgramId(request), body);
+    if (!webhook) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Webhook not found" } });
     await audit(
       getProgramId(request),
       request.actor,
@@ -397,7 +493,8 @@ export function adminNotificationsRoutes(
   // DELETE /admin/webhooks/:id
   app.delete("/admin/webhooks/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    await notifications.deleteWebhook(id);
+    const deleted = await notifications.deleteWebhook(id, getProgramId(request));
+    if (!deleted) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Webhook not found" } });
     await audit(getProgramId(request), request.actor, "DELETE_WEBHOOK", "WebhookSubscription", id);
     return reply.status(204).send();
   });

@@ -4,7 +4,6 @@ import "./ui/spinner.js";
 import { css, html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
-import { widgetT } from "../i18n.js";
 import { fetchApi } from "../lib/api-client.js";
 import { formatPoints } from "../lib/format.js";
 import { WidgetConfigController } from "../lib/widget-config.js";
@@ -25,7 +24,7 @@ export class LoyaltyPointsCard extends LitElement {
     }
     .balance-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
       gap: var(--loy-space-md);
     }
     .stat {
@@ -46,12 +45,6 @@ export class LoyaltyPointsCard extends LitElement {
       font-size: var(--loy-font-size-xl);
       font-weight: var(--loy-font-weight-bold);
       color: var(--loy-color-text);
-    }
-    .stat-value.confirmed {
-      color: var(--loy-color-success);
-    }
-    .stat-value.pending {
-      color: var(--loy-color-warning);
     }
   `;
 
@@ -101,18 +94,12 @@ export class LoyaltyPointsCard extends LitElement {
 
     return html`
       <div class="balance-grid">
-        <div class="stat">
-          <div class="stat-label">${widgetT("widget.confirmed", undefined, locale)}</div>
-          <div class="stat-value confirmed">${formatPoints(this.data.confirmed, locale)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">${widgetT("widget.pending", undefined, locale)}</div>
-          <div class="stat-value pending">${formatPoints(this.data.pending, locale)}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">${widgetT("widget.total", undefined, locale)}</div>
-          <div class="stat-value">${formatPoints(this.data.total, locale)}</div>
-        </div>
+        ${this.data.wallets.map((wallet) => html`
+          <div class="stat" data-point-type="${wallet.code}">
+            <div class="stat-label">${wallet.name || wallet.code}</div>
+            <div class="stat-value">${formatPoints(wallet.balance, locale)} ${wallet.unitLabel}</div>
+          </div>
+        `)}
       </div>
     `;
   }

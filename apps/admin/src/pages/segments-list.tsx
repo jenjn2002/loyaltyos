@@ -1,6 +1,6 @@
 import { ui } from "@/lib/ui-text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -40,16 +40,18 @@ export function SegmentsListPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [memberSegmentId, setMemberSegmentId] = useState<string | null>(null);
   const [memberPage, setMemberPage] = useState(1);
   const pageSize = 20;
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["segments", page, typeFilter],
+    queryKey: ["segments", page, typeFilter, statusFilter],
     queryFn: () => {
       const type = typeFilter !== "all" ? `&type=${typeFilter}` : "";
+      const status = statusFilter !== "all" ? `&isActive=${statusFilter === "active" ? "true" : "false"}` : "";
       return fetchApi<PaginatedResponse<Segment>>(
-        `/admin/segments?page=${String(page)}&pageSize=${String(pageSize)}&isActive=true${type}`,
+        `/admin/segments?page=${String(page)}&pageSize=${String(pageSize)}${status}${type}`,
       );
     },
   });
@@ -65,6 +67,10 @@ export function SegmentsListPage(): JSX.Element {
 
   const handleDelete = async (id: string) => {
     await fetchApi(`/admin/segments/${id}`, { method: "DELETE" });
+    void queryClient.invalidateQueries({ queryKey: ["segments"] });
+  };
+  const handleReactivate = async (id: string) => {
+    await fetchApi(`/admin/segments/${id}`, { method: "PATCH", body: JSON.stringify({ isActive: true }) });
     void queryClient.invalidateQueries({ queryKey: ["segments"] });
   };
 
@@ -85,16 +91,16 @@ export function SegmentsListPage(): JSX.Element {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{ui("All Segments")}</CardTitle>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder={ui("Type")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{ui("All Types")}</SelectItem>
-              <SelectItem value="DYNAMIC">{ui("Dynamic")}</SelectItem>
-              <SelectItem value="STATIC">{ui("Static")}</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value as typeof statusFilter); setPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="active">{ui("Active")}</SelectItem><SelectItem value="inactive">{ui("Inactive")}</SelectItem><SelectItem value="all">{ui("All statuses")}</SelectItem></SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={(value) => { setTypeFilter(value); setPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder={ui("Type")} /></SelectTrigger>
+              <SelectContent><SelectItem value="all">{ui("All Types")}</SelectItem><SelectItem value="DYNAMIC">{ui("Dynamic")}</SelectItem><SelectItem value="STATIC">{ui("Static")}</SelectItem></SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -170,16 +176,11 @@ export function SegmentsListPage(): JSX.Element {
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive"
-                            onClick={() => {
-                              void handleDelete(s.id);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {s.isActive ? (
+                            <Button variant="ghost" size="sm" className="text-destructive" title={ui("Deactivate")} onClick={() => { void handleDelete(s.id); }}><Trash2 className="h-4 w-4" /></Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" title={ui("Reactivate")} onClick={() => { void handleReactivate(s.id); }}><Check className="h-4 w-4" /></Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

@@ -152,6 +152,11 @@ export function adminTiersRoutes(app: FastifyInstance, _opts: unknown, done: () 
     ) {
       throw new LoyaltyError("TIER_REORDER_INCOMPLETE", 400);
     }
+    const previousRanks = await prisma.tier.findMany({
+      where: { programId },
+      select: { id: true, rank: true },
+      orderBy: [{ rank: "asc" }, { id: "asc" }],
+    });
     await prisma.$transaction(async (tx) => {
       for (const [index, tierId] of body.tierIds.entries()) {
         await tx.tier.update({ where: { id: tierId }, data: { rank: -(index + 1) } });
@@ -161,6 +166,11 @@ export function adminTiersRoutes(app: FastifyInstance, _opts: unknown, done: () 
       }
     });
     const result = await tiers.list(programId);
+    await audit(programId, request.actor, "CONFIG_CHANGE", "tier", null, {
+      operation: "REORDER",
+      previousOrder: previousRanks.map((tier) => tier.id),
+      newOrder: body.tierIds,
+    });
     return reply.send({ data: result });
   });
 

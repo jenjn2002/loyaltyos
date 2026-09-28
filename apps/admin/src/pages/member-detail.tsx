@@ -392,6 +392,17 @@ export function MemberDetailPage(): JSX.Element {
               className="space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
+                const missingField = customFields.data?.find((field) => {
+                  if (!field.isActive || !field.required) return false;
+                  return !Object.prototype.hasOwnProperty.call(customValues, field.key) ||
+                    customValues[field.key] === null ||
+                    customValues[field.key] === undefined ||
+                    (typeof customValues[field.key] === "string" && String(customValues[field.key]).trim() === "");
+                });
+                if (missingField) {
+                  setProfileMessage(`${memberFieldLabel(missingField)} is required.`);
+                  return;
+                }
                 setProfileMessage(null);
                 updateMemberProfile.mutate();
               }}
@@ -482,9 +493,9 @@ export function MemberDetailPage(): JSX.Element {
                         {field.type === "BOOLEAN" ? (
                           <label className="flex h-10 items-center gap-2 text-sm"><input id={inputId} type="checkbox" checked={value === true} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.checked }))} />{ui("Yes")}</label>
                         ) : field.type === "SELECT" ? (
-                          <select id={inputId} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">{ui("Select")}</option>{(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                          <select required={field.required} id={inputId} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">{ui("Select")}</option>{(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select>
                         ) : (
-                          <Input id={inputId} type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"} value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: field.type === "NUMBER" ? Number(event.target.value) : event.target.value }))} />
+                          <Input required={field.required} id={inputId} type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"} value={String(value ?? "")} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: field.type === "NUMBER" ? event.target.value === "" ? "" : Number(event.target.value) : event.target.value }))} />
                         )}
                       </div>
                     );

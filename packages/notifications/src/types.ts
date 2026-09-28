@@ -24,6 +24,7 @@ export interface TemplateCreateInput {
 
 export interface TemplateUpdateInput {
   name?: string;
+  channel?: NotificationChannel;
   subject?: string;
   bodyHtml?: string;
   bodyText?: string;

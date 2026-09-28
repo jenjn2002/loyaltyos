@@ -29,12 +29,16 @@ const createSchema = z.object({
   maxUses: z.number().int().min(1).optional(),
   maxUsesPerMember: z.number().int().min(1).optional(),
   isStackable: z.boolean().optional(),
+  isActive: z.boolean().optional(),
   channels: z.array(z.string().min(1)).optional(),
   startsAt: z.coerce.date().optional(),
   expiresAt: z.coerce.date().optional(),
 });
 
-const updateSchema = createSchema.partial();
+const updateSchema = createSchema.partial().extend({
+  maxUses: z.number().int().min(1).nullable().optional(),
+  expiresAt: z.coerce.date().nullable().optional(),
+});
 
 const generateSchema = z.object({
   prefix: z.string().max(10).optional(),
@@ -127,6 +131,7 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
     const { id } = z.object({ id: z.string() }).parse(request.params);
 
     const coupon = await coupons.getById(id);
+    if (coupon.programId !== request.programId) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Coupon not found" } });
     return reply.send({ data: coupon });
   });
 
@@ -134,6 +139,8 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
   app.patch("/admin/coupons/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
+    const existing = await coupons.getById(id);
+    if (existing.programId !== request.programId) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Coupon not found" } });
     const coupon = await coupons.update(id, body);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "coupon", id, body);
     return reply.send({ data: coupon });
@@ -142,6 +149,8 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
   // DELETE /admin/coupons/:id — Soft delete coupon
   app.delete("/admin/coupons/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await coupons.getById(id);
+    if (existing.programId !== request.programId) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Coupon not found" } });
     await coupons.delete(id);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "coupon", id, { isActive: false });
     return reply.status(204).send();
@@ -150,6 +159,8 @@ export function adminCouponsRoutes(app: FastifyInstance, _opts: unknown, done: (
   // GET /admin/coupons/:id/stats — Usage statistics
   app.get("/admin/coupons/:id/stats", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    const coupon = await coupons.getById(id);
+    if (coupon.programId !== request.programId) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Coupon not found" } });
     const stats = await coupons.stats(id);
     return reply.send({ data: stats });
   });

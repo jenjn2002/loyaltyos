@@ -48,4 +48,5 @@ export const segmentUpdateSchema = z.object({
   description: z.string().optional(),
   rules: RuleGroup.optional(),
   memberIds: z.array(z.string().min(1)).optional(),
+  isActive: z.boolean().optional(),
 });

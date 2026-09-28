@@ -69,8 +69,9 @@ const MEMBER_EXPORT_PROFILE_COLUMNS = [
   "username",
 ] as const;
 
-function csvCell(value: string | number | null | undefined): string {
-  const text = value == null ? "" : String(value);
+export function csvCell(value: string | number | null | undefined): string {
+  let text = value == null ? "" : String(value);
+  if (/^[\s\u0000]*[=+\-@]/.test(text) || /^[\t\r]/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

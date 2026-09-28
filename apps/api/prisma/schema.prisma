@@ -50,6 +50,7 @@ model Program {
   pointExchangeRequests         PointExchangeRequest[]
   rewardPointPrices             RewardPointPrice[]
   adminRolePermissions          AdminRolePermission[]
+  adminRoleDefinitions          AdminRoleDefinition[]
   creditCategories              CreditCategory[]
   creditBankCycles              CreditBankCycle[]
   creditBulkBatches             CreditBulkBatch[]
@@ -57,6 +58,8 @@ model Program {
   campaigns                     Campaign[]
   segments                      Segment[]
   memberFieldDefinitions        MemberFieldDefinition[]
+  projectFieldDefinitions       ProjectFieldDefinition[]
+  projects                      Project[]
   eventDefinitions              EventDefinition[]
   coupons                       Coupon[]
   rewards                       Reward[]
@@ -133,6 +136,9 @@ model Member {
   pointAllowances                PointAllowance[]
   pointExchangeRequests          PointExchangeRequest[]
   campaignClaims                 CampaignClaim[]
+  projectMemberships            ProjectMember[]
+  projectTasks                  ProjectTask[]
+  projectAllocations            ProjectGrantAllocation[]
 
   @@unique([programId, externalId])
   @@index([programId])
@@ -279,6 +285,9 @@ model PointTypeDefinition {
   pointRules              PointRule[]
   campaigns               Campaign[]
   tiers                   Tier[]
+  projectBudgets          ProjectPointBudget[]
+  projectBudgetTransactions ProjectBudgetTransaction[]
+  projectAllocations      ProjectGrantAllocation[]
 
   @@unique([programId, code])
   @@index([programId, isActive])
@@ -472,6 +481,7 @@ model PointBankCycle {
   closing     Int       @default(0)
   clearedAt   DateTime?
   clearedBy   String?
+  clearReason String?
   note        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -853,7 +863,7 @@ model CreditSettingPermission {
   id          String    @id @default(cuid())
   programId   String
   settingKey  String
-  role        AdminRole
+  role        String
   canView     Boolean   @default(true)
   canEdit     Boolean   @default(false)
   updatedById String?
@@ -1022,6 +1032,7 @@ model Campaign {
   variants     CampaignVariant[]
   applications CampaignApplication[]
   claims       CampaignClaim[]
+  manualExecution CampaignManualExecution?
 
   @@index([programId, type])
   @@index([createdById])
@@ -1037,10 +1048,12 @@ model CampaignVariant {
   name       String
   trafficPct Float    @default(50.0)
   config     Json?    @default("{}")
+  isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
 
   campaign     Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   applications CampaignApplication[]
+  claims       CampaignClaim[]
 }
 
 model CampaignApplication {
@@ -1068,6 +1081,7 @@ model CampaignClaim {
   campaignId    String
   memberId      String
   occurrence    String
+  variantId     String?
   pointsAwarded Int
   status        String   @default("PENDING")
   claimedAt     DateTime?
@@ -1076,10 +1090,25 @@ model CampaignClaim {
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  variant  CampaignVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@unique([campaignId, memberId, occurrence])
   @@index([memberId, status])
   @@index([campaignId, status])
+  @@index([campaignId, variantId])
+}
+
+model CampaignManualExecution {
+  id          String    @id @default(cuid())
+  campaignId  String    @unique
+  status      String    @default("RUNNING")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  error       String?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([status, startedAt])
 }
 
 model Segment {
@@ -1126,6 +1155,166 @@ model MemberFieldDefinition {
 
   @@unique([programId, key])
   @@index([programId, isActive, sortOrder])
+}
+
+model ProjectFieldDefinition {
+  id        String          @id @default(cuid())
+  programId String
+  key       String
+  label     String
+  type      MemberFieldType @default(TEXT)
+  required  Boolean         @default(false)
+  options   Json?           @default("[]")
+  isActive  Boolean         @default(true)
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, key])
+  @@index([programId, isActive, sortOrder])
+}
+
+model Project {
+  id               String   @id @default(cuid())
+  programId        String
+  createdByAdminId String
+  name             String
+  description      String?
+  fieldValues      Json     @default("{}")
+  status           String   @default("DRAFT")
+  activatedAt      DateTime?
+  completedAt      DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  program   Program   @relation(fields: [programId], references: [id], onDelete: Restrict)
+  createdBy AdminUser @relation("ProjectCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  budgets   ProjectPointBudget[]
+  members   ProjectMember[]
+  tasks     ProjectTask[]
+  issueBatches ProjectIssueBatch[]
+  allocations ProjectGrantAllocation[]
+  budgetTransactions ProjectBudgetTransaction[]
+
+  @@index([programId, status, updatedAt])
+  @@index([createdByAdminId, updatedAt])
+}
+
+model ProjectPointBudget {
+  id              String   @id @default(cuid())
+  projectId       String
+  pointTypeId     String
+  requestedAmount Int      @default(0)
+  approvedAmount  Int
+  remainingAmount Int
+  issuedAmount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project   Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pointType PointTypeDefinition  @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+  transactions ProjectBudgetTransaction[]
+  allocations ProjectGrantAllocation[]
+
+  @@unique([projectId, pointTypeId])
+  @@index([pointTypeId])
+}
+
+model ProjectBudgetTransaction {
+  id             String   @id @default(cuid())
+  projectId      String
+  budgetId       String
+  programId      String
+  pointTypeId    String
+  type           String
+  amount         Int
+  balanceAfter   Int
+  reason         String
+  actorId        String
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  project   Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  budget    ProjectPointBudget  @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, createdAt])
+}
+
+model ProjectMember {
+  id               String   @id @default(cuid())
+  projectId        String
+  memberId         String
+  status           String   @default("INVITED")
+  invitedByAdminId String
+  invitedAt        DateTime @default(now())
+  respondedAt      DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member  Member  @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, memberId])
+  @@index([memberId, status])
+}
+
+model ProjectTask {
+  id          String   @id @default(cuid())
+  projectId   String
+  assigneeId  String?
+  title       String
+  description String?
+  status      String   @default("TODO")
+  dueAt       DateTime?
+  sortOrder   Int      @default(0)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee Member? @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status, sortOrder])
+  @@index([assigneeId, status])
+}
+
+model ProjectIssueBatch {
+  id                 String   @id @default(cuid())
+  projectId          String
+  approvalRequestId  String?  @unique
+  status             String   @default("DRAFT")
+  submittedByAdminId String?
+  createdAt          DateTime @default(now())
+  resolvedAt         DateTime?
+
+  project     Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  allocations ProjectGrantAllocation[]
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectGrantAllocation {
+  id             String   @id @default(cuid())
+  batchId        String
+  projectId      String
+  budgetId       String
+  memberId       String
+  pointTypeId    String
+  amount         Int
+  transactionId  String?
+  createdAt      DateTime @default(now())
+
+  batch     ProjectIssueBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  project   Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  budget    ProjectPointBudget   @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  member    Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  pointType PointTypeDefinition  @relation(fields: [pointTypeId], references: [id], onDelete: Restrict)
+
+  @@index([batchId])
+  @@index([projectId, memberId])
 }
 
 model EventDefinition {
@@ -1561,19 +1750,13 @@ model WebhookSubscription {
   @@index([programId])
 }
 
-enum AdminRole {
-  SUPER_ADMIN
-  OPERATOR
-  ANALYST
-}
-
 model AdminUser {
   id           String    @id @default(cuid())
   programId    String
   email        String    @unique
   passwordHash String
   name         String
-  role         AdminRole @default(OPERATOR)
+  role         String    @default("OPERATOR")
   isActive     Boolean   @default(true)
   locale       String    @default("vi-VN")
   lastLoginAt  DateTime?
@@ -1587,6 +1770,8 @@ model AdminUser {
   createdCampaigns   Campaign[]
   workflowAssignees ApprovalWorkflowAssignee[]
   approvalDecisions ApprovalDecision[]
+  approvalNotificationReads AdminApprovalNotificationRead[]
+  projects                  Project[]                       @relation("ProjectCreator")
 
   @@index([programId])
   @@index([email])
@@ -1669,7 +1854,7 @@ model ApprovalWorkflowAssignee {
   id          String     @id @default(cuid())
   stepId      String
   adminUserId String?
-  role        AdminRole?
+  role        String?
   createdAt   DateTime   @default(now())
 
   step      ApprovalWorkflowStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
@@ -1709,6 +1894,7 @@ model ApprovalRequest {
   workflow         ApprovalWorkflow      @relation(fields: [workflowId], references: [id], onDelete: Restrict)
   steps            ApprovalRequestStep[]
   decisions        ApprovalDecision[]
+  adminNotificationReads AdminApprovalNotificationRead[]
   pointExchange    PointExchangeRequest?
   rewardRedemption RewardRedemption?
 
@@ -1716,6 +1902,18 @@ model ApprovalRequest {
   @@index([programId, status, requestedAt])
   @@index([programId, actionKey, subjectType, subjectId])
   @@index([requesterAdminId])
+}
+
+model AdminApprovalNotificationRead {
+  adminUserId       String
+  approvalRequestId String
+  readAt            DateTime @default(now())
+
+  adminUser       AdminUser       @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, approvalRequestId])
+  @@index([approvalRequestId])
 }
 
 model ApprovalRequestStep {
@@ -1764,7 +1962,7 @@ model ApprovalDecision {
 model AdminRolePermission {
   id          String    @id @default(cuid())
   programId   String
-  role        AdminRole
+  role        String
   capability  String
   allowed     Boolean   @default(false)
   updatedById String?
@@ -1775,6 +1973,21 @@ model AdminRolePermission {
 
   @@unique([programId, role, capability])
   @@index([programId, role])
+}
+
+model AdminRoleDefinition {
+  id          String   @id @default(cuid())
+  programId   String
+  role        String
+  label       String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, role])
+  @@index([programId, label])
 }
 
 model Session {
@@ -1892,6 +2105,14 @@ enum DevicePlatform {
   IOS
   ANDROID
   WEB
+}
+
+model EnvironmentHandoffUse {
+  jti       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 model MemberDevice {

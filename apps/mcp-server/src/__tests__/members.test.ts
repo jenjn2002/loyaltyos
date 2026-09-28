@@ -42,10 +42,6 @@ describe("MembersListSchema", () => {
 
   it("accepts valid filters", () => {
     const result = MembersListSchema.safeParse({
-      tier: "gold",
-      inactiveDays: 30,
-      minBalance: 100,
-      maxBalance: 5000,
       search: "Alice",
     });
     expect(result.success).toBe(true);
@@ -74,7 +70,7 @@ describe("MemberPointsHistorySchema", () => {
   it("accepts valid filters", () => {
     const result = MemberPointsHistorySchema.safeParse({
       memberId: "mem_1",
-      type: "earn",
+      type: "EARN",
       startDate: "2024-01-01",
       endDate: "2024-06-01",
     });
@@ -86,6 +82,7 @@ describe("MemberAdjustPointsSchema", () => {
   it("accepts valid adjustment", () => {
     const result = MemberAdjustPointsSchema.safeParse({
       memberId: "mem_1",
+      pointTypeId: "point-type-1",
       amount: 500,
       note: "Customer service compensation for delayed order",
     });
@@ -95,6 +92,7 @@ describe("MemberAdjustPointsSchema", () => {
   it("rejects note shorter than 10 chars", () => {
     const result = MemberAdjustPointsSchema.safeParse({
       memberId: "mem_1",
+      pointTypeId: "point-type-1",
       amount: 500,
       note: "Short",
     });
@@ -112,6 +110,7 @@ describe("MemberAdjustPointsSchema", () => {
   it("accepts negative amount for deduction", () => {
     const result = MemberAdjustPointsSchema.safeParse({
       memberId: "mem_1",
+      pointTypeId: "point-type-1",
       amount: -200,
       note: "Reversing incorrect credit from support ticket #12345",
     });
@@ -121,6 +120,7 @@ describe("MemberAdjustPointsSchema", () => {
   it("accepts optional idempotencyKey", () => {
     const result = MemberAdjustPointsSchema.safeParse({
       memberId: "mem_1",
+      pointTypeId: "point-type-1",
       amount: 100,
       note: "Manual adjustment for loyalty event",
       idempotencyKey: "550e8400-e29b-41d4-a716-446655440000",
@@ -131,6 +131,7 @@ describe("MemberAdjustPointsSchema", () => {
   it("rejects invalid idempotencyKey format", () => {
     const result = MemberAdjustPointsSchema.safeParse({
       memberId: "mem_1",
+      pointTypeId: "point-type-1",
       amount: 100,
       note: "Manual adjustment for loyalty event",
       idempotencyKey: "not-a-uuid",

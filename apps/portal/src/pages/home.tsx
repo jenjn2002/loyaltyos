@@ -1,17 +1,160 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, ChevronRight, Gift, Star } from "lucide-react";
+import { Award, CalendarDays, Check, ChevronRight, Gift, Loader2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import { MemberLoginForm } from "../components/member-login-form";
 import { PointTypeIcon } from "../components/point-type-icon";
-import { fetchApi } from "../lib/api-client";
+import { fetchApi, postApi } from "../lib/api-client";
 import { isAuthenticated } from "../lib/auth";
 import type { BadgeProgress, Balance, CampaignClaim, CreditBalance, Reward, TierStatus } from "../types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface CheckInCampaignReward {
+  id: string;
+  name: string;
+  points: number;
+  issuanceMode: "AUTO" | "CLAIM";
+  pointType: { id: string; code: string; name: string; unitLabel: string } | null;
+}
+
+interface CheckInEvent {
+  key: string;
+  name: string;
+  timezone: string;
+  today: string;
+  checkedInDates: string[];
+  checkedInToday: boolean;
+  canCheckIn: boolean;
+  campaigns: CheckInCampaignReward[];
+}
+
+interface CheckInResult {
+  eventKey: string;
+  checkInDate: string;
+  alreadyCheckedIn: boolean;
+  rewards: Array<{ campaignId: string; campaignName: string; points: number; pointType: string; claimPending: boolean }>;
+}
+
+function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function contributionWeeks(todayKey: string): Date[][] {
+  const today = new Date(`${todayKey}T12:00:00`);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 364);
+  start.setDate(start.getDate() - start.getDay());
+  const end = new Date(today);
+  end.setDate(end.getDate() + (6 - end.getDay()));
+  const weeks: Date[][] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const week: Date[] = [];
+    for (let day = 0; day < 7; day += 1) {
+      week.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+function CheckInCard({
+  event,
+  pending,
+  notice,
+  onCheckIn,
+}: {
+  event: CheckInEvent;
+  pending: boolean;
+  notice: string | null;
+  onCheckIn: () => void;
+}): JSX.Element {
+  const checkedInDates = new Set(event.checkedInDates);
+  const weeks = contributionWeeks(event.today);
+  const today = new Date(`${event.today}T12:00:00`);
+  const firstDay = new Date(today);
+  firstDay.setDate(firstDay.getDate() - 364);
+  const monthLabels = weeks.flatMap((week, index) => {
+    const firstOfMonth = week.find((day) => day.getDate() === 1);
+    return firstOfMonth
+      ? [{ index, label: firstOfMonth.toLocaleDateString(undefined, { month: "short" }) }]
+      : [];
+  });
+  const checkInCount = event.checkedInDates.length;
+
+  return (
+    <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4 shadow-sm" aria-label={event.name}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-text)]">
+            <CalendarDays className="h-5 w-5 text-[var(--color-primary)]" />
+            {event.name}
+          </h2>
+          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+            {event.campaigns.length > 0
+              ? event.campaigns.map((campaign) => `${campaign.name}: +${campaign.points.toLocaleString()} ${campaign.pointType?.unitLabel ?? ui("points")}`).join(" · ")
+              : ui("No check-in campaign is currently available.")}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onCheckIn}
+          disabled={!event.canCheckIn || pending}
+          className="inline-flex shrink-0 items-center rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : event.checkedInToday ? <Check className="mr-2 h-4 w-4" /> : null}
+          {event.checkedInToday ? ui("Checked in today") : ui("Check in today")}
+        </button>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+        <div className="overflow-x-auto pb-1">
+          <div
+            className="mb-1 grid gap-[3px] pl-0.5 text-[9px] leading-3 text-[var(--color-text-secondary)]"
+            style={{ gridTemplateColumns: `repeat(${weeks.length}, 11px)` }}
+          >
+            {monthLabels.map(({ index, label }) => (
+              <span key={`${index}-${label}`} className="whitespace-nowrap" style={{ gridColumn: `${index + 1} / span 4` }}>
+                {label}
+              </span>
+            ))}
+          </div>
+          <div className="grid w-max grid-flow-col grid-rows-7 gap-[3px]" aria-label={ui("Check-in activity over the last year")}>
+            {weeks.flatMap((week, weekIndex) => week.map((day) => {
+              const key = dateKey(day);
+              const isInRange = key >= dateKey(firstDay) && key <= event.today;
+              const checkedIn = isInRange && checkedInDates.has(key);
+              return (
+                <span
+                  key={`${weekIndex}-${key}`}
+                  title={`${day.toLocaleDateString()}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
+                  aria-label={`${day.toLocaleDateString()}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
+                  className={`h-[11px] w-[11px] rounded-[3px] ${
+                    !isInRange
+                      ? "bg-transparent"
+                      : checkedIn
+                        ? "bg-emerald-600 dark:bg-emerald-500"
+                        : "bg-[var(--color-border)]"
+                  }`}
+                />
+              );
+            }))}
+          </div>
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[10px] text-[var(--color-text-secondary)]">
+          <span>{checkInCount} {ui("check-in days in the last year")}</span>
+          <span className="flex items-center gap-1"><span>{ui("Less")}</span><span className="h-[11px] w-[11px] rounded-[3px] bg-[var(--color-border)]" /><span className="h-[11px] w-[11px] rounded-[3px] bg-emerald-600 dark:bg-emerald-500" /><span>{ui("More")}</span></span>
+        </div>
+      </div>
+      {notice && <p role="status" className="mt-3 text-sm text-[var(--color-primary)]">{notice}</p>}
+    </section>
+  );
+}
 
 function remainingExpiryDays(expiryAt: string | null): number | null {
   if (!expiryAt) return null;
@@ -63,7 +206,7 @@ function BalanceCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-[var(--color-text-secondary)]">{t("balance")}</p>
-          <p className="mt-1 text-4xl font-bold text-[var(--color-text)]">{balance.total.toLocaleString()}</p>
+          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{ui("Balances are shown separately by point type.")}</p>
         </div>
         <Link to="/credits" className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface)]">
           {ui("View details")}
@@ -91,19 +234,11 @@ function BalanceCard({
           })}
         </div>
       )}
-      <div className="mt-3 flex gap-4 text-xs text-[var(--color-text-secondary)]">
-        <span>
-          {t("confirmed")}: {balance.confirmed.toLocaleString()}
-        </span>
-        <span>
-          {t("pending")}: {balance.pending.toLocaleString()}
-        </span>
-      </div>
     </div>
   );
 }
 
-function TierCard({ tier }: { tier: TierStatus }) {
+function TierCard({ tier, pointTypes }: { tier: TierStatus; pointTypes: CreditBalance[] }) {
   const { t } = useTranslation();
   if (!tier.currentTier) return null;
   return (
@@ -125,21 +260,45 @@ function TierCard({ tier }: { tier: TierStatus }) {
         <div className="mt-3">
           <div className="flex justify-between text-xs text-[var(--color-text-secondary)]">
             <span>{t("progress")}</span>
-            <span>
-              {tier.pointsProgress.toLocaleString()} / {tier.nextTier.minPoints.toLocaleString()}
-            </span>
+            <span>{tier.pointsProgress.toLocaleString()}%</span>
           </div>
           <div className="mt-1 h-2 overflow-hidden rounded-full bg-[var(--color-border)]">
             <div
               className="h-full rounded-full bg-[var(--color-primary)] transition-all"
               style={{
-                width: `${String(Math.min((tier.pointsProgress / tier.nextTier.minPoints) * 100, 100))}%`,
+                width: `${String(Math.min(Math.max(tier.pointsProgress, 0), 100))}%`,
               }}
             />
           </div>
-          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-            {tier.pointsToNext?.toLocaleString()} {t("pointsToNext")}
-          </p>
+          {(tier.nextTierProgress ?? []).length > 1 && (
+            <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
+              {tier.nextTier.qualificationOperator === "OR" ? t("meetAnyTierRequirement") : t("meetAllTierRequirements")}
+            </p>
+          )}
+          {(tier.nextTierProgress ?? []).length > 0 ? (
+            <div className="mt-2 space-y-2">
+              {tier.nextTierProgress!.map((requirement) => {
+                const pointType = pointTypes.find((candidate) => candidate.pointTypeId === requirement.pointTypeId);
+                return (
+                  <div key={requirement.pointTypeId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="font-medium text-[var(--color-text)]">{pointType?.name ?? pointType?.code ?? requirement.pointTypeId}</span>
+                      <span className="shrink-0 text-[var(--color-text-secondary)]">
+                        {requirement.earned.toLocaleString()} / {requirement.required.toLocaleString()} {pointType?.unitLabel ?? ""}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                      {requirement.remaining.toLocaleString()} {pointType?.unitLabel ?? ""} {t("pointsToNext")}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : tier.pointsToNext !== null ? (
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+              {tier.pointsToNext?.toLocaleString()} {t("pointsToNext")}
+            </p>
+          ) : null}
         </div>
       ) : (
         <p className="mt-2 text-xs text-[var(--color-text-secondary)]">{t("maxTier")}</p>
@@ -227,7 +386,19 @@ function BadgePreview({ badges }: { badges: BadgeProgress[] }) {
   );
 }
 
-function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | null {
+function CampaignClaims({
+  claims,
+  total,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  claims: CampaignClaim[];
+  total: number;
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}): JSX.Element | null {
   const queryClient = useQueryClient();
   const claim = useMutation({
     mutationFn: (id: string) =>
@@ -238,6 +409,7 @@ function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | 
         queryClient.invalidateQueries({ queryKey: ["balance"] }),
         queryClient.invalidateQueries({ queryKey: ["credits"] }),
       ]);
+      if (claims.length <= 1 && page > 1) onPageChange(page - 1);
     },
   });
   if (claims.length === 0) return null;
@@ -246,7 +418,7 @@ function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | 
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 id="campaign-claims-heading" className="text-lg font-semibold">{ui("Points waiting for you")}</h2>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{claims.length.toLocaleString()} {ui("pending claims")}</p>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{total.toLocaleString()} {ui("pending claims")}</p>
         </div>
         <Link to="/notifications" className="text-sm font-medium text-[var(--color-primary)]">{ui("View notifications")}</Link>
       </div>
@@ -268,6 +440,13 @@ function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | 
           </div>
         ))}
       </div>
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-between text-sm">
+          <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{ui("Previous")}</button>
+          <span className="text-[var(--color-text-secondary)]">{page} / {totalPages}</span>
+          <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{ui("Next")}</button>
+        </div>
+      )}
       {claim.isError && <p role="alert" className="mt-2 text-sm text-red-700">{claim.error instanceof Error ? claim.error.message : ui("Unable to claim points.")}</p>}
     </section>
   );
@@ -276,6 +455,9 @@ function CampaignClaims({ claims }: { claims: CampaignClaim[] }): JSX.Element | 
 export default function Home() {
   const { t } = useTranslation();
   const authed = isAuthenticated();
+  const queryClient = useQueryClient();
+  const [checkInNotices, setCheckInNotices] = useState<Record<string, string>>({});
+  const [claimPage, setClaimPage] = useState(1);
 
   const balance = useQuery({
     queryKey: ["balance"],
@@ -308,9 +490,39 @@ export default function Home() {
   });
 
   const claims = useQuery({
-    queryKey: ["campaign-claims", "pending"],
-    queryFn: () => fetchApi<{ items: CampaignClaim[] }>("/members/me/campaign-claims?status=PENDING&page=1&pageSize=20"),
+    queryKey: ["campaign-claims", "pending", claimPage],
+    queryFn: () => fetchApi<{ items: CampaignClaim[]; total: number; totalPages: number }>(`/members/me/campaign-claims?status=PENDING&page=${String(claimPage)}&pageSize=10`),
     enabled: authed,
+  });
+
+  const checkIns = useQuery({
+    queryKey: ["member-check-ins"],
+    queryFn: () => fetchApi<{ events: CheckInEvent[] }>("/members/me/check-ins"),
+    enabled: authed,
+  });
+
+  const checkInMutation = useMutation({
+    mutationFn: (eventKey: string) => postApi<CheckInResult>(`/members/me/check-ins/${encodeURIComponent(eventKey)}`, {}),
+    onSuccess: async (result) => {
+      const notice = result.alreadyCheckedIn
+        ? ui("You have already checked in today.")
+        : result.rewards.some((reward) => reward.claimPending)
+          ? ui("Check-in complete. Your points are waiting for you to claim.")
+          : ui("Check-in complete. Points have been added to your balance.");
+      setCheckInNotices((current) => ({ ...current, [result.eventKey]: notice }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["member-check-ins"] }),
+        queryClient.invalidateQueries({ queryKey: ["balance"] }),
+        queryClient.invalidateQueries({ queryKey: ["credits", "balances"] }),
+        queryClient.invalidateQueries({ queryKey: ["campaign-claims"] }),
+      ]);
+    },
+    onError: (_error, eventKey) => {
+      setCheckInNotices((current) => ({
+        ...current,
+        [eventKey]: ui("Check-in failed. Please try again."),
+      }));
+    },
   });
 
   return (
@@ -330,14 +542,23 @@ export default function Home() {
         </div>
       ) : (
         <>
-          {(balance.isError || tier.isError || rewards.isError || badges.isError || claims.isError) && (
+          {(balance.isError || credits.isError || tier.isError || rewards.isError || badges.isError || claims.isError || checkIns.isError) && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {ui("Session expired or account data could not be loaded. Please sign in again from Profile.")}
             </div>
           )}
-          {claims.data && <CampaignClaims claims={claims.data.items} />}
+          {claims.data && <CampaignClaims claims={claims.data.items} total={claims.data.total} page={claimPage} totalPages={claims.data.totalPages} onPageChange={setClaimPage} />}
+          {checkIns.data?.events.map((event) => (
+            <CheckInCard
+              key={event.key}
+              event={event}
+              pending={checkInMutation.isPending && checkInMutation.variables === event.key}
+              notice={checkInNotices[event.key] ?? null}
+              onCheckIn={() => checkInMutation.mutate(event.key)}
+            />
+          ))}
           {balance.data && <BalanceCard balance={balance.data} creditWallets={credits.data ?? []} />}
-          {tier.data ? <TierCard tier={tier.data} /> : null}
+          {tier.data ? <TierCard tier={tier.data} pointTypes={credits.data ?? []} /> : null}
           {rewards.data && rewards.data.length > 0 && <TopRewards rewards={rewards.data} />}
           {badges.data && <BadgePreview badges={badges.data} />}
         </>

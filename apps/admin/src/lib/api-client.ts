@@ -1,8 +1,6 @@
 const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
 const API_KEY: string = (import.meta.env.VITE_API_KEY as string | undefined) ?? "dev-key";
 const PROGRAM_ID: string = (import.meta.env.VITE_PROGRAM_ID as string | undefined) ?? "prog_dev";
-const APP_BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, "");
-
 export function configuredProgramId(): string {
   return PROGRAM_ID;
 }
@@ -15,7 +13,7 @@ export function startMicrosoftLogin(): void {
 
 export function appUrl(path = "/"): string {
   const suffix = path.startsWith("/") ? path : `/${path}`;
-  return `${APP_BASE_PATH}${suffix}` || "/";
+  return suffix || "/";
 }
 
 interface RequestOptions extends Omit<RequestInit, "headers"> {
@@ -54,6 +52,31 @@ let adminCredentialMode = false;
 
 export function isAdminAuthenticated(): boolean {
   return adminCredentialMode;
+}
+
+/** Consume a short-lived cross-environment ticket before protected routes mount. */
+export async function completeEnvironmentHandoff(): Promise<void> {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const ticket = params.get("loyaltyos-handoff");
+  if (!ticket) return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  const response = await fetch(`${API_URL}/auth/environment-handoff/exchange`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket }),
+  });
+  const body = (await response.json()) as {
+    data?: { kind?: string; returnTo?: string };
+    error?: { message?: string };
+  };
+  if (!response.ok || body.data?.kind !== "admin") {
+    throw new Error(body.error?.message ?? "The sign-in handoff could not be completed.");
+  }
+  const returnTo = body.data.returnTo;
+  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
+    window.history.replaceState(null, "", returnTo);
+  }
 }
 
 /** Restore the admin session after a full-page refresh. */
@@ -112,10 +135,9 @@ export async function adminLogout(): Promise<void> {
 }
 
 export async function fetchApi<T>(path: string, options?: RequestOptions): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...options?.headers,
-  };
+  const headers: Record<string, string> = { ...options?.headers };
+  const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
+  if (options?.body !== undefined && !hasContentType) headers["Content-Type"] = "application/json";
 
   // In admin credential mode, rely on cookies, not API key
   if (!adminCredentialMode) {
@@ -144,4 +166,38 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
   }
 
   return body.data as T;
+}
+
+export async function fetchApiCsv(
+  path: string,
+  body: unknown,
+): Promise<{ blob: Blob; rowCount: number }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (!adminCredentialMode) {
+    headers["X-API-Key"] = API_KEY;
+    headers["X-Program-Id"] = PROGRAM_ID;
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    credentials: adminCredentialMode ? "include" : "omit",
+  });
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const errorBody = contentType.includes("application/json")
+      ? ((await response.json()) as { error?: ApiErrorBody })
+      : {};
+    if (response.status === 401 && adminCredentialMode) {
+      adminCredentialMode = false;
+      window.location.href = appUrl("/login");
+    }
+    throw new Error(errorMessage(errorBody, `Request failed with status ${String(response.status)}`));
+  }
+
+  return {
+    blob: await response.blob(),
+    rowCount: Number(response.headers.get("X-Export-Row-Count") ?? 0),
+  };
 }

@@ -6,6 +6,8 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     findMany: vi.fn(),
     findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
     count: vi.fn(),
   },
   campaignApplication: {
@@ -13,11 +15,26 @@ const mockPrisma = vi.hoisted(() => ({
     count: vi.fn(),
     aggregate: vi.fn(),
     create: vi.fn(),
+    groupBy: vi.fn(),
+  },
+  campaignClaim: {
+    count: vi.fn(),
+    findMany: vi.fn(),
+    aggregate: vi.fn(),
+    groupBy: vi.fn(),
+  },
+  campaignVariant: {
+    createMany: vi.fn(),
+    deleteMany: vi.fn(),
   },
   member: {
     count: vi.fn(),
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn(),
+  },
+  eventDefinition: {
+    findUnique: vi.fn(),
   },
   event: {
     findUnique: vi.fn(),
@@ -45,6 +62,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
   pointTypeDefinition: { findFirst: vi.fn() },
   auditLog: { create: vi.fn() },
+  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
 
@@ -98,6 +116,14 @@ beforeEach(async () => {
   mockPrisma.apiKey.update.mockResolvedValue({});
   mockPrisma.pointRule.findMany.mockResolvedValue([]);
   mockPrisma.member.findFirst.mockResolvedValue({ id: "mem-1" });
+  mockPrisma.member.findMany.mockResolvedValue([{ id: "mem-1" }]);
+  mockPrisma.campaignApplication.groupBy.mockResolvedValue([]);
+  mockPrisma.campaignClaim.count.mockResolvedValue(0);
+  mockPrisma.campaignClaim.findMany.mockResolvedValue([]);
+  mockPrisma.campaignClaim.aggregate.mockResolvedValue({ _sum: { pointsAwarded: 0 }, _count: { _all: 0 } });
+  mockPrisma.campaignClaim.groupBy.mockResolvedValue([]);
+  mockPrisma.eventDefinition.findUnique.mockResolvedValue(null);
+  mockPrisma.$queryRaw.mockResolvedValue([]);
   mockPrisma.pointTypeDefinition.findFirst.mockResolvedValue({ id: "pt-1" });
   mockPrisma.auditLog.create.mockResolvedValue({});
   mockPrisma.$transaction.mockImplementation((fn: never) => fn(mockPrisma));
@@ -108,6 +134,11 @@ beforeEach(async () => {
   app.addHook("onRequest", async (request) => {
     request.programId = (request.headers["x-program-id"] as string) || "prog-1";
     request.apiKeyScope = (request.headers["x-api-scope"] as string) || "SERVER";
+  });
+  app.addHook("preHandler", async (request) => {
+    if (request.headers["x-test-actor"] === "admin") {
+      request.actor = { type: "ADMIN_USER", id: "admin-1" };
+    }
   });
 });
 
@@ -257,6 +288,7 @@ describe("GET /admin/campaigns", () => {
 describe("GET /admin/campaigns/:id", () => {
   it("returns a campaign by id", async () => {
     mockPrisma.campaign.findFirst.mockResolvedValue(campaignRow());
+    mockPrisma.campaign.findUniqueOrThrow.mockResolvedValue(campaignRow());
 
     const res = await app.inject({
       method: "GET",
@@ -286,8 +318,11 @@ describe("GET /admin/campaigns/:id", () => {
 
 describe("PATCH /admin/campaigns/:id", () => {
   it("updates a campaign", async () => {
-    mockPrisma.campaign.findFirst.mockResolvedValue(campaignRow());
-    mockPrisma.campaign.update.mockResolvedValue(campaignRow({ name: "Updated" }));
+    const existing = campaignRow();
+    const updated = campaignRow({ name: "Updated" });
+    mockPrisma.campaign.findFirst.mockResolvedValue(existing);
+    mockPrisma.campaign.findUniqueOrThrow.mockResolvedValueOnce(existing).mockResolvedValue(updated);
+    mockPrisma.campaign.update.mockResolvedValue(updated);
 
     const res = await app.inject({
       method: "PATCH",
@@ -402,6 +437,49 @@ describe("POST /admin/campaigns/:id/lifecycle", () => {
 });
 
 describe("POST /events with campaign integration", () => {
+  it("rejects event ingestion from an admin session even when it has server scope", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: {
+        ...authHeaders,
+        "idempotency-key": "admin-event-1",
+        "x-test-actor": "admin",
+      },
+      payload: { type: "purchase", memberId: "mem-1", payload: { amount: 100_000 } },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockPrisma.event.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects member-scoped callers before accepting arbitrary event payloads", async () => {
+    mockPrisma.apiKey.findUnique.mockResolvedValue({
+      id: "member-key",
+      programId: "prog-1",
+      key: "test-api-key",
+      scope: "MEMBER",
+      isActive: true,
+      name: "Member key",
+      expiresAt: null,
+      lastUsedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: {
+        ...authHeaders,
+        "idempotency-key": "member-spoof-attempt",
+      },
+      payload: { type: "purchase", memberId: "another-member", payload: { amount: 999999 } },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockPrisma.event.create).not.toHaveBeenCalled();
+  });
+
   it("evaluates and applies campaigns on purchase events", async () => {
     const eventId = "evt-1";
     mockPrisma.event.findUnique.mockResolvedValue(null);
@@ -511,6 +589,12 @@ describe("POST /events with campaign integration", () => {
   });
 
   it("does not invent a registration bonus without a configured rule", async () => {
+    mockPrisma.eventDefinition.findUnique.mockResolvedValue({
+      key: "registration",
+      isActive: true,
+      requiresApproval: false,
+      automation: { mode: "EXTERNAL" },
+    });
     mockPrisma.event.findUnique.mockResolvedValue(null);
     mockPrisma.event.create.mockResolvedValue({
       id: "evt-reg",

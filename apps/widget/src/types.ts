@@ -24,9 +24,13 @@ export const DEFAULT_CONFIG: Partial<WidgetConfig> = {
 // ── API response types ────────────────────────────────────────────────────
 
 export interface Balance {
-  confirmed: number;
-  pending: number;
-  total: number;
+  wallets: Array<{
+    pointTypeId: string;
+    code: string;
+    name: string;
+    unitLabel: string;
+    balance: number;
+  }>;
 }
 
 export interface BadgeProgress {

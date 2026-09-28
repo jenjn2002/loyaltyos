@@ -21,6 +21,7 @@ export const couponCreateSchema = z.object({
   maxUses: z.number().int().min(1).optional(),
   maxUsesPerMember: z.number().int().min(1).optional(),
   isStackable: z.boolean().optional(),
+  isActive: z.boolean().optional(),
   channels: z.array(z.string().min(1)).optional(),
   startsAt: z.coerce.date().optional(),
   expiresAt: z.coerce.date().optional(),
@@ -28,7 +29,11 @@ export const couponCreateSchema = z.object({
 
 export const couponUpdateSchema = couponCreateSchema
   .omit({ programId: true, code: true, mode: true })
-  .partial();
+  .partial()
+  .extend({
+    maxUses: z.number().int().min(1).nullable().optional(),
+    expiresAt: z.coerce.date().nullable().optional(),
+  });
 
 export const couponValidateSchema = z.object({
   code: z.string().min(1),

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { audit } from "../lib/audit.js";
+import { adminLucia } from "../lib/auth/admin-lucia.js";
 import { lucia } from "../lib/auth/lucia.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { authenticateMember } from "../lib/member-auth.js";
@@ -23,6 +24,95 @@ import { issueOnboardingForMember } from "../lib/occasion-issuance.js";
 import { microsoftRedirectUri, portalHomeUrl, resolvePortalUrl } from "../lib/public-urls.js";
 
 const TOKEN_MINUTES = 15;
+const HANDOFF_LIFETIME_MS = 60_000;
+
+type HandoffEnvironment = "production" | "sandbox";
+type HandoffKind = "member" | "admin";
+
+interface HandoffClaims {
+  sub: string;
+  programId: string;
+  kind: HandoffKind;
+  iss: HandoffEnvironment;
+  aud: HandoffEnvironment;
+  iat: number;
+  exp: number;
+  jti: string;
+  returnTo: string;
+}
+
+function currentHandoffEnvironment(): HandoffEnvironment {
+  const environment = process.env.LOYALTYOS_ENVIRONMENT;
+  if (environment !== "production" && environment !== "sandbox") {
+    throw new LoyaltyError("ENVIRONMENT_HANDOFF_UNAVAILABLE", 503);
+  }
+  return environment;
+}
+
+function handoffSecret(): string {
+  const secret = process.env.ENV_HANDOFF_SECRET;
+  if (!secret || Buffer.byteLength(secret) < 32) {
+    throw new LoyaltyError("ENVIRONMENT_HANDOFF_UNAVAILABLE", 503);
+  }
+  return secret;
+}
+
+function handoffSignature(payload: string): string {
+  return crypto.createHmac("sha256", handoffSecret()).update(payload).digest("base64url");
+}
+
+function safeReturnPath(value: unknown): string {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || /[\u0000-\u001f]/.test(value)) {
+    return "/";
+  }
+  try {
+    const parsed = new URL(value, "https://loyaltyos.invalid");
+    if (parsed.origin !== "https://loyaltyos.invalid") return "/";
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return "/";
+  }
+}
+
+function signHandoff(claims: HandoffClaims): string {
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  return `${payload}.${handoffSignature(payload)}`;
+}
+
+function verifyHandoff(token: string, target: HandoffEnvironment): HandoffClaims {
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra) throw new LoyaltyError("ENVIRONMENT_HANDOFF_INVALID", 401);
+  const expected = Buffer.from(handoffSignature(payload));
+  const actual = Buffer.from(signature);
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    throw new LoyaltyError("ENVIRONMENT_HANDOFF_INVALID", 401);
+  }
+  let claims: HandoffClaims;
+  try {
+    claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as HandoffClaims;
+  } catch {
+    throw new LoyaltyError("ENVIRONMENT_HANDOFF_INVALID", 401);
+  }
+  const now = Date.now();
+  if (
+    claims.aud !== target ||
+    claims.iss === target ||
+    (claims.iss !== "production" && claims.iss !== "sandbox") ||
+    (claims.kind !== "member" && claims.kind !== "admin") ||
+    !claims.sub ||
+    !claims.programId ||
+    !claims.jti ||
+    !Number.isFinite(claims.iat) ||
+    !Number.isFinite(claims.exp) ||
+    claims.iat > now + 5_000 ||
+    claims.exp <= now ||
+    claims.exp - claims.iat > HANDOFF_LIFETIME_MS ||
+    typeof claims.returnTo !== "string"
+  ) {
+    throw new LoyaltyError("ENVIRONMENT_HANDOFF_EXPIRED_OR_INVALID", 401);
+  }
+  return { ...claims, returnTo: safeReturnPath(claims.returnTo) };
+}
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -163,6 +253,137 @@ async function triggerMagicLinkEmail(
 }
 
 export function authRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
+  app.post(
+    "/auth/environment-handoff",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const body = z.object({
+        kind: z.enum(["member", "admin"]),
+        target: z.enum(["production", "sandbox"]),
+        returnTo: z.string().optional(),
+      }).parse(request.body);
+      const source = currentHandoffEnvironment();
+      if (body.target === source) throw new LoyaltyError("ENVIRONMENT_HANDOFF_TARGET_INVALID", 400);
+
+      let subjectId: string | null = null;
+      let programId: string | null = null;
+      if (body.kind === "admin") {
+        const cookieHeader = request.headers.cookie;
+        const sessionId = cookieHeader ? adminLucia.readSessionCookie(cookieHeader) : null;
+        if (sessionId) {
+          const { user } = await adminLucia.validateSession(sessionId);
+          if (user) {
+            const admin = await prisma.adminUser.findFirst({
+              where: { id: user.id, isActive: true },
+              select: { id: true, programId: true },
+            });
+            if (admin) {
+              subjectId = admin.id;
+              programId = admin.programId;
+            }
+          }
+        }
+      } else {
+        const authorization = request.headers.authorization;
+        const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+        const cookieHeader = request.headers.cookie;
+        const cookieSession = cookieHeader ? lucia.readSessionCookie(cookieHeader) : null;
+        const sessionId = bearer || cookieSession;
+        if (sessionId) {
+          const { user } = await lucia.validateSession(sessionId);
+          if (user?.status === "ACTIVE" && !user.deactivatedAt) {
+            const member = await prisma.member.findFirst({
+              where: { id: user.id, programId: user.programId, status: "ACTIVE", deletedAt: null },
+              select: { id: true, programId: true },
+            });
+            if (member) {
+              subjectId = member.id;
+              programId = member.programId;
+            }
+          }
+        }
+      }
+      if (!subjectId || !programId) throw new LoyaltyError("UNAUTHORIZED", 401);
+
+      const now = Date.now();
+      const claims: HandoffClaims = {
+        sub: subjectId,
+        programId,
+        kind: body.kind,
+        iss: source,
+        aud: body.target,
+        iat: now,
+        exp: now + HANDOFF_LIFETIME_MS,
+        jti: crypto.randomBytes(24).toString("base64url"),
+        returnTo: safeReturnPath(body.returnTo),
+      };
+      return reply.send({ data: { ticket: signHandoff(claims), returnTo: claims.returnTo, expiresAt: new Date(claims.exp).toISOString() } });
+    },
+  );
+
+  app.post(
+    "/auth/environment-handoff/exchange",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const body = z.object({ ticket: z.string().min(1).max(4096) }).parse(request.body);
+      const target = currentHandoffEnvironment();
+      const claims = verifyHandoff(body.ticket, target);
+      if (claims.programId.length > 120) throw new LoyaltyError("ENVIRONMENT_HANDOFF_INVALID", 401);
+
+      await prisma.environmentHandoffUse.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+      try {
+        await prisma.environmentHandoffUse.create({
+          data: { jti: claims.jti, expiresAt: new Date(claims.exp) },
+        });
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+          throw new LoyaltyError("ENVIRONMENT_HANDOFF_ALREADY_USED", 409);
+        }
+        throw error;
+      }
+
+      if (claims.kind === "admin") {
+        const admin = await prisma.adminUser.findFirst({
+          where: { id: claims.sub, programId: claims.programId, isActive: true },
+          select: { id: true },
+        });
+        if (!admin) throw new LoyaltyError("ENVIRONMENT_HANDOFF_ACCOUNT_UNAVAILABLE", 403);
+        const session = await adminLucia.createSession(admin.id, {});
+        void reply.header("Set-Cookie", adminLucia.createSessionCookie(session.id).serialize());
+        return reply.send({ data: { kind: "admin", returnTo: claims.returnTo } });
+      }
+
+      const member = await prisma.member.findFirst({
+        where: {
+          id: claims.sub,
+          programId: claims.programId,
+          status: "ACTIVE",
+          deletedAt: null,
+          deactivatedAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          programId: true,
+          joinedAt: true,
+        },
+      });
+      if (!member) throw new LoyaltyError("ENVIRONMENT_HANDOFF_ACCOUNT_UNAVAILABLE", 403);
+      const session = await lucia.createSession(member.id, {});
+      void reply.header("Set-Cookie", lucia.createSessionCookie(session.id).serialize());
+      return reply.send({
+        data: {
+          kind: "member",
+          returnTo: claims.returnTo,
+          ...memberSessionResponse(member, session),
+        },
+      });
+    },
+  );
+
   /** GET /auth/methods — public, program-scoped login methods. */
   app.get("/auth/methods", async (request, reply) => {
     const programId = publicProgramId({

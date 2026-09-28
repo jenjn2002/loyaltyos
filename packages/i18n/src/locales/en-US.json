@@ -314,6 +314,8 @@
     "unlocked": "Unlocked",
     "progress": "Progress",
     "pointsToNext": "to next tier",
+    "meetAllTierRequirements": "Meet all requirements for the next tier:",
+    "meetAnyTierRequirement": "Meet any one requirement for the next tier:",
     "maxTier": "You've reached the highest tier!",
     "favorites": "Favorites",
     "wishlist": "Wishlist",

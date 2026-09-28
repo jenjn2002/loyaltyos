@@ -32,6 +32,7 @@ const coupon = await coupons.create({
 
 // Validate without redeeming
 const result = await coupons.validate("SUMMER20", {
+  programId: "prog-1",
   memberId: "mem-1",
   purchaseAmount: 5000,
   channel: "online",
@@ -41,6 +42,7 @@ console.log(result.discountAmount); // 1000
 
 // Validate and redeem in one call
 const redemption = await coupons.redeem("SUMMER20", {
+  programId: "prog-1",
   memberId: "mem-1",
   purchaseAmount: 5000,
 });

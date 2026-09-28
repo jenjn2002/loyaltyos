@@ -4,7 +4,7 @@ import type { LoyaltyOSClient } from "./client.js";
 
 export function registerResources(server: McpServer, client: LoyaltyOSClient): void {
   server.resource("Program Overview", "loyaltyos://program/overview", async () => {
-    const dashboard = await client.getDashboard("30d");
+    const dashboard = await client.getDashboard();
     const config = await client.getProgramConfig();
 
     const markdown = [
@@ -13,11 +13,11 @@ export function registerResources(server: McpServer, client: LoyaltyOSClient): v
       `| Metric | Value |`,
       `|--------|-------|`,
       `| Active Members | ${dashboard.activeMembers.toLocaleString()} |`,
-      `| New Members (30d) | ${dashboard.newMembers.toLocaleString()} |`,
-      `| Points Issued (30d) | ${dashboard.pointsIssued.toLocaleString()} |`,
-      `| Points Redeemed (30d) | ${dashboard.pointsRedeemed.toLocaleString()} |`,
-      `| Redemption Rate | ${(dashboard.redemptionRate * 100).toFixed(1)}% |`,
-      `| Total Liability | ${dashboard.totalLiability.toLocaleString()} |`,
+      `| New Members (30d) | ${dashboard.newMembersLast30Days.toLocaleString()} |`,
+      `| Points Issued | ${dashboard.totalPointsIssued.toLocaleString()} |`,
+      `| Points Redeemed | ${dashboard.totalPointsRedeemed.toLocaleString()} |`,
+      `| Redemption Rate | ${(dashboard.redemptionRatio * 100).toFixed(1)}% |`,
+      `| Current Point Balance | ${dashboard.currentPointBalance.toLocaleString()} |`,
       `| Coalition Enabled | ${config.coalitionEnabled ? "Yes" : "No"} |`,
       config.coalitionProvider ? `| Coalition Provider | ${config.coalitionProvider} |` : "",
       "",
@@ -61,16 +61,16 @@ export function registerResources(server: McpServer, client: LoyaltyOSClient): v
         [
           `## ${c.name}`,
           `- **Type:** ${c.type}`,
-          `- **Status:** ${c.status}`,
-          `- **Start:** ${c.startDate}`,
-          c.endDate ? `- **End:** ${c.endDate}` : null,
+          `- **Status:** ${c.isActive ? "active" : c.approvalStatus === "DRAFT" ? "draft" : "paused"}`,
+          `- **Start:** ${c.startsAt ?? "Not scheduled"}`,
+          c.endsAt ? `- **End:** ${c.endsAt}` : null,
           c.membersReached ? `- **Members Reached:** ${c.membersReached.toLocaleString()}` : null,
           c.pointsIssued ? `- **Points Issued:** ${c.pointsIssued.toLocaleString()}` : null,
           c.conversionRate != null
             ? `- **Conversion Rate:** ${(c.conversionRate * 100).toFixed(1)}%`
             : null,
-          `- **Stackable:** ${c.stackable ? "Yes" : "No"}`,
-          c.budgetCap ? `- **Budget Cap:** ${c.budgetCap.toLocaleString()}` : null,
+          `- **Stackable:** ${c.isStackable ? "Yes" : "No"}`,
+          c.maxBudget ? `- **Budget Cap:** ${c.maxBudget.toLocaleString()}` : null,
           "",
         ]
           .filter(Boolean)

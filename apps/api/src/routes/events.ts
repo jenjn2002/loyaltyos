@@ -122,11 +122,32 @@ const eventSchema = z.object({
   payload: z.record(z.unknown()).optional(),
 });
 
+const PROCESSING_MARKER = "__LOYALTYOS_EVENT_PROCESSING__:";
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
+}
+
 export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   app.post(
     "/events",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
+      // Event ingestion is a trusted integration endpoint. Member sessions must
+      // never be able to report arbitrary activity (or choose another member)
+      // because event payloads can trigger point issuance and campaigns.
+      if (request.apiKeyScope !== "SERVER" || request.actor.type !== "API_KEY") {
+        throw new LoyaltyError("SERVER_SCOPE_REQUIRED", 403);
+      }
       const idempotencyKey = request.headers["idempotency-key"] as string;
       if (!idempotencyKey) {
         return reply.status(400).send({
@@ -137,7 +158,8 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       const body = eventSchema.parse(request.body);
 
       // Deduplicate the event
-      const programId = request.programId || (request.headers["x-program-id"] as string);
+      const programId = request.programId;
+      if (!programId) throw new LoyaltyError("PROGRAM_CONTEXT_REQUIRED", 400);
       const normalizedType = body.type.toLowerCase();
       const definition = await prisma.eventDefinition.findUnique({
         where: { programId_key: { programId, key: normalizedType } },
@@ -152,14 +174,36 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       if (normalizedType !== "purchase" && mode && mode !== "EXTERNAL") {
         throw new LoyaltyError("EVENT_IS_SCHEDULED", 409);
       }
-      const existing = await prisma.event.findUnique({
+      let existing = await prisma.event.findUnique({
         where: { programId_idempotencyKey: { programId, idempotencyKey } },
       });
       if (existing) {
-        if (existing.type !== body.type || existing.memberId !== (body.memberId ?? null)) {
+        if (
+          existing.type.toLowerCase() !== normalizedType ||
+          existing.memberId !== (body.memberId ?? null) ||
+          canonicalJson(existing.payload ?? {}) !== canonicalJson(body.payload ?? {})
+        ) {
           throw new LoyaltyError("EVENT_IDEMPOTENCY_CONFLICT", 409);
         }
-        return reply.send({ data: existing, idempotent: true });
+        if (existing.processed) return reply.send({ data: existing, idempotent: true });
+
+        const markerTime = existing.error?.startsWith(PROCESSING_MARKER)
+          ? Number(existing.error.slice(PROCESSING_MARKER.length))
+          : 0;
+        if (Number.isFinite(markerTime) && markerTime > Date.now() - 10 * 60_000) {
+          throw new LoyaltyError("EVENT_PROCESSING", 409);
+        }
+        const marker = `${PROCESSING_MARKER}${Date.now()}`;
+        const claimed = await prisma.event.updateMany({
+          where: { id: existing.id, processed: false, error: existing.error },
+          data: { error: marker },
+        });
+        if (claimed.count !== 1) {
+          existing = await prisma.event.findUnique({ where: { id: existing.id } });
+          if (existing?.processed) return reply.send({ data: existing, idempotent: true });
+          throw new LoyaltyError("EVENT_PROCESSING", 409);
+        }
+        existing = { ...existing, error: marker };
       }
 
       if (body.memberId) {
@@ -175,17 +219,27 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
         if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
       }
 
-      // Create event
-      const event = await prisma.event.create({
-        data: {
-          programId,
-          type: body.type,
-          memberId: body.memberId,
-          payload: body.payload as Prisma.InputJsonValue,
-          idempotencyKey,
-          processed: false,
-        },
-      });
+      // Persist a processing lease with the event so a failed event can be
+      // safely reclaimed by a retry using the original idempotency key.
+      let event = existing;
+      if (!event) {
+        try {
+          event = await prisma.event.create({
+            data: {
+              programId,
+              type: body.type,
+              memberId: body.memberId,
+              payload: body.payload as Prisma.InputJsonValue,
+              idempotencyKey,
+              processed: false,
+              error: `${PROCESSING_MARKER}${Date.now()}`,
+            },
+          });
+        } catch (error) {
+          if (isUniqueConstraintError(error)) throw new LoyaltyError("EVENT_PROCESSING", 409);
+          throw error;
+        }
+      }
 
       // If the event is for a member and represents points-earning activity,
       // process it through the points engine
@@ -305,7 +359,7 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
 
           await prisma.event.update({
             where: { id: event.id },
-            data: { processed: true, processedAt: new Date() },
+            data: { processed: true, processedAt: new Date(), error: null },
           });
 
           if (body.type === "registration") {
@@ -318,7 +372,7 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
 
           return reply.status(201).send({
             data: {
-              event,
+              event: { ...event, processed: true, processedAt: new Date(), error: null },
               earnResult: ruleResults[0] ?? null,
               earnResults: ruleResults,
               appliedCampaigns,
@@ -334,7 +388,11 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
         }
       }
 
-      return reply.status(201).send({ data: event });
+      const completedEvent = await prisma.event.update({
+        where: { id: event.id },
+        data: { processed: true, processedAt: new Date(), error: null },
+      });
+      return reply.status(201).send({ data: completedEvent });
     },
   );
 

@@ -25,6 +25,7 @@ import type {
 
 interface DirectoryMember {
   id: string;
+  email: string | null;
   firstName: string | null;
   lastName: string | null;
   department: string | null;
@@ -147,6 +148,7 @@ export default function Credits(): JSX.Element {
   const [recipients, setRecipients] = useState<RecipientRow[]>([
     { memberId: "", amount: "10", message: "" },
   ]);
+  const [selectedMemberOptions, setSelectedMemberOptions] = useState<Record<string, DirectoryMember>>({});
   const [message, setMessage] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [exchangePointTypeId, setExchangePointTypeId] = useState("");
@@ -155,6 +157,8 @@ export default function Credits(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [exchangePage, setExchangePage] = useState(1);
   const [feedPage, setFeedPage] = useState(1);
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberSearch, setMemberSearch] = useState("");
   const [feedKind, setFeedKind] = useState<"all" | "received" | "given">("all");
 
   const wallets = useQuery({
@@ -175,8 +179,12 @@ export default function Credits(): JSX.Element {
       ),
   });
   const members = useQuery({
-    queryKey: ["members", "directory"],
-    queryFn: () => fetchApi<{ items: DirectoryMember[] }>("/members/directory?page=1&pageSize=100"),
+    queryKey: ["members", "directory", memberSearch, memberPage],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(memberPage), pageSize: "50" });
+      if (memberSearch.trim()) params.set("search", memberSearch.trim());
+      return fetchApi<{ items: DirectoryMember[]; totalPages: number }>(`/members/directory?${params.toString()}`);
+    },
   });
   const categories = useQuery({
     queryKey: ["credits", "categories"],
@@ -460,7 +468,25 @@ export default function Credits(): JSX.Element {
               </select>
             </label>
 
-            {recipients.map((recipient, index) => (
+            <label className="block text-xs font-medium">
+              {ui("Search colleagues")}
+              <input
+                value={memberSearch}
+                onChange={(event) => {
+                  setMemberSearch(event.target.value);
+                  setMemberPage(1);
+                }}
+                placeholder={ui("Name, email or department")}
+                className={`mt-1 ${controlClass}`}
+              />
+            </label>
+            {recipients.map((recipient, index) => {
+              const pageMembers = members.data?.items ?? [];
+              const selectedMember = selectedMemberOptions[recipient.memberId];
+              const recipientOptions = selectedMember && !pageMembers.some((member) => member.id === selectedMember.id)
+                ? [selectedMember, ...pageMembers]
+                : pageMembers;
+              return (
               <div
                 key={index}
                 className="grid grid-cols-[1fr_7rem_auto] gap-2 rounded-xl bg-[var(--color-surface-secondary)] p-3"
@@ -472,6 +498,10 @@ export default function Credits(): JSX.Element {
                     aria-label={`Recipient ${String(index + 1)}`}
                     value={recipient.memberId}
                     onChange={(event) => {
+                      const selected = pageMembers.find((member) => member.id === event.target.value);
+                      if (selected) {
+                        setSelectedMemberOptions((current) => ({ ...current, [selected.id]: selected }));
+                      }
                       setRecipients((rows) =>
                         rows.map((row, rowIndex) =>
                           rowIndex === index ? { ...row, memberId: event.target.value } : row,
@@ -481,9 +511,10 @@ export default function Credits(): JSX.Element {
                     className={`mt-1 ${controlClass}`}
                   >
                     <option value="">{ui("Select colleague")}</option>
-                    {(members.data?.items ?? []).map((member) => (
+                    {recipientOptions.map((member) => (
                       <option key={member.id} value={member.id}>
                         {memberName(member)}
+                        {member.email ? ` · ${member.email}` : ""}
                         {member.department ? ` · ${member.department}` : ""}
                       </option>
                     ))}
@@ -536,7 +567,15 @@ export default function Credits(): JSX.Element {
                   />
                 </label>
               </div>
-            ))}
+              );
+            })}
+            {(members.data?.totalPages ?? 0) > 1 && (
+              <div className="flex items-center justify-between text-sm">
+                <button type="button" disabled={memberPage <= 1} onClick={() => setMemberPage((value) => value - 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{ui("Previous")}</button>
+                <span>{memberPage} / {members.data?.totalPages}</span>
+                <button type="button" disabled={memberPage >= (members.data?.totalPages ?? 1)} onClick={() => setMemberPage((value) => value + 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{ui("Next")}</button>
+              </div>
+            )}
 
             {sourceWallet?.allowMultiRecipient &&
               recipients.length < sourceWallet.maxRecipients && (

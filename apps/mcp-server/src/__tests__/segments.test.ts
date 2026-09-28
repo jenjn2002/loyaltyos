@@ -10,11 +10,12 @@ describe("SegmentCreateSchema", () => {
   it("accepts valid segment with rules", () => {
     const result = SegmentCreateSchema.safeParse({
       name: "High Value Gold Members",
-      rules: [{ field: "tier", operator: "eq", value: "gold" }],
+      type: "DYNAMIC",
+      rules: { all: [{ field: "department", eq: "Sales" }] },
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.logic).toBe("AND");
+      expect(result.data.type).toBe("DYNAMIC");
     }
   });
 
@@ -26,76 +27,27 @@ describe("SegmentCreateSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects missing rules", () => {
-    const result = SegmentCreateSchema.safeParse({ name: "No Rules" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects invalid field", () => {
-    const result = SegmentCreateSchema.safeParse({
-      name: "Bad Rules",
-      rules: [{ field: "invalidField", operator: "eq", value: 1 }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects invalid operator", () => {
-    const result = SegmentCreateSchema.safeParse({
-      name: "Bad Operator",
-      rules: [{ field: "pointBalance", operator: "contains", value: 100 }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts OR logic", () => {
-    const result = SegmentCreateSchema.safeParse({
-      name: "Gold OR Silver",
-      description: "Members in gold or silver tiers",
-      rules: [
-        { field: "tier", operator: "eq", value: "gold" },
-        { field: "tier", operator: "eq", value: "silver" },
-      ],
-      logic: "OR",
-    });
+  it("accepts a static segment without rules", () => {
+    const result = SegmentCreateSchema.safeParse({ name: "Manual group", type: "STATIC", memberIds: ["member-1"] });
     expect(result.success).toBe(true);
   });
 
-  it("rejects invalid logic", () => {
+  it("preserves nested rule groups for the API", () => {
     const result = SegmentCreateSchema.safeParse({
-      name: "Bad Logic",
-      rules: [{ field: "tier", operator: "eq", value: "gold" }],
-      logic: "XOR",
+      name: "Sales group",
+      type: "DYNAMIC",
+      rules: { any: [{ field: "department", eq: "Sales" }, { field: "department", eq: "Marketing" }] },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
 describe("SegmentPreviewSchema", () => {
-  it("accepts rules and defaults sampleSize to 5", () => {
+  it("accepts API rule groups", () => {
     const result = SegmentPreviewSchema.safeParse({
-      rules: [{ field: "inactiveDays", operator: "gte", value: 60 }],
+      rules: { all: [{ field: "accountAgeDays", gte: 60 }] },
     });
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.sampleSize).toBe(5);
-      expect(result.data.logic).toBe("AND");
-    }
-  });
-
-  it("accepts custom sampleSize", () => {
-    const result = SegmentPreviewSchema.safeParse({
-      rules: [{ field: "pointBalance", operator: "gt", value: 1000 }],
-      sampleSize: 10,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects sampleSize over 20", () => {
-    const result = SegmentPreviewSchema.safeParse({
-      rules: [{ field: "pointBalance", operator: "gt", value: 1000 }],
-      sampleSize: 50,
-    });
-    expect(result.success).toBe(false);
   });
 
   it("rejects empty rules", () => {

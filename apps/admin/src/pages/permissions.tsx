@@ -1,8 +1,14 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, ShieldCheck, UserCog } from "lucide-react";
+import { Pencil, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,8 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { fetchApi } from "@/lib/api-client";
 
-type Role = "SUPER_ADMIN" | "OPERATOR" | "ANALYST";
-type ConfigurableRole = Exclude<Role, "SUPER_ADMIN">;
+type Role = string;
+type ConfigurableRole = string;
 interface PermissionData {
   capabilities: string[];
   roles: { role: Role; label: string; permissions: Record<string, boolean> }[];
@@ -111,6 +117,14 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Run campaigns",
     description: "Run an approved campaign immediately and issue or create its member grants.",
   },
+  "project.view": {
+    label: "View projects",
+    description: "View project plans, accepted members, tasks and confidential budget or allocation details for projects you manage.",
+  },
+  "project.manage": {
+    label: "Manage projects",
+    description: "Create project plans, request budget approval, invite members, manage tasks, submit point distributions and close projects.",
+  },
   "segment.view": {
     label: "View segments",
     description: "Read segment definitions and their matched members.",
@@ -142,6 +156,22 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   "coupon.manage": {
     label: "Manage coupons",
     description: "Create, generate, edit and deactivate coupon codes.",
+  },
+  "coalition.view": {
+    label: "View coalition integration",
+    description: "Inspect coalition integration settings and connection status.",
+  },
+  "coalition.manage": {
+    label: "Manage coalition integration",
+    description: "Configure coalition credentials and transfer behavior.",
+  },
+  "giftcard.view": {
+    label: "View gift cards",
+    description: "Read gift card catalog and issuance activity.",
+  },
+  "giftcard.manage": {
+    label: "Manage gift cards",
+    description: "Create, update and issue gift cards.",
   },
   "event.view": {
     label: "View event definitions",
@@ -213,10 +243,87 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
 };
 
+const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[] = [
+  { id: "dashboard", label: "Dashboard", capabilities: ["dashboard.view"] },
+  {
+    id: "members",
+    label: "Members",
+    capabilities: ["member.view", "member.manage", "member.credentials.manage"],
+  },
+  {
+    id: "credits",
+    label: "Credits & point types",
+    capabilities: [
+      "wallet.view",
+      "wallet.adjust",
+      "point_type.view",
+      "point_type.manage",
+      "bank.view",
+      "bank.manage",
+      "issuance.view",
+      "issuance.manage",
+    ],
+  },
+  {
+    id: "campaigns",
+    label: "Campaigns & rewards",
+    capabilities: [
+      "campaign.view",
+      "campaign.manage",
+      "campaign.execute",
+      "coupon.view",
+      "coupon.manage",
+      "reward.view",
+      "reward.manage",
+      "giftcard.view",
+      "giftcard.manage",
+    ],
+  },
+  { id: "projects", label: "Group projects", capabilities: ["project.view", "project.manage"] },
+  { id: "integrations", label: "Integrations", capabilities: ["coalition.view", "coalition.manage"] },
+  {
+    id: "automation",
+    label: "Automation & governance",
+    capabilities: [
+      "workflow.view",
+      "workflow.manage",
+      "event.view",
+      "event.manage",
+      "recognition.view",
+      "recognition.manage",
+      "notification.view",
+      "notification.manage",
+      "settings.view",
+      "settings.manage",
+    ],
+  },
+  {
+    id: "approvals",
+    label: "Approvals & exchange",
+    capabilities: [
+      "approval.inbox",
+      "approval.view",
+      "approval.decide",
+      "exchange.view",
+      "exchange.manage",
+      "exchange.approve",
+      "exchange.complete",
+    ],
+  },
+  { id: "segments", label: "Segments", capabilities: ["segment.view", "segment.manage"] },
+  { id: "badges", label: "Badges", capabilities: ["badge.view", "badge.manage"] },
+  { id: "tiers", label: "Tiers", capabilities: ["tier.view", "tier.manage"] },
+  { id: "logs", label: "Logs", capabilities: ["audit.view"] },
+  { id: "roles", label: "Roles & permissions", capabilities: ["permission.manage"] },
+];
+
 export function PermissionsPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, Record<string, boolean>>>({});
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
+  const [selectedPermissionRole, setSelectedPermissionRole] = useState<Role>("OPERATOR");
+  const [newRoleLabel, setNewRoleLabel] = useState("");
+  const [roleLabelDraft, setRoleLabelDraft] = useState("");
   const [newAccount, setNewAccount] = useState({
     name: "",
     email: "",
@@ -241,6 +348,13 @@ export function PermissionsPage(): JSX.Element {
         permissions.data.roles.map((role) => [role.role, { ...role.permissions }]),
       ),
     );
+    setSelectedPermissionRole((current) =>
+      permissions.data.roles.some((role) => role.role === current)
+        ? current
+        : permissions.data.roles.find((role) => role.role !== "SUPER_ADMIN")?.role ??
+          permissions.data.roles[0]?.role ??
+          "",
+    );
   }, [permissions.data]);
 
   useEffect(() => {
@@ -263,6 +377,22 @@ export function PermissionsPage(): JSX.Element {
       }),
     onSuccess: async () => {
       setNotice(ui("Role permissions saved and audit logged."));
+      await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+  const createRole = useMutation({
+    mutationFn: () =>
+      fetchApi<{ role: string; label: string }>("/admin/roles", {
+        method: "POST",
+        body: JSON.stringify({ label: newRoleLabel.trim() }),
+      }),
+    onSuccess: async (role) => {
+      setNewRoleLabel("");
+      setSelectedPermissionRole(role.role);
+      setNotice(`${role.label} ${ui("role created. Set its permissions before assigning it to an administrator.")}`);
       await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
     },
     onError: (error: Error) => {
@@ -307,6 +437,35 @@ export function PermissionsPage(): JSX.Element {
     if (Object.keys(errors).length > 0) return;
     createAccount.mutate();
   }
+  const permissionRole = permissions.data?.roles.find(
+    (role) => role.role === selectedPermissionRole,
+  );
+  useEffect(() => {
+    setRoleLabelDraft(permissionRole?.label ?? "");
+  }, [permissionRole?.role, permissionRole?.label]);
+  const renameRole = useMutation({
+    mutationFn: () => fetchApi(`/admin/roles/${permissionRole?.role ?? ""}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: roleLabelDraft.trim() }),
+    }),
+    onSuccess: async () => {
+      setNotice(ui("Role renamed and audit logged."));
+      await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
+    },
+    onError: (error: Error) => setNotice(error.message),
+  });
+  const deleteRole = useMutation({
+    mutationFn: () => fetchApi(`/admin/roles/${permissionRole?.role ?? ""}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setSelectedPermissionRole("OPERATOR");
+      setNotice(ui("Custom role deleted."));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+      ]);
+    },
+    onError: (error: Error) => setNotice(error.message),
+  });
   const updateAccount = useMutation({
     mutationFn: (account: AdminAccount) =>
       fetchApi<AdminAccount>(`/admin/users/${account.id}`, {
@@ -329,7 +488,7 @@ export function PermissionsPage(): JSX.Element {
         <h1 className="flex items-center gap-2 text-3xl font-bold">
           <ShieldCheck />{ui("Roles & permissions")}</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          {ui("Owner always has every capability and cannot be locked out. Operator performs day-to-day work; Auditor is read-only by default. Overrides apply program-wide and are audit logged.")}
+          {ui("Owner always has every capability and cannot be locked out. Operator performs day-to-day work; Auditor is read-only by default. Custom roles start with no capabilities. Overrides apply program-wide and are audit logged.")}
         </p>
       </div>
       {notice && (
@@ -340,6 +499,35 @@ export function PermissionsPage(): JSX.Element {
       {permissions.isError && (
         <div className="rounded-md border border-destructive p-3 text-sm text-destructive">{ui("Only an Owner with permission-management access can open this page.")}</div>
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle>{ui("Create a role")}</CardTitle>
+          <CardDescription>{ui("Add a custom role, then choose its capabilities below and assign it to administrators.")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (newRoleLabel.trim().length >= 2) createRole.mutate();
+            }}
+          >
+            <Input
+              aria-label={ui("Role name")}
+              value={newRoleLabel}
+              maxLength={80}
+              onChange={(event) => {
+                setNewRoleLabel(event.target.value);
+              }}
+              placeholder={ui("For example: Finance")}
+            />
+            <Button type="submit" disabled={createRole.isPending || newRoleLabel.trim().length < 2}>
+              <Plus className="h-4 w-4" />
+              {createRole.isPending ? ui("Creating…") : ui("Create role")}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -423,8 +611,11 @@ export function PermissionsPage(): JSX.Element {
                   }));
                 }}
               >
-                <option value="OPERATOR">{ui("Operator")}</option>
-                <option value="ANALYST">{ui("Auditor")}</option>
+                {(permissions.data?.roles ?? [])
+                  .filter((role) => role.role !== "SUPER_ADMIN")
+                  .map((role) => (
+                    <option key={role.role} value={role.role}>{role.label}</option>
+                  ))}
               </select>
             </div>
             <Button type="submit" className="self-end" disabled={createAccount.isPending}>
@@ -479,9 +670,11 @@ export function PermissionsPage(): JSX.Element {
                         }));
                       }}
                     >
-                      {immutable && <option value="SUPER_ADMIN">{ui("Owner")}</option>}
-                      <option value="OPERATOR">{ui("Operator")}</option>
-                      <option value="ANALYST">{ui("Auditor")}</option>
+                      {(permissions.data?.roles ?? [])
+                        .filter((role) => immutable ? role.role === "SUPER_ADMIN" : role.role !== "SUPER_ADMIN")
+                        .map((role) => (
+                          <option key={role.role} value={role.role}>{role.label}</option>
+                        ))}
                     </select>
                   </div>
                   <div className="flex h-10 items-center gap-2">
@@ -516,65 +709,143 @@ export function PermissionsPage(): JSX.Element {
           </div>
         </CardContent>
       </Card>
-      <div className="grid gap-6 xl:grid-cols-3">
-        {(permissions.data?.roles ?? []).map((role) => {
-          const immutable = role.role === "SUPER_ADMIN";
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>{ui("Set permissions by role")}</CardTitle>
+            <CardDescription>{ui("Select a role to view and edit only its permissions.")}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {(permissions.data?.roles ?? []).map((role) => (
+              <Button
+                key={role.role}
+                type="button"
+                size="sm"
+                variant={selectedPermissionRole === role.role ? "default" : "outline"}
+                aria-pressed={selectedPermissionRole === role.role}
+                onClick={() => {
+                  setSelectedPermissionRole(role.role);
+                }}
+              >
+                {role.label}
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+        {permissionRole && (() => {
+          const immutable = permissionRole.role === "SUPER_ADMIN";
+          const rolePermissions = drafts[permissionRole.role] ?? permissionRole.permissions;
+          const enabledCount = Object.values(rolePermissions).filter(Boolean).length;
+          const groupedCapabilities = new Set(CAPABILITY_GROUPS.flatMap((group) => group.capabilities));
+          const otherCapabilities = (permissions.data?.capabilities ?? []).filter(
+            (capability) => !groupedCapabilities.has(capability),
+          );
+          const capabilityGroups = otherCapabilities.length > 0
+            ? [...CAPABILITY_GROUPS, { id: "other", label: "Other permissions", capabilities: otherCapabilities }]
+            : CAPABILITY_GROUPS;
           return (
-            <Card key={role.role}>
+            <Card>
               <CardHeader>
-                <CardTitle>{role.label}</CardTitle>
+                <CardTitle>{permissionRole.label}</CardTitle>
                 <CardDescription>
                   {immutable
                     ? ui("Full access; immutable safety role.")
-                    : role.role === "OPERATOR"
+                    : permissionRole.role === "OPERATOR"
                       ? ui("Operational access; destructive configuration is restricted by default.")
-                      : ui("Read-only oversight by default.")}
+                      : permissionRole.role === "ANALYST"
+                        ? ui("Read-only oversight by default.")
+                        : ui("Custom role. Capabilities are denied until enabled here.")}
                 </CardDescription>
+                <p className="text-sm text-muted-foreground">
+                  {enabledCount} / {permissions.data?.capabilities.length ?? 0} {ui("permissions enabled")}
+                </p>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {permissions.data?.capabilities.map((capability) => {
-                  const copy = CAPABILITY_COPY[capability] ?? {
-                    label: capability,
-                    description: `Controls ${capability}.`,
-                  };
-                  const id = `${role.role}-${capability}`;
-                  return (
-                    <div
-                      key={capability}
-                      className="flex items-center justify-between gap-3 rounded-md border p-3"
-                    >
-                      <Label htmlFor={id} data-help={ui(copy.description)} className="leading-snug">
-                        {ui(copy.label)}
-                      </Label>
-                      <Switch
-                        id={id}
-                        checked={drafts[role.role]?.[capability] ?? false}
-                        disabled={immutable}
-                        onCheckedChange={(checked) => {
-                          setDrafts((current) => ({
-                            ...current,
-                            [role.role]: { ...current[role.role], [capability]: checked },
-                          }));
-                        }}
-                      />
-                    </div>
-                  );
-                })}
+              <CardContent className="space-y-4">
+                {permissionRole.role.startsWith("CUSTOM_") && (
+                  <div className="flex flex-wrap gap-2 rounded-md border p-3">
+                    <Input aria-label={ui("Role name")} value={roleLabelDraft} maxLength={80} onChange={(event) => setRoleLabelDraft(event.target.value)} />
+                    <Button type="button" variant="outline" disabled={renameRole.isPending || roleLabelDraft.trim().length < 2 || roleLabelDraft.trim() === permissionRole.label} onClick={() => renameRole.mutate()}><Pencil className="mr-1 h-4 w-4" />{ui("Rename role")}</Button>
+                    <Button type="button" variant="destructive" disabled={deleteRole.isPending} onClick={() => { if (window.confirm(ui("Delete this role? Roles assigned to administrators or approval workflows cannot be deleted."))) deleteRole.mutate(); }}><Trash2 className="mr-1 h-4 w-4" />{ui("Delete role")}</Button>
+                  </div>
+                )}
+                <Accordion
+                  key={permissionRole.role}
+                  type="multiple"
+                  defaultValue={["members"]}
+                  className="space-y-2"
+                >
+                  {capabilityGroups.map((group) => {
+                    const capabilities = (permissions.data?.capabilities ?? []).filter((capability) =>
+                      group.capabilities.includes(capability),
+                    );
+                    if (capabilities.length === 0) return null;
+                    const groupEnabledCount = capabilities.filter(
+                      (capability) => rolePermissions[capability] ?? false,
+                    ).length;
+                    return (
+                      <AccordionItem key={group.id} value={group.id} className="rounded-md border px-4">
+                        <AccordionTrigger className="hover:no-underline">
+                          <span className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left">
+                            <span>{ui(group.label)}</span>
+                            <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                              {groupEnabledCount}/{capabilities.length} {ui("enabled")}
+                            </span>
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {capabilities.map((capability) => {
+                              const copy = CAPABILITY_COPY[capability] ?? {
+                                label: capability,
+                                description: `Controls ${capability}.`,
+                              };
+                              const id = `${permissionRole.role}-${capability}`;
+                              return (
+                                <div
+                                  key={capability}
+                                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                                >
+                                  <Label htmlFor={id} data-help={ui(copy.description)} className="leading-snug">
+                                    {ui(copy.label)}
+                                  </Label>
+                                  <Switch
+                                    id={id}
+                                    checked={rolePermissions[capability] ?? false}
+                                    disabled={immutable}
+                                    onCheckedChange={(checked) => {
+                                      setDrafts((current) => ({
+                                        ...current,
+                                        [permissionRole.role]: {
+                                          ...(current[permissionRole.role] ?? permissionRole.permissions),
+                                          [capability]: checked,
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
                 {!immutable && (
                   <Button
                     className="w-full"
                     disabled={save.isPending}
                     onClick={() => {
-                      save.mutate(role.role as ConfigurableRole);
+                      save.mutate(permissionRole.role as ConfigurableRole);
                     }}
                   >
-                    {save.isPending ? ui("Saving…") : `${ui("Save")} ${role.label}`}
+                    {save.isPending ? ui("Saving…") : `${ui("Save")} ${permissionRole.label}`}
                   </Button>
                 )}
               </CardContent>
             </Card>
           );
-        })}
+        })()}
       </div>
     </div>
   );

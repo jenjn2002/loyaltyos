@@ -4,13 +4,41 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createApprovalRequestWithClient,
   decideApprovalRequestWithClient,
+  listApprovalRequests,
   selectMatchingWorkflow,
   validateWorkflowDefinition,
   workflowMatchesScope,
   workflowScopesMayOverlap,
 } from "../lib/approval-workflows.js";
+import { prisma } from "../db.js";
 
 describe("approval workflow definition", () => {
+  it("keeps assigned requests in the inbox even after more than 200 newer pending requests", async () => {
+    const requests = Array.from({ length: 201 }, (_, index) => ({
+      id: `request-${index}`,
+      status: "PENDING",
+      currentStepOrder: 1,
+      actionKey: "CUSTOM",
+      workflow: { name: "Original workflow", actionKey: "CUSTOM" },
+      steps: [{
+        stepOrder: 1,
+        status: "PENDING",
+        assigneesSnapshot: [{ adminId: index === 200 ? "admin-1" : "another-admin" }],
+        decisions: [],
+      }],
+    }));
+    const requestQuery = vi.spyOn(prisma.approvalRequest, "findMany").mockResolvedValue(requests as never);
+    vi.spyOn(prisma.adminApprovalNotificationRead, "findMany").mockResolvedValue([]);
+
+    const inbox = await listApprovalRequests("program-1", { inboxForAdminId: "admin-1" });
+
+    expect(requestQuery.mock.calls[0]?.[0]).not.toHaveProperty("take");
+    expect(inbox.map((request) => request.id)).toContain("request-200");
+    expect(inbox).toHaveLength(1);
+    requestQuery.mockRestore();
+    vi.restoreAllMocks();
+  });
+
   it("allows COUNT larger than assignment rows because a role expands to multiple users", () => {
     expect(() =>
       validateWorkflowDefinition({
@@ -186,6 +214,7 @@ describe("approval workflow definition", () => {
       ],
     };
     const tx = {
+      adminApprovalNotificationRead: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       approvalRequest: {
         findFirst: vi.fn().mockImplementation((query: { where: { programId: string } }) =>
           Promise.resolve(query.where.programId === "program-1" ? state : null),

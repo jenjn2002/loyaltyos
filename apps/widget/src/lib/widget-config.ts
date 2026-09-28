@@ -11,7 +11,9 @@ interface AttributeDef {
 const ATTRS: AttributeDef[] = [
   { attr: "program-id", key: "programId", parse: String },
   { attr: "api-base", key: "apiBase", parse: String },
+  { attr: "api-url", key: "apiBase", parse: String },
   { attr: "auth-token", key: "authToken", parse: (s) => s || null },
+  { attr: "token", key: "authToken", parse: (s) => s || null },
   {
     attr: "theme",
     key: "theme",
@@ -27,6 +29,11 @@ const ATTRS: AttributeDef[] = [
     attr: "locale",
     key: "locale",
     parse: (s) => (["vi-VN", "en-US"].includes(s) ? s : "vi-VN"),
+  },
+  {
+    attr: "lang",
+    key: "locale",
+    parse: (s) => (s === "en" || s === "en-US" ? "en-US" : "vi-VN"),
   },
   { attr: "compact", key: "compact", parse: (s) => s === "true" },
   {

@@ -54,7 +54,7 @@ describe("fetchApi", () => {
     await fetchApi(config, "/rewards?page=1");
 
     const [url] = mockFetch.mock.calls[0] as [string];
-    expect(url).toBe("https://api.example.com/rewards?page=1");
+    expect(url).toBe("https://api.example.com/api/v1/rewards?page=1");
   });
 
   it("dispatches loyaltyos:auth-required on 401", async () => {

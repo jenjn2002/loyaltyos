@@ -89,7 +89,7 @@ export function BadgesListPage(): JSX.Element {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{ui("All Badges")}</CardTitle>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={typeFilter} onValueChange={(value) => { setTypeFilter(value); setPage(1); }}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder={ui("Type")} />
             </SelectTrigger>

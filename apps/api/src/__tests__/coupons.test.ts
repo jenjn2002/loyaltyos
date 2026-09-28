@@ -13,6 +13,10 @@ const mockPrisma = vi.hoisted(() => ({
     create: vi.fn(),
     count: vi.fn(),
   },
+  auditLog: {
+    create: vi.fn(),
+    findMany: vi.fn(),
+  },
   apiKey: {
     findUnique: vi.fn(),
     update: vi.fn(),
@@ -71,6 +75,8 @@ beforeEach(async () => {
   });
   mockPrisma.apiKey.update.mockResolvedValue({});
   mockPrisma.pointRule.findMany.mockResolvedValue([]);
+  mockPrisma.auditLog.create.mockResolvedValue({});
+  mockPrisma.auditLog.findMany.mockResolvedValue([]);
   mockPrisma.$transaction.mockImplementation((fn: never) => fn(mockPrisma));
   app = await buildApp({ logger: false });
 

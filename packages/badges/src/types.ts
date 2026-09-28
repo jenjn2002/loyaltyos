@@ -93,6 +93,12 @@ export interface TierEvaluationResult {
   pointsProgress: number; // 0-100
   pointsToNext: number | null;
   nextTier: TierRow | null;
+  nextTierProgress: Array<{
+    pointTypeId: string;
+    earned: number;
+    required: number;
+    remaining: number;
+  }>;
 }
 
 // ── Member aggregate for evaluation ─────────────────────────────────────

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assignVariant } from "../ab-testing.js";
 
 const mockPrisma = {
   campaign: {
@@ -10,6 +11,12 @@ const mockPrisma = {
   campaignApplication: {
     count: vi.fn(),
     aggregate: vi.fn(),
+    create: vi.fn(),
+  },
+  campaignClaim: {
+    count: vi.fn(),
+    aggregate: vi.fn(),
+    findFirst: vi.fn(),
     create: vi.fn(),
   },
   member: {
@@ -28,6 +35,12 @@ beforeEach(async () => {
   vi.resetAllMocks();
   const mod = await import("../service.js");
   CampaignsService = mod.CampaignsService;
+  mockPrisma.campaignApplication.count.mockResolvedValue(0);
+  mockPrisma.campaignApplication.aggregate.mockResolvedValue({ _sum: { pointsAwarded: 0 } });
+  mockPrisma.campaignClaim.count.mockResolvedValue(0);
+  mockPrisma.campaignClaim.aggregate.mockResolvedValue({ _sum: { pointsAwarded: 0 } });
+  mockPrisma.campaignClaim.findFirst.mockResolvedValue(null);
+  mockPrisma.campaignClaim.create.mockResolvedValue({ id: "claim-1" });
   // Reset points service mock
   mockPointsService.earn.mockReset();
   mockPointsService.balance.mockReset();
@@ -423,7 +436,7 @@ describe("CampaignsService.estimateImpact", () => {
     });
 
     expect(result.estimatedMembers).toBe(50);
-    expect(result.estimatedPoints).toBe(10000); // 50 * 100 * 2
+    expect(result.estimatedPoints).toBe(5000); // 50 * (100 * (2 - 1))
 
     const resultWithBudget = await svc.estimateImpact({
       programId: "prog-1",
@@ -431,6 +444,35 @@ describe("CampaignsService.estimateImpact", () => {
       maxBudget: 5000,
     });
     expect(resultWithBudget.estimatedCost).toBe(5000);
+  });
+
+  it("estimates only the bonus portion for a normalized purchase amount", async () => {
+    const svc = new CampaignsService(mockPrisma as never, mockPointsService as never);
+    const result = await svc.estimateImpact({
+      programId: "prog-1",
+      estimatedMembers: 10,
+      multiplier: 2,
+      isPurchase: true,
+    });
+
+    expect(result.estimatedPoints).toBe(1_000);
+  });
+
+  it("uses the traffic-weighted multiplier for A/B variants", async () => {
+    const svc = new CampaignsService(mockPrisma as never, mockPointsService as never);
+    const result = await svc.estimateImpact({
+      programId: "prog-1",
+      estimatedMembers: 10,
+      isPurchase: false,
+      multiplier: 100,
+      variants: [
+        { trafficPct: 25, config: { multiplier: 200 } },
+        { trafficPct: 75, config: { multiplier: 1000 } },
+      ],
+    });
+
+    expect(result.estimatedPoints).toBe(8_000);
+    expect(result.estimatedCost).toBe(8_000);
   });
 });
 
@@ -450,5 +492,16 @@ describe("CampaignsService.update", () => {
 
     const svc = new CampaignsService(mockPrisma as never, mockPointsService as never);
     await expect(svc.update("nonexistent", { name: "Nope" })).rejects.toThrow("Campaign not found");
+  });
+});
+
+describe("assignVariant", () => {
+  it("is independent of database relation ordering", () => {
+    const variants = [
+      { id: "variant-z", trafficPct: 50 },
+      { id: "variant-a", trafficPct: 50 },
+    ];
+    expect(assignVariant("member-1", "campaign-1", variants))
+      .toBe(assignVariant("member-1", "campaign-1", [...variants].reverse()));
   });
 });

@@ -15,11 +15,9 @@ The LoyaltyOS Widget (`apps/widget`) is an embeddable Web Component built with L
 <script type="module" src="https://cdn.example.com/loyalty-widget.js"></script>
 
 <loyalty-widget
-  api-url="https://api.example.com"
-  api-key="dev-key"
+  api-base="https://api.example.com"
   program-id="prog_dev"
-  member-id="mem_001"
-  token="jwt-session-token"
+  auth-token="jwt-session-token"
   mode="full"
   lang="en"
 ></loyalty-widget>
@@ -39,13 +37,11 @@ import "@loyaltyos/widget";
 
 | Attribute    | Type   | Default  | Description                                    |
 | ------------ | ------ | -------- | ---------------------------------------------- |
-| `api-url`    | string | —        | LoyaltyOS API base URL (required)              |
-| `api-key`    | string | —        | API key for authentication (required)          |
+| `api-base`   | string | —        | LoyaltyOS API origin (required; `/api/v1` is added automatically) |
 | `program-id` | string | —        | Program ID for multi-tenant scoping (required) |
-| `member-id`  | string | —        | Member ID for personalization                  |
-| `token`      | string | —        | JWT session token (from magic-link auth)       |
+| `auth-token` | string | —        | Member session token (required for member data) |
 | `mode`       | string | `"full"` | Display mode: `"full"` or `"mini"`             |
-| `lang`       | string | `"en"`   | Language: `"en"` or `"vi"`                     |
+| `lang`       | string | `"vi"`   | Language: `"en"` or `"vi"`                     |
 
 ## Display Modes
 
@@ -61,11 +57,9 @@ Compact single-card view with points balance, current tier name, and quick "View
 
 ```html
 <loyalty-points-card
-  api-url="https://api.example.com"
-  api-key="dev-key"
+  api-base="https://api.example.com"
   program-id="prog_dev"
-  member-id="mem_001"
-  token="jwt-token"
+  auth-token="jwt-token"
 ></loyalty-points-card>
 
 <loyalty-tier-card ...></loyalty-tier-card>

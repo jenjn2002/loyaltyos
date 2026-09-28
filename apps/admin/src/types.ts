@@ -114,6 +114,7 @@ export interface CampaignVariant {
   name: string;
   trafficPct: number;
   config: unknown;
+  isActive?: boolean;
 }
 
 export interface Campaign {
@@ -161,6 +162,8 @@ export interface CampaignIssuanceItem {
   memberId: string;
   eventId: string | null;
   pointsAwarded: number;
+  variantId?: string | null;
+  variantName?: string | null;
   occurrence?: string;
   status?: string;
   claimedAt?: string | null;
@@ -183,11 +186,14 @@ export interface CampaignIssuanceStatus {
     endsAt: string | null;
     maxBudget: number | null;
     segmentId: string | null;
+    abTesting: boolean;
+    variants: { id: string; name: string }[];
   };
   status: string;
   issuedCount: number;
   totalPoints: number;
   pendingClaims: number;
+  variantResults: { id: string; name: string; members: number; pointsAwarded: number; isCurrent: boolean; createdAt: string; version: number }[];
   items: CampaignIssuanceItem[];
   page: number;
   pageSize: number;

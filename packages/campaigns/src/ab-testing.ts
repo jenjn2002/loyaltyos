@@ -22,7 +22,9 @@ export function assignVariant(
   const hash = hashString(`${memberId}:${campaignId}`);
   const bucket = hash % 100;
   let cumulative = 0;
-  for (const variant of variants) {
+  // Prisma does not guarantee relation ordering. Keep cohort assignment
+  // stable even if the same variant rows arrive in a different order.
+  for (const variant of [...variants].sort((left, right) => left.id.localeCompare(right.id))) {
     cumulative += variant.trafficPct;
     if (bucket < cumulative) return variant.id;
   }

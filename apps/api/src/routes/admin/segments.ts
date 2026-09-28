@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { createdByForEntities } from "../../lib/created-by.js";
+import { LoyaltyError } from "../../lib/errors.js";
 
 const segments = new SegmentsService(prisma);
 
@@ -43,11 +44,26 @@ const updateSchema = z.object({
   memberIds: z.array(z.string().min(1)).optional(),
 });
 
+async function assertProgramMemberIds(programId: string, memberIds: string[] | undefined): Promise<void> {
+  if (!memberIds?.length) return;
+  const matching = await prisma.member.count({
+    where: { programId, deletedAt: null, id: { in: [...new Set(memberIds)] } },
+  });
+  if (matching !== new Set(memberIds).size) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+}
+
+async function requireProgramSegment(id: string, programId: string) {
+  const segment = await segments.getById(id);
+  if (segment.programId !== programId) throw new LoyaltyError("SEGMENT_NOT_FOUND", 404);
+  return segment;
+}
+
 export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   // POST /admin/segments — Create segment
   app.post("/admin/segments", async (request, reply) => {
     const body = createSchema.parse(request.body);
     const programId = request.programId || (request.headers["x-program-id"] as string);
+    await assertProgramMemberIds(programId, body.memberIds);
     const segment = await segments.create({
       ...body,
       programId,
@@ -69,7 +85,6 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
         isActive: z
           .enum(["true", "false"])
           .optional()
-          .default("true")
           .transform((v) => {
             if (v === "true") return true;
             if (v === "false") return false;
@@ -108,7 +123,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   // GET /admin/segments/:id — Get segment by id
   app.get("/admin/segments/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const segment = await segments.getById(id);
+    const segment = await requireProgramSegment(id, request.programId);
     return reply.send({ data: segment });
   });
 
@@ -116,6 +131,8 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   app.patch("/admin/segments/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
+    await requireProgramSegment(id, request.programId);
+    await assertProgramMemberIds(request.programId, body.memberIds);
     const segment = await segments.update(id, body as Parameters<typeof segments.update>[1]);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, body);
     return reply.send({ data: segment });
@@ -124,6 +141,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   // DELETE /admin/segments/:id — Soft delete segment
   app.delete("/admin/segments/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    await requireProgramSegment(id, request.programId);
     await segments.delete(id);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, { isActive: false });
     return reply.status(204).send();
@@ -132,6 +150,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   // GET /admin/segments/:id/count — Get member count
   app.get("/admin/segments/:id/count", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    await requireProgramSegment(id, request.programId);
     const count = await segments.count(id);
     return reply.send({ data: { count } });
   });
@@ -139,6 +158,7 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
   // GET /admin/segments/:id/members — Get segment members
   app.get("/admin/segments/:id/members", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    await requireProgramSegment(id, request.programId);
     const query = z
       .object({
         page: z.coerce.number().int().min(1).optional().default(1),
@@ -157,7 +177,14 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
       .object({ memberIds: z.array(z.string().min(1)).min(1) })
       .parse(request.body);
 
+    await requireProgramSegment(id, request.programId);
+    await assertProgramMemberIds(request.programId, memberIds);
     const segment = await segments.addMembers(id, memberIds);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, {
+      operation: "ADD_MEMBERS",
+      memberIds,
+      count: memberIds.length,
+    });
     return reply.send({ data: segment });
   });
 
@@ -168,7 +195,13 @@ export function adminSegmentsRoutes(app: FastifyInstance, _opts: unknown, done: 
       .object({ memberIds: z.array(z.string().min(1)).min(1) })
       .parse(request.body);
 
+    await requireProgramSegment(id, request.programId);
     const segment = await segments.removeMembers(id, memberIds);
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "segment", id, {
+      operation: "REMOVE_MEMBERS",
+      memberIds,
+      count: memberIds.length,
+    });
     return reply.send({ data: segment });
   });
 

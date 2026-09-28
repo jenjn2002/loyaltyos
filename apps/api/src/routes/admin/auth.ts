@@ -31,7 +31,7 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-const configurableAdminRoleSchema = z.enum(["OPERATOR", "ANALYST"]);
+const configurableAdminRoleSchema = z.string().trim().min(2).max(80).regex(/^[A-Z][A-Z0-9_]*$/);
 const adminPasswordSchema = z
   .string()
   .min(12, "Password must be at least 12 characters")
@@ -53,6 +53,36 @@ const updateAdminUserSchema = z
     password: adminPasswordSchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, "At least one change is required");
+
+function roleKeyFromLabel(label: string): string {
+  const suffix = label
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `CUSTOM_${suffix}`.slice(0, 80).replace(/_+$/g, "");
+}
+
+async function assertAssignableRole(programId: string, role: string): Promise<void> {
+  if (role === "SUPER_ADMIN") throw new LoyaltyError("OWNER_ROLE_IMMUTABLE", 409);
+  if (role === "OPERATOR" || role === "ANALYST") return;
+  const definition = await prisma.adminRoleDefinition.findUnique({
+    where: { programId_role: { programId, role } },
+    select: { id: true },
+  });
+  if (!definition) throw new LoyaltyError("ADMIN_ROLE_NOT_FOUND", 404);
+}
+
+async function roleLabelFor(programId: string, role: string): Promise<string> {
+  const builtin = ADMIN_ROLE_LABELS[role];
+  if (builtin) return builtin;
+  const definition = await prisma.adminRoleDefinition.findUnique({
+    where: { programId_role: { programId, role } },
+    select: { label: true },
+  });
+  return definition?.label ?? role;
+}
 
 function adminMicrosoftLoginErrorUrl(code: string): string {
   const base = adminHomeUrl().replace(/\/+$/, "");
@@ -233,7 +263,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
             email: admin.email,
             name: admin.name,
             role: admin.role,
-            roleLabel: ADMIN_ROLE_LABELS[admin.role],
+            roleLabel: await roleLabelFor(admin.programId, admin.role),
             locale: admin.locale,
           },
         },
@@ -282,7 +312,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
     return reply.send({
       data: {
         ...admin,
-        roleLabel: ADMIN_ROLE_LABELS[admin.role],
+        roleLabel: await roleLabelFor(admin.programId, admin.role),
         capabilities: await capabilitiesFor(admin.programId, admin.role),
       },
     });
@@ -322,14 +352,21 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
     "/admin/permissions",
     { preHandler: [requireCapability("permission.manage")] },
     async (request, reply) => {
-      const roles = ["SUPER_ADMIN", "OPERATOR", "ANALYST"] as const;
+      const customRoles = await prisma.adminRoleDefinition.findMany({
+        where: { programId: request.programId },
+        orderBy: [{ label: "asc" }, { role: "asc" }],
+      });
+      const roles = [
+        ...Object.entries(ADMIN_ROLE_LABELS).map(([role, label]) => ({ role, label })),
+        ...customRoles.map(({ role, label }) => ({ role, label })),
+      ];
       return reply.send({
         data: {
           capabilities: ADMIN_CAPABILITIES,
           roles: await Promise.all(
-            roles.map(async (role) => ({
+            roles.map(async ({ role, label }) => ({
               role,
-              label: ADMIN_ROLE_LABELS[role],
+              label,
               permissions: await capabilitiesFor(request.programId, role),
             })),
           ),
@@ -338,11 +375,101 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
     },
   );
 
+  app.post(
+    "/admin/roles",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      const { label } = z.object({ label: z.string().trim().min(2).max(80) }).parse(request.body);
+      const role = roleKeyFromLabel(label);
+      if (!/^CUSTOM_[A-Z0-9]+(?:_[A-Z0-9]+)*$/.test(role))
+        throw new LoyaltyError("ADMIN_ROLE_NAME_INVALID", 400);
+      const existing = await prisma.adminRoleDefinition.findUnique({
+        where: { programId_role: { programId: request.programId, role } },
+        select: { id: true },
+      });
+      if (existing || ADMIN_ROLE_LABELS[role])
+        throw new LoyaltyError("ADMIN_ROLE_ALREADY_EXISTS", 409);
+      const definition = await prisma.adminRoleDefinition.create({
+        data: {
+          programId: request.programId,
+          role,
+          label,
+          createdById: request.adminId,
+        },
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "admin_role", definition.id, {
+        role,
+        label,
+        created: true,
+      });
+      return reply.status(201).send({
+        data: {
+          role,
+          label,
+          permissions: await capabilitiesFor(request.programId, role),
+        },
+      });
+    },
+  );
+
+  app.patch(
+    "/admin/roles/:role",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      const { role } = z.object({ role: configurableAdminRoleSchema }).parse(request.params);
+      if (!role.startsWith("CUSTOM_")) throw new LoyaltyError("ADMIN_ROLE_IMMUTABLE", 409);
+      const { label } = z.object({ label: z.string().trim().min(2).max(80) }).parse(request.body);
+      const existing = await prisma.adminRoleDefinition.findUnique({
+        where: { programId_role: { programId: request.programId, role } },
+      });
+      if (!existing) throw new LoyaltyError("ADMIN_ROLE_NOT_FOUND", 404);
+      const updated = await prisma.adminRoleDefinition.update({ where: { id: existing.id }, data: { label } });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "admin_role", existing.id, {
+        role,
+        before: existing.label,
+        after: label,
+      });
+      return reply.send({ data: { role, label: updated.label } });
+    },
+  );
+
+  app.delete(
+    "/admin/roles/:role",
+    { preHandler: [requireCapability("permission.manage")] },
+    async (request, reply) => {
+      const { role } = z.object({ role: configurableAdminRoleSchema }).parse(request.params);
+      if (!role.startsWith("CUSTOM_")) throw new LoyaltyError("ADMIN_ROLE_IMMUTABLE", 409);
+      const existing = await prisma.adminRoleDefinition.findUnique({
+        where: { programId_role: { programId: request.programId, role } },
+      });
+      if (!existing) throw new LoyaltyError("ADMIN_ROLE_NOT_FOUND", 404);
+      const [accountCount, workflowAssigneeCount] = await Promise.all([
+        prisma.adminUser.count({ where: { programId: request.programId, role } }),
+        prisma.approvalWorkflowAssignee.count({ where: { role, step: { workflow: { programId: request.programId } } } }),
+      ]);
+      if (accountCount > 0 || workflowAssigneeCount > 0)
+        throw new LoyaltyError("ADMIN_ROLE_IN_USE", 409, { accountCount, workflowAssigneeCount });
+      await prisma.$transaction(async (tx) => {
+        await tx.adminRolePermission.deleteMany({ where: { programId: request.programId, role } });
+        await tx.adminRoleDefinition.delete({ where: { id: existing.id } });
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "admin_role", existing.id, {
+        role,
+        label: existing.label,
+        deleted: true,
+      });
+      return reply.status(204).send();
+    },
+  );
+
   app.patch(
     "/admin/permissions/:role",
     { preHandler: [requireCapability("permission.manage")] },
     async (request, reply) => {
-      const { role } = z.object({ role: z.enum(["OPERATOR", "ANALYST"]) }).parse(request.params);
+      const { role } = z
+        .object({ role: configurableAdminRoleSchema })
+        .parse(request.params);
+      await assertAssignableRole(request.programId, role);
       const body = z
         .object({
           permissions: z.record(z.enum(ADMIN_CAPABILITIES), z.boolean()),
@@ -380,7 +507,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
       return reply.send({
         data: {
           role,
-          label: ADMIN_ROLE_LABELS[role],
+          label: await roleLabelFor(request.programId, role),
           permissions: await capabilitiesFor(request.programId, role),
         },
       });
@@ -412,11 +539,11 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
         users.map((user) => user.id),
       );
       return reply.send({
-        data: users.map((user) => ({
+        data: await Promise.all(users.map(async (user) => ({
           ...user,
-          roleLabel: ADMIN_ROLE_LABELS[user.role],
+          roleLabel: await roleLabelFor(request.programId, user.role),
           createdBy: creators.get(user.id) ?? null,
-        })),
+        }))),
       });
     },
   );
@@ -427,6 +554,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
     async (request, reply) => {
       if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
       const body = createAdminUserSchema.parse(request.body);
+      await assertAssignableRole(request.programId, body.role);
       const existing = await prisma.adminUser.findUnique({ where: { email: body.email } });
       if (existing) throw new LoyaltyError("ADMIN_EMAIL_ALREADY_EXISTS", 409);
       const user = await prisma.adminUser.create({
@@ -454,7 +582,9 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
         role: user.role,
         isActive: user.isActive,
       });
-      return reply.status(201).send({ data: { ...user, roleLabel: ADMIN_ROLE_LABELS[user.role] } });
+      return reply
+        .status(201)
+        .send({ data: { ...user, roleLabel: await roleLabelFor(request.programId, user.role) } });
     },
   );
 
@@ -470,6 +600,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
       });
       if (!existing) throw new LoyaltyError("ADMIN_USER_NOT_FOUND", 404);
       if (existing.role === "SUPER_ADMIN") throw new LoyaltyError("OWNER_ROLE_IMMUTABLE", 409);
+      if (body.role !== undefined) await assertAssignableRole(request.programId, body.role);
       if (id === request.adminId && body.isActive === false)
         throw new LoyaltyError("CANNOT_DEACTIVATE_CURRENT_ADMIN", 409);
 
@@ -505,7 +636,7 @@ export function adminAuthRoutes(app: FastifyInstance, _opts: unknown, done: () =
         isActive: user.isActive,
         passwordReset: Boolean(passwordHash),
       });
-      return reply.send({ data: { ...user, roleLabel: ADMIN_ROLE_LABELS[user.role] } });
+      return reply.send({ data: { ...user, roleLabel: await roleLabelFor(request.programId, user.role) } });
     },
   );
 

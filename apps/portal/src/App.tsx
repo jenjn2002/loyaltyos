@@ -9,6 +9,7 @@ import Credits from "./pages/credits";
 import Home from "./pages/home";
 import Notifications from "./pages/notifications";
 import Profile from "./pages/profile";
+import Projects from "./pages/projects";
 import RewardDetail from "./pages/reward-detail";
 import Rewards from "./pages/rewards";
 import Transactions from "./pages/transactions";
@@ -80,6 +81,14 @@ export default function App() {
             element={
               <AuthGuard>
                 <Notifications />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <AuthGuard>
+                <Projects />
               </AuthGuard>
             }
           />

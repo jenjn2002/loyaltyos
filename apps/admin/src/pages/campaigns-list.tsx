@@ -344,6 +344,28 @@ export function CampaignsListPage(): JSX.Element {
                 </div>
               </div>
 
+              {(issuance.data.campaign.abTesting || issuance.data.variantResults.length > 0) && (
+                <div className="rounded-md border p-3">
+                  <h3 className="font-semibold">{ui("A/B test results")}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{ui("Members are assigned consistently by variant. Award totals below show points created for each variant.")}</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {issuance.data.variantResults.map((variant) => (
+                      <div key={variant.id} className="rounded-md bg-muted/30 p-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{variant.name}</p>
+                          <Badge variant={variant.isCurrent ? "default" : "outline"}>
+                            {variant.isCurrent
+                              ? `${ui("Current")} · v${String(variant.version)}`
+                              : `${ui("Previous version")} · v${String(variant.version)} · ${new Date(variant.createdAt).toLocaleDateString()}`}
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground">{variant.members} {ui("participations")} · {variant.pointsAwarded.toLocaleString()} {ui("points awarded")}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {issuance.data.items.length === 0 ? (
                 <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
                   {ui("No points have been issued by this campaign yet.")}
@@ -357,7 +379,8 @@ export function CampaignsListPage(): JSX.Element {
                           <TableHead>{ui("Member")}</TableHead>
                           <TableHead>{ui("Email")}</TableHead>
                           <TableHead>{ui("Department")}</TableHead>
-                          <TableHead>{ui("Points")}</TableHead>
+                              <TableHead>{ui("Points")}</TableHead>
+                              <TableHead>{ui("Variant")}</TableHead>
                           <TableHead>{ui("Status")}</TableHead>
                           <TableHead>{ui("Event")}</TableHead>
                           <TableHead>{ui("Issued at")}</TableHead>
@@ -381,6 +404,7 @@ export function CampaignsListPage(): JSX.Element {
                               <TableCell>{member?.email ?? "—"}</TableCell>
                               <TableCell>{member?.department ?? "—"}</TableCell>
                               <TableCell>{item.pointsAwarded.toLocaleString()}</TableCell>
+                              <TableCell>{item.variantName ?? "—"}</TableCell>
                               <TableCell>{item.recordType === "CLAIM" ? ui("Claim pending") : ui("Issued")}</TableCell>
                               <TableCell className="font-mono text-xs">{event}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">

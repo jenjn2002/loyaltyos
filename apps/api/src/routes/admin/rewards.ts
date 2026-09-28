@@ -120,6 +120,7 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
           minPoints: z.coerce.number().int().min(0).optional(),
           maxPoints: z.coerce.number().int().min(0).optional(),
           tierRequired: z.string().optional(),
+          search: z.string().trim().max(120).optional(),
           page: z.coerce.number().int().min(1).default(1),
           pageSize: z.coerce.number().int().min(1).max(100).default(20),
         })
@@ -130,6 +131,7 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         ...(query.category ? { category: query.category } : {}),
         ...(query.isActive ? { isActive: query.isActive === "true" } : {}),
         ...(query.tierRequired ? { tierRequired: query.tierRequired } : {}),
+        ...(query.search ? { name: { contains: query.search, mode: "insensitive" as const } } : {}),
         ...([query.pointTypeId, query.minPoints, query.maxPoints].some((value) => value != null)
           ? {
               pointPrices: {
@@ -172,6 +174,48 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
           totalPages: Math.ceil(total / query.pageSize),
         },
       });
+    },
+  );
+
+  app.get(
+    "/admin/rewards/redemption-stats",
+    { preHandler: [requireCapability("reward.view")] },
+    async (request, reply) => {
+      const query = z.object({
+        rewardId: z.string().min(1).optional(),
+        period: z.enum(["7d", "30d", "90d", "365d"]).default("30d"),
+      }).parse(request.query);
+      const days = Number.parseInt(query.period, 10);
+      const since = new Date(Date.now() - days * 86_400_000);
+      const where = {
+        reward: { programId: request.programId, ...(query.rewardId ? { id: query.rewardId } : {}) },
+        redeemedAt: { gte: since },
+      };
+      if (query.rewardId) {
+        const ownedReward = await prisma.reward.findFirst({ where: { id: query.rewardId, programId: request.programId, deletedAt: null }, select: { id: true } });
+        if (!ownedReward) throw new LoyaltyError("REWARD_NOT_FOUND", 404);
+      }
+      const [totalRedemptions, pointTotals, uniqueMembers, grouped] = await Promise.all([
+        prisma.rewardRedemption.count({ where }),
+        prisma.rewardRedemption.aggregate({ where, _sum: { pointsSpent: true } }),
+        prisma.rewardRedemption.findMany({ where, distinct: ["memberId"], select: { memberId: true } }),
+        prisma.rewardRedemption.groupBy({ by: ["rewardId"], where, _count: { _all: true }, _sum: { pointsSpent: true } }),
+      ]);
+      const rewardIds = grouped.map((item) => item.rewardId);
+      const rewardNames = rewardIds.length
+        ? await prisma.reward.findMany({ where: { programId: request.programId, id: { in: rewardIds } }, select: { id: true, name: true } })
+        : [];
+      const names = new Map(rewardNames.map((item) => [item.id, item.name]));
+      const topRewards = grouped
+        .map((item) => ({ id: item.rewardId, name: names.get(item.rewardId) ?? "Reward", redemptions: item._count._all, pointsBurned: item._sum.pointsSpent ?? 0 }))
+        .sort((left, right) => right.redemptions - left.redemptions)
+        .slice(0, 10);
+      return reply.send({ data: {
+        totalRedemptions,
+        totalPointsBurned: pointTotals._sum.pointsSpent ?? 0,
+        uniqueMembers: uniqueMembers.length,
+        topRewards,
+      } });
     },
   );
 
@@ -271,6 +315,10 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         where: { id, programId: request.programId },
         data: { isActive: false },
       });
+      await audit(request.programId, request.actor, "UPDATE_REWARD", "reward", id, {
+        operation: "ARCHIVE",
+        isActive: false,
+      });
       return reply.status(204).send();
     },
   );
@@ -294,6 +342,10 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         data: { isActive: true },
         include: rewardInclude,
       });
+      await audit(request.programId, request.actor, "UPDATE_REWARD", "reward", id, {
+        operation: "PUBLISH",
+        isActive: true,
+      });
       return reply.send({ data: reward });
     },
   );
@@ -313,6 +365,11 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         where: { id },
         data: { stock: { increment: qty } },
         include: rewardInclude,
+      });
+      await audit(request.programId, request.actor, "UPDATE_REWARD", "reward", id, {
+        operation: "RESTOCK",
+        quantityAdded: qty,
+        stockAfter: reward.stock,
       });
       return reply.send({ data: reward });
     },

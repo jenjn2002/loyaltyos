@@ -314,6 +314,8 @@
     "unlocked": "Đã mở khóa",
     "progress": "Tiến độ",
     "pointsToNext": "để lên hạng tiếp theo",
+    "meetAllTierRequirements": "Cần đạt tất cả điều kiện để lên hạng tiếp theo:",
+    "meetAnyTierRequirement": "Chỉ cần đạt một trong các điều kiện để lên hạng tiếp theo:",
     "maxTier": "Bạn đã đạt đến cấp độ cao nhất!",
     "favorites": "Yêu thích",
     "wishlist": "Danh sách yêu thích",

@@ -65,11 +65,9 @@ export function RewardsListPage(): JSX.Element {
 
   const { data, isLoading } = useQuery<RewardsResponse>({
     queryKey: ["rewards", page, search],
-    queryFn: () => fetchApi<RewardsResponse>(`/admin/rewards?page=${String(page)}&pageSize=20`),
+    queryFn: () => fetchApi<RewardsResponse>(`/admin/rewards?page=${String(page)}&pageSize=20${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ""}`),
   });
-  const visibleRewards = (data?.items ?? []).filter((reward) =>
-    reward.name.toLowerCase().includes(search.trim().toLowerCase()),
-  );
+  const visibleRewards = data?.items ?? [];
   const deleteReward = useMutation({
     mutationFn: (id: string) =>
       fetchApi(`/admin/rewards/${id}`, {

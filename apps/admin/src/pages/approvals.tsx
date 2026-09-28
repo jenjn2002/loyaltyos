@@ -4,6 +4,7 @@ import { Check, Clock3, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { useAdminNotifications } from "@/components/layout/admin-notification-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,7 @@ interface AdminMe { id: string }
 
 export function ApprovalsPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { markRead } = useAdminNotifications();
   const [tab, setTab] = useState<"inbox" | "history">("inbox");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
@@ -110,7 +112,7 @@ export function ApprovalsPage(): JSX.Element {
           <CardHeader><CardTitle>{tab === "inbox" ? ui("Pending for me") : ui("All requests")}</CardTitle><CardDescription>{rows.length} {ui("request(s)")}</CardDescription></CardHeader>
           <CardContent className="space-y-2">
             {((tab === "inbox" ? inbox.isLoading : history.isLoading) && <p className="text-sm text-muted-foreground">{ui("Loading approvals…")}</p>)}
-            {rows.map((request) => <button type="button" key={request.id} className={`w-full rounded-md border p-3 text-left ${selectedId === request.id ? "border-primary bg-accent" : ""}`} onClick={() => { setSelectedId(request.id); }}><p className="font-medium">{request.workflow.name}</p><p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}</p><p className="mt-1 text-xs">{request.status} · {new Date(request.requestedAt).toLocaleString()}</p></button>)}
+            {rows.map((request) => <button type="button" key={request.id} className={`w-full rounded-md border p-3 text-left ${selectedId === request.id ? "border-primary bg-accent" : ""}`} onClick={() => { if (tab === "inbox") markRead(request.id); setSelectedId(request.id); }}><p className="font-medium">{request.workflow.name}</p><p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}</p><p className="mt-1 text-xs">{request.status} · {new Date(request.requestedAt).toLocaleString()}</p></button>)}
             {!rows.length && <p className="text-sm text-muted-foreground">{ui("No approval requests.")}</p>}
           </CardContent>
         </Card>

@@ -36,6 +36,8 @@ export interface PointIssueInput {
   pointTypeId?: string;
   metadata?: Record<string, unknown>;
   expiresAt?: Date;
+  /** Internal funding already moved from the bank into an approved project escrow. */
+  skipBankDebit?: boolean;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -624,6 +626,19 @@ async function creditBank(
     where: { id: bank.id },
     data: { balance: { increment: input.amount } },
   });
+  const activeCycle = input.cycleId
+    ? null
+    : await tx.pointBankCycle.findFirst({
+        where: {
+          programId: input.programId,
+          pointTypeId: input.pointTypeId,
+          status: "OPEN",
+          startsAt: { lte: new Date() },
+          endsAt: { gte: new Date() },
+        },
+        orderBy: { startsAt: "desc" },
+        select: { id: true },
+      });
   return tx.pointBankTransaction.create({
     data: {
       bankId: bank.id,
@@ -635,7 +650,7 @@ async function creditBank(
       reason: input.reason,
       actorId: input.actorId,
       idempotencyKey: input.idempotencyKey,
-      cycleId: input.cycleId,
+      cycleId: input.cycleId ?? activeCycle?.id,
     },
   });
 }
@@ -736,7 +751,7 @@ export class WalletService {
           },
         });
     if (!pointType) throw new LoyaltyError("PRIMARY_POINT_TYPE_NOT_CONFIGURED", 409);
-    if (pointType.bankEnabled) {
+    if (pointType.bankEnabled && !input.skipBankDebit) {
       await debitBank(tx, {
         programId: input.programId,
         pointTypeId: pointType.id,
@@ -767,6 +782,28 @@ export class WalletService {
       balanceAfter: transaction.balanceAfter,
       idempotent: transaction.idempotent,
     };
+  }
+
+  async reserveProjectBudgetWithTransaction(
+    tx: Prisma.TransactionClient,
+    input: { programId: string; pointTypeId: string; amount: number; projectId: string; actorId: string; idempotencyKey: string },
+  ) {
+    return debitBank(tx, {
+      ...input,
+      type: "PROJECT_FUNDING",
+      reason: `Project funding · ${input.projectId}`,
+    });
+  }
+
+  async returnProjectBudgetWithTransaction(
+    tx: Prisma.TransactionClient,
+    input: { programId: string; pointTypeId: string; amount: number; projectId: string; actorId: string; idempotencyKey: string },
+  ) {
+    return creditBank(tx, {
+      ...input,
+      type: "PROJECT_RETURN",
+      reason: `Unused project budget returned · ${input.projectId}`,
+    });
   }
 
   async redeem(input: {
@@ -940,7 +977,13 @@ export class WalletService {
           isPrimary: pointType.isPrimary,
         };
       })
-      .filter((wallet) => adminView || wallet.showZeroBalance || wallet.balance !== 0);
+      .filter(
+        (wallet) =>
+          adminView ||
+          wallet.showZeroBalance ||
+          wallet.balance !== 0 ||
+          (wallet.allowance?.remaining ?? 0) !== 0,
+      );
   }
 
   async applyCreditRecognitionTemplate(programId: string) {
@@ -1288,7 +1331,36 @@ export class WalletService {
         },
         orderBy: { createdAt: "asc" },
       });
-      if (existing.length > 0) return { transactions: existing, idempotent: true };
+      if (existing.length > 0) {
+        const outgoing = new Map(existing.map((transaction) => [transaction.idempotencyKey, transaction]));
+        const sameRequest = input.recipients.every((recipient, index) => {
+          const out = outgoing.get(`${input.idempotencyKey}:${String(index)}:out`);
+          const incoming = outgoing.get(`${input.idempotencyKey}:${String(index)}:in`);
+          if (!out || !incoming || out.counterpartyMemberId !== recipient.memberId || incoming.counterpartyMemberId !== memberId) return false;
+          const getMetadata = (transaction: typeof out) =>
+            transaction.metadata && typeof transaction.metadata === "object" && !Array.isArray(transaction.metadata)
+              ? transaction.metadata as Record<string, unknown>
+              : {};
+          const outMetadata = getMetadata(out);
+          const inMetadata = getMetadata(incoming);
+          const sourceAmount = Number(outMetadata.sourceAmount ?? outMetadata.allowanceSpent ?? Math.abs(out.amount));
+          const destinationAmount = Number(outMetadata.destinationAmount);
+          const incomingSourceAmount = Number(inMetadata.sourceAmount ?? inMetadata.allowanceSpent ?? sourceAmount);
+          const incomingDestinationAmount = Number(inMetadata.destinationAmount ?? incoming.amount);
+          return out.pointTypeId === input.sourcePointTypeId &&
+            incoming.pointTypeId === input.destinationPointTypeId &&
+            out.destinationPointTypeId === input.destinationPointTypeId &&
+            incoming.sourcePointTypeId === input.sourcePointTypeId &&
+            Number.isFinite(sourceAmount) && sourceAmount === recipient.amount &&
+            Number.isFinite(destinationAmount) && destinationAmount === incoming.amount &&
+            incomingSourceAmount === recipient.amount && incomingDestinationAmount === destinationAmount &&
+            (input.fundingSource === undefined ||
+              (outMetadata.fundingSource === input.fundingSource && inMetadata.fundingSource === input.fundingSource));
+        });
+        if (!sameRequest || existing.length !== input.recipients.length * 2)
+          throw new LoyaltyError("POINT_IDEMPOTENCY_CONFLICT", 409);
+        return { transactions: existing, idempotent: true };
+      }
 
       const [sourceType, destinationType, giver, rule] = await Promise.all([
         resolvePointType(tx, programId, { pointTypeId: input.sourcePointTypeId }),
@@ -1480,6 +1552,7 @@ export class WalletService {
       memberId?: string;
       pointTypeId?: string;
       action?: string;
+      actions?: string[];
       counterpartyMemberId?: string;
       categoryId?: string;
       from?: Date;
@@ -1494,7 +1567,7 @@ export class WalletService {
       programId,
       ...(input.memberId ? { memberId: input.memberId } : {}),
       ...(input.pointTypeId ? { pointTypeId: input.pointTypeId } : {}),
-      ...(input.action ? { action: input.action } : {}),
+      ...(input.actions?.length ? { action: { in: input.actions } } : input.action ? { action: input.action } : {}),
       ...(input.counterpartyMemberId ? { counterpartyMemberId: input.counterpartyMemberId } : {}),
       ...(input.categoryId ? { categoryId: input.categoryId } : {}),
       ...(input.from !== undefined || input.to !== undefined
@@ -2154,33 +2227,45 @@ export class WalletService {
     pointTypeId?: string,
     requestedRunId?: string,
   ): Promise<{ restored: number; runId: string }> {
-    const transactions = await this.db.customPointTransaction.findMany({
+    const metadataOf = (value: unknown): Record<string, unknown> | null =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
+    const runWhere = {
+      programId,
+      ...(pointTypeId ? { pointTypeId } : {}),
+      action: "EXPIRATION" as const,
+      source: "system:expiration",
+      reversedById: null,
+      metadata: { path: ["manual"], equals: true },
+    };
+    const latestManualRun = requestedRunId
+      ? null
+      : await this.db.customPointTransaction.findFirst({
+          where: runWhere,
+          select: { metadata: true },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        });
+    const discoveredRun = metadataOf(latestManualRun?.metadata);
+    const runId =
+      requestedRunId ??
+      (typeof discoveredRun?.expirationRunId === "string" ? discoveredRun.expirationRunId : null);
+    if (!runId) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
+
+    const candidates = await this.db.customPointTransaction.findMany({
       where: {
         programId,
         ...(pointTypeId ? { pointTypeId } : {}),
         action: "EXPIRATION",
         source: "system:expiration",
         reversedById: null,
+        AND: [
+          { metadata: { path: ["manual"], equals: true } },
+          { metadata: { path: ["expirationRunId"], equals: runId } },
+        ],
       },
       include: { pointType: true },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 500,
-    });
-    const metadataOf = (value: unknown): Record<string, unknown> | null =>
-      value && typeof value === "object" && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : null;
-    const discoveredRun = transactions
-      .map((transaction) => metadataOf(transaction.metadata))
-      .find((metadata) => metadata?.manual === true && typeof metadata.expirationRunId === "string");
-    const runId =
-      requestedRunId ??
-      (typeof discoveredRun?.expirationRunId === "string" ? discoveredRun.expirationRunId : null);
-    if (!runId) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
-
-    const candidates = transactions.filter((transaction) => {
-      const metadata = metadataOf(transaction.metadata);
-      return metadata?.expirationRunId === runId && metadata?.manual === true;
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     if (candidates.length === 0) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
 

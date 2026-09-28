@@ -181,7 +181,7 @@ export function CampaignBuilderPage(): JSX.Element {
         maxUsesPerMember: existingCampaign.maxUsesPerMember ?? undefined,
         isStackable: existingCampaign.isStackable,
         abTesting: existingCampaign.abTesting,
-        variants: existingCampaign.variants?.map((variant) => ({
+        variants: existingCampaign.variants?.filter((variant) => variant.isActive !== false).map((variant) => ({
           name: variant.name,
           trafficPct: variant.trafficPct,
           config: variant.config && typeof variant.config === "object" ? variant.config as Record<string, unknown> : undefined,
@@ -206,12 +206,25 @@ export function CampaignBuilderPage(): JSX.Element {
     ? ui("Approval required")
     : ui("Standing campaign");
   const selectedMode = selectedDefinition?.automation.mode;
-  const standingPolicyAllowed = !selectedDefinition || selectedDefinition.key.toLowerCase() === "purchase" || ["ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(selectedMode ?? "");
+  const standingPolicyAllowed = !selectedDefinition || selectedDefinition.key.toLowerCase() === "purchase" || ["MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(selectedMode ?? "");
 
   const handleEstimate = async () => {
+    const values = form.getValues();
+    if (values.abTesting) {
+      const currentVariants = values.variants ?? [];
+      const total = currentVariants.reduce((sum, variant) => sum + (numericValue(variant.trafficPct) ?? 0), 0);
+      if (currentVariants.length < 2) {
+        setError(ui("A/B testing requires at least two variants."));
+        return;
+      }
+      if (Math.abs(total - 100) > 0.01) {
+        setError(ui("Traffic split must total 100%."));
+        return;
+      }
+    }
+    setError(null);
     setEstimating(true);
     try {
-      const values = form.getValues();
       const multiplier = numericValue(values.multiplier) ?? 1;
       const maxBudget = numericValue(values.maxBudget);
       const maxUsesPerMember = numericValue(values.maxUsesPerMember);
@@ -220,6 +233,18 @@ export function CampaignBuilderPage(): JSX.Element {
         maxUsesPerMember,
         segmentId: values.segmentId ?? null,
         eventType: values.eventType?.trim() || null,
+        abTesting: values.abTesting,
+        variants: values.abTesting
+          ? (values.variants ?? []).map((variant) => ({
+              trafficPct: numericValue(variant.trafficPct) ?? 0,
+              config: {
+                ...(variant.config ?? {}),
+                ...(numericValue(variant.config?.multiplier) !== undefined
+                  ? { multiplier: numericValue(variant.config?.multiplier) }
+                  : {}),
+              },
+            }))
+          : undefined,
       };
       if (maxBudget !== undefined) payload.maxBudget = maxBudget;
 
@@ -441,7 +466,7 @@ export function CampaignBuilderPage(): JSX.Element {
                   const nextEventType = value === ANY_EVENT_VALUE ? "" : value;
                   const nextDefinition = eventDefinitions?.find((event) => event.key === nextEventType);
                   const nextMode = nextDefinition?.automation.mode;
-                  const nextPolicy = !nextDefinition || nextDefinition.key.toLowerCase() === "purchase" || ["ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(nextMode ?? "")
+                  const nextPolicy = !nextDefinition || nextDefinition.key.toLowerCase() === "purchase" || ["MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(nextMode ?? "")
                     ? "STANDING"
                     : "APPROVAL_REQUIRED";
                   form.setValue("eventType", value === ANY_EVENT_VALUE ? "" : value, {
@@ -472,7 +497,9 @@ export function CampaignBuilderPage(): JSX.Element {
               {selectedDefinition && <div className="rounded-md border p-3 text-sm space-y-2">
                 <p>{selectedPolicyLabel}</p>
                 <p>{ui(
-                  selectedDefinition.automation.mode === "EXTERNAL"
+                  selectedDefinition.automation.mode === "MEMBER_CHECK_IN"
+                    ? "Members can check in once per day from Customer Home. This campaign controls the reward and appears in their activity calendar."
+                    : selectedDefinition.automation.mode === "EXTERNAL"
                     ? "An integration must report this event. Creating its name alone does not trigger issuance."
                     : selectedDefinition.automation.mode === "MANUAL"
                       ? "This event is a manual placeholder for campaigns. The campaign runs once after approval."
@@ -619,7 +646,7 @@ export function CampaignBuilderPage(): JSX.Element {
                 <div>
                   <Label>{ui("Variants")}</Label>
                   <p className="text-sm text-muted-foreground">
-                    {ui("Split eligible members between variants. Traffic must total 100%.")}
+                    {ui("Split eligible members between variants. Configure a different award multiplier for each variant; traffic must total 100%.")}
                   </p>
                 </div>
                 {variants.map((variant, index) => (
@@ -652,6 +679,23 @@ export function CampaignBuilderPage(): JSX.Element {
                           const current = next[index];
                           if (!current) return;
                           next[index] = { name: current.name ?? "", trafficPct: numericValue(event.target.value) ?? 0, config: current.config };
+                          form.setValue("variants", next, { shouldDirty: true, shouldValidate: true });
+                        }}
+                      />
+                    </div>
+                    <div className="w-36 space-y-1">
+                      <Label htmlFor={`variant-multiplier-${index}`}>{ui(form.watch("eventType") === "purchase" ? "Purchase multiplier" : "Points awarded")}</Label>
+                      <Input
+                        id={`variant-multiplier-${index}`}
+                        type="number"
+                        min={1}
+                        step="1"
+                        value={typeof variant.config?.multiplier === "number" ? variant.config.multiplier : numericValue(form.watch("multiplier")) ?? 1}
+                        onChange={(event) => {
+                          const next = [...variants];
+                          const current = next[index];
+                          if (!current) return;
+                          next[index] = { ...current, config: { ...(current.config ?? {}), multiplier: numericValue(event.target.value) ?? 0 } };
                           form.setValue("variants", next, { shouldDirty: true, shouldValidate: true });
                         }}
                       />

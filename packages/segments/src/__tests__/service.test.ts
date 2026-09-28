@@ -558,4 +558,25 @@ describe("evaluateRulesInContext", () => {
     const rules = { all: [{ field: "joinedAt", gt: new Date("2021-01-01").getTime() }] };
     expect(evaluateRulesInContext(rules, ctxOld)).toBe(false);
   });
+
+  it("does not match numeric or date comparisons when the value is missing or invalid", () => {
+    const conditions = [
+      { field: "metadata.score", gte: 0 },
+      { field: "metadata.score", between: [0, 10] as [number, number] },
+      { field: "metadata.birthday", gte: new Date("2020-01-01").getTime() },
+    ];
+    const invalidValues: unknown[] = [undefined, null, "", "not-a-number", true];
+
+    for (const value of invalidValues) {
+      const context = { metadata: value === undefined ? {} : { score: value, birthday: value } };
+      for (const condition of conditions) {
+        expect(evaluateRulesInContext({ all: [condition] }, context)).toBe(false);
+      }
+    }
+  });
+
+  it("keeps zero and finite numeric strings eligible for numeric comparisons", () => {
+    expect(evaluateRulesInContext({ all: [{ field: "metadata.score", gte: 0 }] }, { metadata: { score: 0 } })).toBe(true);
+    expect(evaluateRulesInContext({ all: [{ field: "metadata.score", between: [0, 10] }] }, { metadata: { score: "5" } })).toBe(true);
+  });
 });

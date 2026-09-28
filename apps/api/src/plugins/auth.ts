@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import type { AuditActor } from "../lib/audit.js";
 import { adminLucia } from "../lib/auth/admin-lucia.js";
 import { lucia } from "../lib/auth/lucia.js";
+import { LoyaltyError } from "../lib/errors.js";
 import { assertCapability, capabilityForAdminRequest } from "../lib/permissions.js";
 
 declare module "fastify" {
@@ -54,7 +55,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
         const { user } = await lucia.validateSession(sessionId);
         if (user) {
           if (user.status !== "ACTIVE") {
-            throw Object.assign(new Error("Member account is inactive"), { statusCode: 403 });
+            throw new LoyaltyError("MEMBER_INACTIVE", 403);
           }
           request.memberId = user.id;
           request.programId = user.programId;
@@ -90,7 +91,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
           // Treat an omitted status as legacy ACTIVE; migrated records always
           // have an explicit status with ACTIVE as the database default.
           if (user.status !== "ACTIVE") {
-            throw Object.assign(new Error("Member account is inactive"), { statusCode: 403 });
+            throw new LoyaltyError("MEMBER_INACTIVE", 403);
           }
           request.memberId = user.id;
           request.programId = user.programId;
@@ -152,6 +153,16 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     if (!request.adminId && request.apiKeyScope !== "SERVER")
       throw Object.assign(new Error("Admin access required"), { statusCode: 403 });
     const capability = capabilityForAdminRequest(request.method, request.url);
+    const profilePath = request.url.split("?")[0];
+    const isDatasetExport = request.url.startsWith("/api/v1/admin/exports");
+    const isMemberFieldDefinitionsRequest =
+      profilePath === "/api/v1/admin/member-fields" &&
+      (request.method === "GET" || request.method === "HEAD");
+    const isSelfProfileRequest =
+      profilePath === "/api/v1/admin/me" &&
+      (request.method === "GET" || request.method === "PATCH");
+    if (!capability && !isSelfProfileRequest && !isDatasetExport && !isMemberFieldDefinitionsRequest)
+      throw Object.assign(new Error("Admin permission denied"), { statusCode: 403 });
     if (capability) await assertCapability(request, capability);
   });
 }

@@ -43,7 +43,8 @@ export interface RewardListFilters {
 }
 
 export interface RewardWithRedemptions extends RewardRow {
-  redemptions: { id: string; memberId: string }[];
+  /** Redemption identities are queried only by the separately authorized admin endpoints. */
+  redemptions?: { id: string; memberId: string }[];
 }
 
 export interface EligibilityResult {

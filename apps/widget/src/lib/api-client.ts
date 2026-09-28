@@ -17,7 +17,10 @@ export async function fetchApi<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const url = `${config.apiBase}${path}`;
+  const base = config.apiBase.replace(/\/+$/, "");
+  const versionedBase = /\/api\/v1$/i.test(base) ? base : `${base}/api/v1`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${versionedBase}${normalizedPath}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

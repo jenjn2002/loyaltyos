@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Gift, Heart } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
@@ -23,32 +23,53 @@ function useWishlist() {
     window.dispatchEvent(new CustomEvent("loyaltyos:wishlist-updated"));
   };
 
-  return { read, toggle };
+  const removeUnavailable = (ids: string[]) => {
+    const removed = new Set(ids);
+    const next = read().filter((id) => !removed.has(id));
+    localStorage.setItem("loyaltyos-wishlist", JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent("loyaltyos:wishlist-updated"));
+  };
+
+  return { read, toggle, removeUnavailable };
 }
+
+const WISHLIST_PAGE_SIZE = 24;
 
 export default function Rewards() {
   const { t } = useTranslation();
   const wishlist = useWishlist();
   const [category, setCategory] = useState("");
+  const [page, setPage] = useState(1);
+  const [redemptionPage, setRedemptionPage] = useState(1);
   const [wishlistOnly, setWishlistOnly] = useState(false);
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => wishlist.read());
 
-  useMemo(() => {
+  useEffect(() => {
     const handler = () => {
       setWishlistIds(wishlist.read());
+      setPage(1);
     };
     window.addEventListener("loyaltyos:wishlist-updated", handler);
     return () => {
       window.removeEventListener("loyaltyos:wishlist-updated", handler);
     };
-  }, [wishlist]);
+  }, []);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["rewards", "catalog", category],
-    queryFn: () =>
-      fetchApi<PaginatedResponse<Reward>>(
-        `/rewards?isActive=true&page=1&pageSize=50${category ? `&category=${category}` : ""}`,
-      ),
+    queryKey: ["rewards", "catalog", category, page, wishlistOnly, wishlistOnly ? wishlistIds : []],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        isActive: "true",
+        page: wishlistOnly ? "1" : String(page),
+        pageSize: String(WISHLIST_PAGE_SIZE),
+      });
+      if (category && !wishlistOnly) params.set("category", category);
+      if (wishlistOnly) {
+        const pageIds = wishlistIds.slice((page - 1) * WISHLIST_PAGE_SIZE, page * WISHLIST_PAGE_SIZE);
+        params.set("ids", pageIds.join(","));
+      }
+      return fetchApi<PaginatedResponse<Reward>>(`/rewards?${params.toString()}`);
+    },
   });
 
   const rewards = useMemo(() => {
@@ -57,14 +78,23 @@ export default function Rewards() {
     return items;
   }, [data, wishlistOnly, wishlistIds]);
 
+  useEffect(() => {
+    if (!wishlistOnly || !data) return;
+    const pageIds = wishlistIds.slice((page - 1) * WISHLIST_PAGE_SIZE, page * WISHLIST_PAGE_SIZE);
+    if (pageIds.length === 0) return;
+    const availableIds = new Set(data.items.map((reward) => reward.id));
+    const unavailableIds = pageIds.filter((id) => !availableIds.has(id));
+    if (unavailableIds.length > 0) wishlist.removeUnavailable(unavailableIds);
+  }, [data, page, wishlist, wishlistIds, wishlistOnly]);
+
   const categories = useQuery({
     queryKey: ["rewards", "categories"],
     queryFn: () => fetchApi<string[]>("/rewards/categories"),
   });
 
   const redemptions = useQuery({
-    queryKey: ["reward-redemptions", "me"],
-    queryFn: () => fetchApi<MemberRewardRedemption[]>("/members/me/reward-redemptions"),
+    queryKey: ["reward-redemptions", "me", redemptionPage],
+    queryFn: () => fetchApi<PaginatedResponse<MemberRewardRedemption>>(`/members/me/reward-redemptions?page=${String(redemptionPage)}&pageSize=10`),
   });
 
   return (
@@ -73,6 +103,7 @@ export default function Rewards() {
         <h1 className="text-2xl font-bold">{t("rewardsAvailable")}</h1>
         <button
           onClick={() => {
+            setPage(1);
             setWishlistOnly(!wishlistOnly);
           }}
           className={`rounded-lg p-2 transition-colors ${
@@ -86,11 +117,12 @@ export default function Rewards() {
         </button>
       </div>
 
-      {categories.data && categories.data.length > 0 && (
+      {!wishlistOnly && categories.data && categories.data.length > 0 && (
         <div className="flex gap-2 overflow-x-auto" role="group" aria-label={t("filterAll")}>
           <button
             onClick={() => {
               setCategory("");
+              setPage(1);
             }}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
               category === ""
@@ -105,6 +137,7 @@ export default function Rewards() {
               key={cat}
               onClick={() => {
                 setCategory(cat);
+                setPage(1);
               }}
               className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 category === cat
@@ -190,14 +223,22 @@ export default function Rewards() {
         </div>
       )}
 
+      {data && (wishlistOnly ? Math.ceil(wishlistIds.length / WISHLIST_PAGE_SIZE) : data.totalPages) > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{t("previous")}</button>
+          <span>{page} / {wishlistOnly ? Math.ceil(wishlistIds.length / WISHLIST_PAGE_SIZE) : data.totalPages}</span>
+          <button type="button" disabled={page >= (wishlistOnly ? Math.ceil(wishlistIds.length / WISHLIST_PAGE_SIZE) : data.totalPages)} onClick={() => setPage((value) => value + 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{t("next")}</button>
+        </div>
+      )}
+
       {redemptions.data && (
         <details className="rounded-2xl border border-[var(--color-border)] p-4">
           <summary className="cursor-pointer list-none text-lg font-semibold">{t("rewarded")}</summary>
           <div className="mt-3 space-y-2">
-            {redemptions.data.length === 0 ? (
+            {redemptions.data.items.length === 0 ? (
               <p className="text-sm text-[var(--color-text-secondary)]">{t("noRewarded")}</p>
             ) : (
-              redemptions.data.map((redemption) => (
+              redemptions.data.items.map((redemption) => (
                 <div
                   key={redemption.id}
                   className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm"
@@ -215,6 +256,13 @@ export default function Rewards() {
               ))
             )}
           </div>
+          {redemptions.data.totalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <button type="button" disabled={redemptionPage <= 1} onClick={() => setRedemptionPage((value) => value - 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{t("previous")}</button>
+              <span>{redemptionPage} / {redemptions.data.totalPages}</span>
+              <button type="button" disabled={redemptionPage >= redemptions.data.totalPages} onClick={() => setRedemptionPage((value) => value + 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{t("next")}</button>
+            </div>
+          )}
         </details>
       )}
     </div>

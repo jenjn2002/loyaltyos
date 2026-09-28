@@ -38,13 +38,6 @@ export function createRepository(prisma: PrismaClient) {
       })) as CouponWithRedemptions | null;
     },
 
-    async findByCodeGlobal(code: string): Promise<CouponWithRedemptions | null> {
-      return (await prisma.coupon.findFirst({
-        where: { code, deletedAt: null },
-        include: { redemptions: { select: { id: true, memberId: true } } },
-      })) as CouponWithRedemptions | null;
-    },
-
     async findMany(
       programId: string,
       filters: { isActive?: boolean; mode?: string; page?: number; pageSize?: number },

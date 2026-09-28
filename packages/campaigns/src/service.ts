@@ -210,14 +210,25 @@ export class CampaignsService {
       }
     }
 
+    const variantId = campaign.abTesting && campaign.variants.length > 0
+      ? assignVariant(eventContext.memberId, campaign.id, campaign.variants)
+      : null;
+    const selectedVariant = campaign.variants.find((variant) => variant.id === variantId);
+    const variantConfig = selectedVariant?.config && typeof selectedVariant.config === "object"
+      ? selectedVariant.config as Record<string, unknown>
+      : {};
+    const variantMultiplier = typeof variantConfig.multiplier === "number" && Number.isFinite(variantConfig.multiplier) && variantConfig.multiplier > 0
+      ? variantConfig.multiplier
+      : campaign.multiplier;
+
     let pointsAwarded = 0;
     let claimId: string | undefined;
     if (campaign.type === "BONUS_POINTS") {
       const baseAmount = eventContext.amount ?? 0;
       const isPurchase = eventContext.type.toLowerCase() === "purchase";
       const effectiveAmount = isPurchase
-        ? Math.floor(baseAmount * (campaign.multiplier - 1))
-        : Math.floor(campaign.multiplier);
+        ? Math.floor(baseAmount * (variantMultiplier - 1))
+        : Math.floor(variantMultiplier);
       if (effectiveAmount > 0) {
         const pointInput = {
           memberId: eventContext.memberId,
@@ -233,6 +244,7 @@ export class CampaignsService {
             campaignId: campaign.id,
             memberId: eventContext.memberId,
             occurrence,
+            variantId,
             pointsAwarded: effectiveAmount,
           });
           claimId = claim.id;
@@ -249,11 +261,6 @@ export class CampaignsService {
           }
         }
       }
-    }
-
-    let variantId: string | null = null;
-    if (campaign.abTesting && campaign.variants.length > 0) {
-      variantId = assignVariant(eventContext.memberId, campaign.id, campaign.variants);
     }
 
     const application = claimId
@@ -282,16 +289,27 @@ export class CampaignsService {
   async estimateImpact(input: EstimateInput): Promise<EstimateResult> {
     const estimatedMembers = input.estimatedMembers ?? await this.repo.countEligibleMembers(input.programId);
     const multiplier = input.multiplier ?? 1;
+    const effectiveMultiplier = input.variants?.length
+      ? input.variants.reduce((weighted, variant) => {
+          const config = variant.config ?? {};
+          const variantMultiplier = typeof config.multiplier === "number" && Number.isFinite(config.multiplier) && config.multiplier > 0
+            ? config.multiplier
+            : multiplier;
+          return weighted + (variant.trafficPct / 100) * variantMultiplier;
+        }, 0)
+      : multiplier;
     // An estimate represents one execution of the campaign. A member can
     // receive at most one grant in that execution, even when the campaign
-    // allows multiple uses over its lifetime. Purchase campaigns use the
-    // same base amount as the legacy estimator; standing occasions use the
-    // configured points-to-award value directly.
-    const pointsPerMember = input.isPurchase === false ? multiplier : 100 * multiplier;
+    // allows multiple uses over its lifetime. Purchase campaigns estimate
+    // against a normalized 100-point purchase, and award only the bonus
+    // portion (multiplier - 1), matching purchase issuance.
+    const pointsPerMember = input.isPurchase === false
+      ? effectiveMultiplier
+      : Math.max(0, Math.floor(100 * (effectiveMultiplier - 1)));
     const usesPerMember = input.maxUsesPerMember && input.maxUsesPerMember > 0
       ? Math.min(input.maxUsesPerMember, 1)
       : 1;
-    const estimatedPoints = estimatedMembers * pointsPerMember * usesPerMember;
+    const estimatedPoints = Math.round(estimatedMembers * pointsPerMember * usesPerMember);
     const estimatedCost = input.maxBudget
       ? Math.min(estimatedPoints, input.maxBudget)
       : estimatedPoints;

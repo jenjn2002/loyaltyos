@@ -5,29 +5,26 @@ import type { LoyaltyOSClient } from "../client.js";
 import { mapAxiosError } from "../errors.js";
 
 export const MemberGetSchema = z.object({
-  memberId: z.string().min(1).describe("Member UUID or email address"),
+  memberId: z.string().min(1).describe("Member ID"),
 });
 
 export const MembersListSchema = z.object({
   limit: z.number().int().min(1).max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0),
-  tier: z.enum(["bronze", "silver", "gold", "platinum"]).optional(),
-  inactiveDays: z.number().int().min(0).optional(),
-  minBalance: z.number().int().min(0).optional(),
-  maxBalance: z.number().int().min(0).optional(),
   search: z.string().optional(),
-});
+}).strict();
 
 export const MemberPointsHistorySchema = z.object({
   memberId: z.string().min(1),
   limit: z.number().int().min(1).max(100).optional().default(20),
-  type: z.enum(["earn", "burn", "expire", "adjust"]).optional(),
+  type: z.enum(["EARN", "REDEEM", "EXPIRE", "ADJUSTMENT"]).optional(),
   startDate: z.string().optional().describe("ISO date string"),
   endDate: z.string().optional().describe("ISO date string"),
 });
 
 export const MemberAdjustPointsSchema = z.object({
   memberId: z.string().min(1),
+  pointTypeId: z.string().min(1).describe("ID of the point type to adjust"),
   amount: z.number().describe("Positive to add points, negative to deduct"),
   note: z.string().min(10).describe("Audit note explaining the adjustment reason"),
   idempotencyKey: z.string().uuid().optional().describe("Deduplicate concurrent calls"),
@@ -94,8 +91,8 @@ export function registerMemberTools(server: McpServer, client: LoyaltyOSClient):
     MemberAdjustPointsSchema.shape,
     async (params) => {
       try {
-        const { memberId, amount, note, idempotencyKey } = params;
-        const result = await client.adjustMemberPoints(memberId, amount, note, idempotencyKey);
+        const { memberId, pointTypeId, amount, note, idempotencyKey } = params;
+        const result = await client.adjustMemberPoints(memberId, pointTypeId, amount, note, idempotencyKey);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
         };

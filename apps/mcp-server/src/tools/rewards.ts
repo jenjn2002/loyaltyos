@@ -4,29 +4,26 @@ import { z } from "zod";
 import type { LoyaltyOSClient } from "../client.js";
 import { mapAxiosError } from "../errors.js";
 
-const rewardTypeEnum = z
-  .enum(["discount", "product", "gift_card", "experience", "donation", "coalition"])
-  .optional();
-
 export const RewardsCatalogSchema = z.object({
   limit: z.number().int().min(1).max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0),
   maxCost: z.number().int().min(0).optional(),
-  type: rewardTypeEnum,
+  category: z.string().optional(),
   availableOnly: z.boolean().optional().default(true),
 });
 
 export const RewardCreateSchema = z.object({
   name: z.string().min(1),
-  description: z.string().min(1),
-  type: z.enum(["discount", "product", "gift_card", "experience", "donation", "coalition"]),
-  pointCost: z.number().int().min(1),
-  stock: z.number().int().min(0).optional(),
-  imageUrl: z.string().url().optional(),
-  availableFromDate: z.string().optional().describe("ISO datetime"),
-  availableUntilDate: z.string().optional().describe("ISO datetime"),
-  tierRestriction: z.array(z.string()).optional(),
-});
+  description: z.string().nullable().optional(),
+  pointPrices: z.array(z.object({ pointTypeId: z.string().min(1), amount: z.number().int().positive() })).min(1),
+  stock: z.number().int().min(0).nullable().optional(),
+  imageUrl: z.string().url().nullable().optional(),
+  category: z.string().nullable().optional(),
+  tierRequired: z.string().nullable().optional(),
+  availableFrom: z.string().nullable().optional().describe("ISO datetime"),
+  availableUntil: z.string().nullable().optional().describe("ISO datetime"),
+  isActive: z.boolean().optional().default(false),
+}).strict();
 
 export const RewardRedemptionStatsSchema = z.object({
   rewardId: z.string().optional().describe("Omit for aggregate stats across all rewards"),

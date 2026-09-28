@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { fetchApi } from "@/lib/api-client";
 
@@ -10,6 +10,7 @@ export interface AdminApprovalNotification {
   subjectType: string;
   subjectId: string;
   requestedAt: string;
+  isRead: boolean;
   workflow: { name: string };
 }
 
@@ -17,6 +18,7 @@ interface AdminNotificationsContextValue {
   requests: AdminApprovalNotification[];
   unreadRequests: AdminApprovalNotification[];
   unreadCount: number;
+  isReady: boolean;
   markRead: (id: string) => void;
   markUnread: (id: string) => void;
   markAllRead: () => void;
@@ -25,6 +27,7 @@ interface AdminNotificationsContextValue {
 const AdminNotificationsContext = createContext<AdminNotificationsContextValue | null>(null);
 
 export function AdminNotificationsProvider({ children }: { children: ReactNode }): JSX.Element {
+  const queryClient = useQueryClient();
   const admin = useQuery({
     queryKey: ["admin-me"],
     queryFn: () => fetchApi<{ id: string }>("/admin/me"),
@@ -36,42 +39,31 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
     refetchInterval: 30_000,
     retry: false,
   });
-  const storageKey = admin.data?.id
-    ? "loyaltyos:admin-approval-read:" + admin.data.id
-    : null;
-  const [readIds, setReadIds] = useState<string[]>([]);
-  const [loadedKey, setLoadedKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      const value = JSON.parse(localStorage.getItem(storageKey) ?? "[]") as unknown;
-      setReadIds(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
-    } catch {
-      setReadIds([]);
-    }
-    setLoadedKey(storageKey);
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (storageKey && loadedKey === storageKey) {
-      localStorage.setItem(storageKey, JSON.stringify(readIds));
-    }
-  }, [loadedKey, readIds, storageKey]);
-
   const requests = approvals.data ?? [];
-  const readSet = useMemo(() => new Set(readIds), [readIds]);
-  const unreadRequests = requests.filter((request) => !readSet.has(request.id));
+  const unreadRequests = requests.filter((request) => !request.isRead);
+  const updateReadState = (ids: string[], isRead: boolean) => {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return;
+    const idSet = new Set(uniqueIds);
+    queryClient.setQueryData<AdminApprovalNotification[]>(["admin", "approvals", "inbox"], (current) =>
+      current?.map((request) => idSet.has(request.id) ? { ...request, isRead } : request),
+    );
+    void fetchApi("/admin/approvals/read-state", {
+      method: "POST",
+      body: JSON.stringify({ ids: uniqueIds, isRead }),
+    }).catch(() => queryClient.invalidateQueries({ queryKey: ["admin", "approvals", "inbox"] }));
+  };
   const value = useMemo<AdminNotificationsContextValue>(
     () => ({
       requests,
       unreadRequests,
       unreadCount: unreadRequests.length,
-      markRead: (id) => setReadIds((current) => (current.includes(id) ? current : [...current, id])),
-      markUnread: (id) => setReadIds((current) => current.filter((item) => item !== id)),
-      markAllRead: () => setReadIds((current) => [...new Set([...current, ...requests.map((request) => request.id)])]),
+      isReady: Boolean(admin.data?.id && approvals.isSuccess),
+      markRead: (id) => updateReadState([id], true),
+      markUnread: (id) => updateReadState([id], false),
+      markAllRead: () => updateReadState(requests.filter((request) => !request.isRead).map((request) => request.id), true),
     }),
-    [requests, unreadRequests],
+    [admin.data?.id, approvals.isSuccess, requests, unreadRequests],
   );
 
   return <AdminNotificationsContext.Provider value={value}>{children}</AdminNotificationsContext.Provider>;

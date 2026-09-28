@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { coalitionService } from "../../lib/coalition-setup.js";
+import { audit } from "../../lib/audit.js";
 
 // ── Schemas ────────────────────────────────────────────────────────
 
@@ -36,6 +37,10 @@ export function adminCoalitionRoutes(app: FastifyInstance, _opts: unknown, done:
       programId,
       externalMemberRef: body.externalMemberRef,
     });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "coalition_member_link", body.memberId, {
+      linked: true,
+      externalMemberRef: body.externalMemberRef,
+    });
 
     return reply.status(201).send({ data: account });
   });
@@ -47,6 +52,9 @@ export function adminCoalitionRoutes(app: FastifyInstance, _opts: unknown, done:
     const programId = request.programId || (request.headers["x-program-id"] as string);
 
     await coalitionService.unlinkExternalAccount(memberId, programId);
+    await audit(programId, request.actor, "CONFIG_CHANGE", "coalition_member_link", memberId, {
+      linked: false,
+    });
 
     return reply.status(204).send();
   });
@@ -160,6 +168,16 @@ export function adminCoalitionRoutes(app: FastifyInstance, _opts: unknown, done:
       redemptionEnabled: body.redemptionEnabled,
       conversionEnabled: body.conversionEnabled,
       minConversionPoints: body.minConversionPoints,
+    });
+    await audit(programId, request.actor, "CONFIG_CHANGE", "coalition_config", null, {
+      provider: body.provider,
+      endpoint: body.endpoint,
+      conversionRate: body.conversionRate,
+      accumulationEnabled: body.accumulationEnabled,
+      redemptionEnabled: body.redemptionEnabled,
+      conversionEnabled: body.conversionEnabled,
+      minConversionPoints: body.minConversionPoints,
+      credentialsChanged: Object.keys(body.credentials).length > 0,
     });
 
     return reply.status(200).send({ data: config });

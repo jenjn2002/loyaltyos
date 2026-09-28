@@ -10,6 +10,8 @@ interface NotificationItem {
   subject: string | null;
   body: string | null;
   status: string;
+  readAt?: string | null;
+  isRead?: boolean;
   createdAt: string;
 }
 
@@ -71,7 +73,8 @@ export default function Notifications() {
       await queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
     },
   });
-  const unreadCount = unreadSummary.data?.unreadCount ?? data?.items.filter((item) => item.status !== "READ").length ?? 0;
+  const isRead = (item: NotificationItem): boolean => item.isRead ?? (item.readAt != null || item.status === "READ");
+  const unreadCount = unreadSummary.data?.unreadCount ?? data?.items.filter((item) => !isRead(item)).length ?? 0;
 
   return (
     <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-6 pb-20">
@@ -104,7 +107,7 @@ export default function Notifications() {
         <>
           <div className="space-y-3">
             {(data?.items ?? []).map((item) => {
-              const unread = item.status !== "READ";
+              const unread = !isRead(item);
               return (
                 <article
                   key={item.id}

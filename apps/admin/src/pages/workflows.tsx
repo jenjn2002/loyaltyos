@@ -68,12 +68,14 @@ const actionGroups = [
     options: [
       { value: "POINT_EXCHANGE", description: "Point exchange approvals" },
       { value: "POINT_ISSUANCE_PROPOSAL", description: "Manual point issuance approvals" },
+      { value: "PROJECT_POINT_ISSUANCE", description: "Project member point distribution approvals" },
     ],
   },
   {
     label: "Campaign operations",
     options: [
       { value: "CAMPAIGN_ISSUANCE_PROPOSAL", description: "Campaign issuance approvals" },
+      { value: "PROJECT_PLAN_APPROVAL", description: "Project plan and budget approvals" },
     ],
   },
   {

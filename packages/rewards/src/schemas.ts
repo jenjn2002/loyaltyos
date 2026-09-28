@@ -26,6 +26,8 @@ export const rewardListQuerySchema = z.object({
   minPoints: z.coerce.number().int().min(0).optional(),
   maxPoints: z.coerce.number().int().min(0).optional(),
   tierRequired: z.string().optional(),
+  /** Comma-separated reward IDs, used for member-scoped wishlist views. */
+  ids: z.string().max(10_000).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

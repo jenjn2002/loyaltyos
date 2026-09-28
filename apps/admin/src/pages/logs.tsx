@@ -1,7 +1,7 @@
 import { ui } from "@/lib/ui-text";
 import { useQuery } from "@tanstack/react-query";
 import { History, Search, X } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,7 @@ interface AuditEntry {
   action: string;
   entityType: string;
   entityId: string | null;
+  targetLabel?: string | null;
   diff: Record<string, unknown> | null;
   reason: string | null;
   createdAt: string;
@@ -45,6 +46,10 @@ interface LogsResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+interface LogsFilterOptions {
+  features: string[];
 }
 
 const ACTIONS = [
@@ -90,7 +95,7 @@ function actorLabel(actor: AuditActor): string {
 
 function dateParam(value: string, endOfDay = false): string | undefined {
   if (!value) return undefined;
-  return new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`).toISOString();
+  return new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`).toISOString();
 }
 
 function prettyJson(value: unknown): string {
@@ -101,9 +106,30 @@ function prettyJson(value: unknown): string {
   }
 }
 
+function dataSummary(value: Record<string, unknown> | null): string {
+  if (!value) return "";
+  return Object.entries(value)
+    .filter(([key]) => !key.toLowerCase().endsWith("id"))
+    .filter(([, item]) => item !== null && item !== undefined && typeof item !== "object")
+    .slice(0, 4)
+    .map(([key, item]) => {
+      const label = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ");
+      const valueLabel = typeof item === "string" ? item : String(item);
+      return `${ui(label)}: ${valueLabel}`;
+    })
+    .join(" · ");
+}
+
+function featureLabel(value: string): string {
+  return ui(value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
+}
+
 export function LogsPage(): JSX.Element {
   const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [actorInput, setActorInput] = useState("");
+  const [actor, setActor] = useState("");
   const [action, setAction] = useState("");
   const [actorType, setActorType] = useState("");
   const [entityType, setEntityType] = useState("");
@@ -111,15 +137,39 @@ export function LogsPage(): JSX.Element {
   const [to, setTo] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const pageSize = 25;
+  const invalidDateRange = Boolean(from && to && from > to);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setActor(actorInput.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [actorInput]);
+
+  const filterOptions = useQuery({
+    queryKey: ["admin-log-filter-options"],
+    queryFn: () => fetchApi<LogsFilterOptions>("/admin/logs/filters"),
+  });
 
   const logs = useQuery({
-    queryKey: ["admin-logs", page, search, action, actorType, entityType, from, to],
+    queryKey: ["admin-logs", page, search, actor, action, actorType, entityType, from, to],
+    enabled: !invalidDateRange,
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (search.trim()) params.set("q", search.trim());
+      if (actor.trim()) params.set("actor", actor.trim());
       if (action) params.set("action", action);
       if (actorType) params.set("actorType", actorType);
-      if (entityType.trim()) params.set("entityType", entityType.trim());
+      if (entityType) params.set("entityType", entityType);
       const fromValue = dateParam(from);
       const toValue = dateParam(to, true);
       if (fromValue) params.set("from", fromValue);
@@ -134,7 +184,10 @@ export function LogsPage(): JSX.Element {
   };
 
   const clearFilters = (): void => {
+    setSearchInput("");
     setSearch("");
+    setActorInput("");
+    setActor("");
     setAction("");
     setActorType("");
     setEntityType("");
@@ -143,7 +196,7 @@ export function LogsPage(): JSX.Element {
     setPage(1);
   };
 
-  const data = logs.data;
+  const data = invalidDateRange ? undefined : logs.data;
   const entries = data?.items ?? [];
 
   return (
@@ -165,8 +218,12 @@ export function LogsPage(): JSX.Element {
             <Label htmlFor="logs-search">{ui("Search")}</Label>
             <div className="relative mt-1">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input id="logs-search" className="pl-9" value={search} onChange={(event) => updateFilter(setSearch, event.target.value)} placeholder={ui("Actor, target or reason")} />
+              <Input id="logs-search" className="pl-9" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={ui("Target name, reason, ID or recorded data")} />
             </div>
+          </div>
+          <div>
+            <Label htmlFor="logs-actor">{ui("Actor")}</Label>
+            <Input id="logs-actor" className="mt-1" value={actorInput} onChange={(event) => setActorInput(event.target.value)} placeholder={ui("Name, email or ID")} />
           </div>
           <div>
             <Label htmlFor="logs-action">{ui("Action")}</Label>
@@ -184,7 +241,11 @@ export function LogsPage(): JSX.Element {
           </div>
           <div>
             <Label htmlFor="logs-entity">{ui("Feature")}</Label>
-            <Input id="logs-entity" className="mt-1" value={entityType} onChange={(event) => updateFilter(setEntityType, event.target.value)} placeholder={ui("e.g. campaign or member")} />
+            <select id="logs-entity" className={`${selectClass} mt-1`} value={entityType} onChange={(event) => updateFilter(setEntityType, event.target.value)}>
+              <option value="">{ui("All features")}</option>
+              {entityType && !filterOptions.data?.features.includes(entityType) && <option value={entityType}>{featureLabel(entityType)}</option>}
+              {(filterOptions.data?.features ?? []).map((value) => <option key={value} value={value}>{featureLabel(value)}</option>)}
+            </select>
           </div>
           <div>
             <Label htmlFor="logs-from">{ui("From")}</Label>
@@ -200,13 +261,15 @@ export function LogsPage(): JSX.Element {
         </CardContent>
       </Card>
 
+      {invalidDateRange && <p role="alert" className="text-sm text-destructive">{ui("The end date must be on or after the start date.")}</p>}
+
       <Card>
         <CardHeader>
           <CardTitle>{ui("System activity")}</CardTitle>
           <CardDescription>{data ? `${String(data.total)} ${ui("log entries")}` : ui("Loading logs…")}</CardDescription>
         </CardHeader>
         <CardContent>
-          {logs.isError && <p className="text-destructive">{ui("Failed to load logs.")}</p>}
+          {logs.isError && !invalidDateRange && <p className="text-destructive">{ui("Failed to load logs.")}</p>}
           {logs.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading logs…")}</p>}
           {!logs.isLoading && !logs.isError && !entries.length && <p className="text-sm text-muted-foreground">{ui("No log entries found.")}</p>}
           {!logs.isLoading && !logs.isError && entries.length > 0 && (
@@ -229,16 +292,22 @@ export function LogsPage(): JSX.Element {
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</TableCell>
                         <TableCell className="min-w-48"><p className="font-medium">{actorLabel(entry.actor)}</p><p className="text-xs text-muted-foreground">{ui(entry.actorType)}</p></TableCell>
                         <TableCell className="whitespace-nowrap">{actionLabel(entry.action)}</TableCell>
-                        <TableCell><code className="text-xs">{entry.entityType}</code></TableCell>
-                        <TableCell className="max-w-48 truncate text-xs" title={entry.entityId ?? undefined}>{entry.entityId ?? "—"}</TableCell>
-                        <TableCell className="max-w-64 truncate text-xs">{entry.reason ?? (entry.diff ? ui("View details") : "—")}</TableCell>
+                        <TableCell><code className="text-xs">{featureLabel(entry.entityType)}</code></TableCell>
+                        <TableCell className="max-w-56 truncate text-xs" title={entry.targetLabel ?? entry.entityId ?? undefined}>
+                          <span>{entry.targetLabel ?? entry.entityId ?? "—"}</span>
+                          {entry.targetLabel && entry.entityId && <span className="ml-1 text-muted-foreground">({entry.entityId})</span>}
+                        </TableCell>
+                        <TableCell className="max-w-80 text-xs">
+                          <p className="truncate" title={dataSummary(entry.diff)}>{dataSummary(entry.diff) || (entry.diff ? ui("View details") : "—")}</p>
+                          {entry.reason && <p className="truncate text-muted-foreground" title={entry.reason}>{ui("Reason")}: {entry.reason}</p>}
+                        </TableCell>
                       </TableRow>
                       {expandedId === entry.id && (
                         <TableRow key={`${entry.id}-details`}>
                           <TableCell colSpan={6} className="bg-muted/30">
                             <div className="grid gap-4 md:grid-cols-2">
                               <div><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{ui("Recorded data")}</p><pre className="max-h-64 overflow-auto rounded-md border bg-background p-3 text-xs">{prettyJson(entry.diff)}</pre></div>
-                              <div className="space-y-2 text-sm"><p><strong>{ui("Actor ID")}:</strong> {entry.actorId}</p><p><strong>{ui("Target ID")}:</strong> {entry.entityId ?? "—"}</p><p><strong>{ui("Reason")}:</strong> {entry.reason ?? "—"}</p></div>
+                              <div className="space-y-2 text-sm"><p><strong>{ui("Actor ID")}:</strong> {entry.actorId}</p><p><strong>{ui("Feature")}:</strong> {featureLabel(entry.entityType)}</p><p><strong>{ui("Target")}:</strong> {entry.targetLabel ?? "—"}</p><p><strong>{ui("Target ID")}:</strong> {entry.entityId ?? "—"}</p><p><strong>{ui("Reason")}:</strong> {entry.reason ?? "—"}</p></div>
                             </div>
                           </TableCell>
                         </TableRow>

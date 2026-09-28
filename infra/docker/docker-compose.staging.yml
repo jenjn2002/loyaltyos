@@ -1,0 +1,187 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-loyaltyos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-loyaltyos_staging}
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-loyaltyos} -d ${POSTGRES_DB:-loyaltyos_staging}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - staging-backend
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - staging_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - staging-backend
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    networks:
+      - staging-backend
+    restart: unless-stopped
+
+  api:
+    image: loyaltyos-staging-api:latest
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT_API: 3002
+      SKIP_MIGRATIONS: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loyaltyos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loyaltyos_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: redis://redis:6379
+      PORTAL_URL: https://loyalty-sandbox.trunglocxoay.store
+      ADMIN_URL: https://adminloyalty-sandbox.trunglocxoay.store
+      ADMIN_DEFAULT_EMAIL: ${ADMIN_DEFAULT_EMAIL}
+      ADMIN_DEFAULT_NAME: ${ADMIN_DEFAULT_NAME}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      LOYALTYOS_ENVIRONMENT: sandbox
+      ENV_HANDOFF_SECRET: ${ENV_HANDOFF_SECRET:?ENV_HANDOFF_SECRET is required}
+      API_KEY_SALT: ${API_KEY_SALT}
+      KMS_MASTER_KEY: ${KMS_MASTER_KEY}
+      GIFTCARD_HMAC_SECRET: ${GIFTCARD_HMAC_SECRET}
+      COOKIE_SECURE: "true"
+      CORS_ORIGINS: https://loyalty-sandbox.trunglocxoay.store,https://adminloyalty-sandbox.trunglocxoay.store
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: sandbox@loyaltyos.invalid
+      RESEND_API_KEY: ""
+      TWILIO_ACCOUNT_SID: ""
+      TWILIO_AUTH_TOKEN: ""
+      TWILIO_PHONE_NUMBER: ""
+      ONESIGNAL_APP_ID: ""
+      ONESIGNAL_API_KEY: ""
+      APPRECIO_API_BASE: http://127.0.0.1:9/disabled
+      APPRECIO_PUBLIC_TOKEN: ""
+      APPRECIO_PRIVATE_TOKEN: ""
+      APPRECIO_IDENTIFIER_TYPE: email
+      APPRECIO_TIMEOUT_MS: 1000
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    networks:
+      - staging-backend
+    restart: unless-stopped
+
+  migration:
+    image: loyaltyos-staging-api:latest
+    working_dir: /app/apps/api
+    entrypoint: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loyaltyos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loyaltyos_staging}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - staging-backend
+      - staging-egress
+    restart: "no"
+
+  admin:
+    build:
+      context: ../..
+      dockerfile: apps/admin/Dockerfile
+      args:
+        VITE_LOYALTYOS_ENVIRONMENT: sandbox
+        VITE_LOYALTYOS_SWITCH_URL: https://adminloyalty.trunglocxoay.store
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - staging-backend
+      - traefik-hrm
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-hrm
+      - traefik.http.routers.loyalty-admin-sandbox.rule=Host(`adminloyalty-sandbox.trunglocxoay.store`)
+      - traefik.http.routers.loyalty-admin-sandbox.entrypoints=websecure
+      - traefik.http.routers.loyalty-admin-sandbox.tls=true
+      - traefik.http.routers.loyalty-admin-sandbox.tls.certresolver=le
+      - traefik.http.routers.loyalty-admin-sandbox.middlewares=loyalty-admin-sandbox-headers@docker
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.stsSeconds=315360000
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.stsPreload=true
+      - traefik.http.middlewares.loyalty-admin-sandbox-headers.headers.customresponseheaders.X-Robots-Tag=noindex, nofollow
+      - traefik.http.services.loyalty-admin-sandbox.loadbalancer.server.port=80
+      - traefik.http.services.loyalty-admin-sandbox.loadbalancer.server.scheme=http
+    restart: unless-stopped
+
+  portal:
+    build:
+      context: ../..
+      dockerfile: apps/portal/Dockerfile
+      args:
+        VITE_LOYALTYOS_ENVIRONMENT: sandbox
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - staging-backend
+      - traefik-hrm
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-hrm
+      - traefik.http.routers.loyalty-customer-sandbox.rule=Host(`loyalty-sandbox.trunglocxoay.store`)
+      - traefik.http.routers.loyalty-customer-sandbox.entrypoints=websecure
+      - traefik.http.routers.loyalty-customer-sandbox.tls=true
+      - traefik.http.routers.loyalty-customer-sandbox.tls.certresolver=le
+      - traefik.http.routers.loyalty-customer-sandbox.middlewares=loyalty-customer-sandbox-headers@docker
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.stsSeconds=315360000
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.stsPreload=true
+      - traefik.http.middlewares.loyalty-customer-sandbox-headers.headers.customresponseheaders.X-Robots-Tag=noindex, nofollow
+      - traefik.http.services.loyalty-customer-sandbox.loadbalancer.server.port=80
+      - traefik.http.services.loyalty-customer-sandbox.loadbalancer.server.scheme=http
+    restart: unless-stopped
+
+volumes:
+  staging_pgdata:
+    name: loyaltyos_staging_pgdata
+  staging_redisdata:
+    name: loyaltyos_staging_redisdata
+
+networks:
+  staging-backend:
+    name: loyaltyos-staging-backend
+    internal: true
+  staging-egress:
+    name: loyaltyos-staging-egress
+  traefik-hrm:
+    external: true

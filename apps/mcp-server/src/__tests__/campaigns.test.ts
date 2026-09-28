@@ -9,27 +9,26 @@ import {
 } from "../tools/campaigns.js";
 
 describe("CampaignCreateSchema", () => {
-  it("defaults status to draft", () => {
+  const required = { pointTypeId: "pt-1", type: "BONUS_POINTS", name: "Test campaign" };
+
+  it("defaults to save as draft", () => {
     const result = CampaignCreateSchema.safeParse({
-      name: "Double Points Weekend",
-      type: "bonus_points",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: { multiplier: 2 },
+      ...required,
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.status).toBe("draft");
-      expect(result.data.stackable).toBe(false);
+      expect(result.data.saveAsDraft).toBe(true);
+      expect(result.data.isStackable).toBe(false);
     }
   });
 
-  it("accepts status active", () => {
+  it("accepts scheduled campaign fields", () => {
     const result = CampaignCreateSchema.safeParse({
-      name: "Double Points Weekend",
-      type: "bonus_points",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: { multiplier: 2 },
-      status: "active",
+      ...required,
+      startsAt: "2024-06-01T00:00:00Z",
+      endsAt: "2024-06-02T00:00:00Z",
+      multiplier: 2,
+      saveAsDraft: false,
     });
     expect(result.success).toBe(true);
   });
@@ -37,9 +36,8 @@ describe("CampaignCreateSchema", () => {
   it("rejects name over 100 chars", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "x".repeat(101),
-      type: "bonus_points",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: { multiplier: 2 },
+      pointTypeId: "pt-1",
+      type: "BONUS_POINTS",
     });
     expect(result.success).toBe(false);
   });
@@ -47,9 +45,8 @@ describe("CampaignCreateSchema", () => {
   it("rejects empty name", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "",
-      type: "bonus_points",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: { multiplier: 2 },
+      pointTypeId: "pt-1",
+      type: "BONUS_POINTS",
     });
     expect(result.success).toBe(false);
   });
@@ -58,29 +55,30 @@ describe("CampaignCreateSchema", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "Test",
       type: "invalid_type",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: {},
+      pointTypeId: "pt-1",
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts spend_and_get type with rules", () => {
+  it("accepts the API's uppercase campaign type and conditions", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "Spend $50 Get 100 Points",
-      type: "spend_and_get",
-      startDate: "2024-06-01T00:00:00Z",
-      rules: { spendAmount: 50, earnPoints: 100 },
+      pointTypeId: "pt-1",
+      type: "SPEND_AND_GET",
+      conditions: { spendAmount: 50, earnPoints: 100 },
     });
     expect(result.success).toBe(true);
   });
 
-  it("accepts flash_sale type", () => {
+  it("accepts flash sale campaign type", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "Flash 4x Points",
-      type: "flash_sale",
-      startDate: "2024-06-01T00:00:00Z",
-      endDate: "2024-06-02T00:00:00Z",
-      rules: { multiplier: 4, maxUsesPerMember: 3 },
+      pointTypeId: "pt-1",
+      type: "FLASH_SALE",
+      startsAt: "2024-06-01T00:00:00Z",
+      endsAt: "2024-06-02T00:00:00Z",
+      multiplier: 4,
+      maxUsesPerMember: 3,
     });
     expect(result.success).toBe(true);
   });
@@ -88,14 +86,15 @@ describe("CampaignCreateSchema", () => {
   it("accepts optional fields", () => {
     const result = CampaignCreateSchema.safeParse({
       name: "Full Config Campaign",
-      type: "frequency",
-      startDate: "2024-06-01T00:00:00Z",
-      endDate: "2024-07-01T00:00:00Z",
+      pointTypeId: "pt-1",
+      type: "FREQUENCY",
+      startsAt: "2024-06-01T00:00:00Z",
+      endsAt: "2024-07-01T00:00:00Z",
       segmentId: "seg_1",
-      rules: { visits: 5, windowDays: 30, bonusPoints: 200 },
-      stackable: true,
-      budgetCap: 10000,
-      status: "draft",
+      conditions: { visits: 5, windowDays: 30, bonusPoints: 200 },
+      isStackable: true,
+      maxBudget: 10000,
+      saveAsDraft: true,
     });
     expect(result.success).toBe(true);
   });

@@ -157,7 +157,7 @@ describe("Profile language selector", () => {
     renderApp();
 
     // Find the language selector and change it (renders in Vietnamese after bootstrap)
-    const select = await screen.findByLabelText("Idioma");
+    const select = await screen.findByLabelText("Ngôn ngữ");
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { locale: "en-US" } }), { status: 200 }),
     );

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { audit } from "../../lib/audit.js";
 import {
   deleteWorkflow,
   getWorkflow,
@@ -11,12 +12,12 @@ import {
   type WorkflowDefinitionInput,
 } from "../../lib/approval-workflows.js";
 import { LoyaltyError } from "../../lib/errors.js";
-import { requireCapability } from "../../lib/permissions.js";
+import { ADMIN_ROLE_LABELS, requireCapability } from "../../lib/permissions.js";
 
 const assignmentSchema = z
   .object({
     adminUserId: z.string().min(1).optional(),
-    role: z.enum(["SUPER_ADMIN", "OPERATOR", "ANALYST"]).optional(),
+    role: z.string().trim().min(2).max(80).regex(/^[A-Z][A-Z0-9_]*$/).optional(),
   })
   .refine((value) => Boolean(value.adminUserId) !== Boolean(value.role), {
     message: "Exactly one adminUserId or role is required",
@@ -74,13 +75,17 @@ export function adminWorkflowsRoutes(
         select: { id: true, email: true, name: true, role: true },
         orderBy: { name: "asc" },
       });
+      const customRoles = await prisma.adminRoleDefinition.findMany({
+        where: { programId: request.programId },
+        select: { role: true, label: true },
+        orderBy: [{ label: "asc" }, { role: "asc" }],
+      });
       return reply.send({
         data: {
           users,
           roles: [
-            { value: "SUPER_ADMIN", label: "Owner" },
-            { value: "OPERATOR", label: "Operator" },
-            { value: "ANALYST", label: "Auditor" },
+            ...Object.entries(ADMIN_ROLE_LABELS).map(([value, label]) => ({ value, label })),
+            ...customRoles.map(({ role: value, label }) => ({ value, label })),
           ],
         },
       });
@@ -113,6 +118,16 @@ export function adminWorkflowsRoutes(
     async (request, reply) => {
       const input = workflowSchema.parse(request.body) as WorkflowDefinitionInput;
       const workflow = await saveWorkflow(request.programId, input, actorId(request));
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "approval_workflow", workflow.id, {
+        operation: "CREATE",
+        actionKey: input.actionKey,
+        name: input.name,
+        priority: input.priority,
+        scope: input.scope,
+        selfApprovalPolicy: input.selfApprovalPolicy,
+        isActive: input.isActive,
+        steps: input.steps,
+      });
       return reply.status(201).send({ data: workflow });
     },
   );
@@ -123,8 +138,19 @@ export function adminWorkflowsRoutes(
     async (request, reply) => {
       const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
       const input = workflowSchema.parse(request.body) as WorkflowDefinitionInput;
+      const workflow = await saveWorkflow(request.programId, input, actorId(request), id);
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "approval_workflow", id, {
+        operation: "UPDATE",
+        actionKey: input.actionKey,
+        name: input.name,
+        priority: input.priority,
+        scope: input.scope,
+        selfApprovalPolicy: input.selfApprovalPolicy,
+        isActive: input.isActive,
+        steps: input.steps,
+      });
       return reply.send({
-        data: await saveWorkflow(request.programId, input, actorId(request), id),
+        data: workflow,
       });
     },
   );
@@ -135,8 +161,15 @@ export function adminWorkflowsRoutes(
     async (request, reply) => {
       const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
       const body = z.object({ isActive: z.boolean().default(true) }).default({}).parse(request.body);
+      const workflow = await setWorkflowActive(request.programId, id, body.isActive, actorId(request));
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "approval_workflow", id, {
+        operation: body.isActive ? "ACTIVATE" : "DEACTIVATE",
+        actionKey: workflow.actionKey,
+        name: workflow.name,
+        isActive: workflow.isActive,
+      });
       return reply.send({
-        data: await setWorkflowActive(request.programId, id, body.isActive, actorId(request)),
+        data: workflow,
       });
     },
   );
@@ -146,7 +179,13 @@ export function adminWorkflowsRoutes(
     { preHandler: [requireCapability("workflow.manage")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+      const workflow = await getWorkflow(request.programId, id);
       await deleteWorkflow(request.programId, id);
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "approval_workflow", id, {
+        operation: "DELETE",
+        actionKey: workflow.actionKey,
+        name: workflow.name,
+      });
       return reply.status(204).send();
     },
   );

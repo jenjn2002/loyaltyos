@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = vi.hoisted(() => ({
   apiKey: { findUnique: vi.fn(), update: vi.fn() },
+  auditLog: { create: vi.fn() },
 }));
 
 vi.mock("../db.js", () => ({ prisma: mockPrisma }));
@@ -60,6 +61,7 @@ beforeEach(async () => {
     updatedAt: new Date(),
   });
   mockPrisma.apiKey.update.mockResolvedValue({});
+  mockPrisma.auditLog.create.mockResolvedValue({});
 
   app = await buildApp({ logger: false });
 

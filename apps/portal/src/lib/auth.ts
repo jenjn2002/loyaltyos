@@ -32,6 +32,47 @@ export function clearSession(): void {
   sessionStorage.removeItem("program-id");
 }
 
+/** Consume a short-lived cross-environment ticket before the app bootstraps its session. */
+export async function completeEnvironmentHandoff(): Promise<void> {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const ticket = params.get("loyaltyos-handoff");
+  if (!ticket) return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  const response = await fetch("/api/v1/auth/environment-handoff/exchange", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket }),
+  });
+  const body = (await response.json()) as {
+    data?: {
+      kind?: string;
+      returnTo?: string;
+      sessionId?: string;
+      member?: { id?: string; programId?: string };
+    };
+    error?: { message?: string };
+  };
+  if (
+    !response.ok ||
+    body.data?.kind !== "member" ||
+    !body.data.sessionId ||
+    !body.data.member?.id ||
+    !body.data.member.programId
+  ) {
+    throw new Error(body.error?.message ?? "The sign-in handoff could not be completed.");
+  }
+  setSession({
+    token: body.data.sessionId,
+    memberId: body.data.member.id,
+    programId: body.data.member.programId,
+  });
+  const returnTo = body.data.returnTo;
+  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
+    window.history.replaceState(null, "", returnTo);
+  }
+}
+
 export function isAuthenticated(): boolean {
   return sessionStorage.getItem("member-id") !== null;
 }

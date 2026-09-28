@@ -6,7 +6,7 @@ import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { createdByForEntities } from "../../lib/created-by.js";
 import { LoyaltyError } from "../../lib/errors.js";
-import { requireCapability } from "../../lib/permissions.js";
+import { assertCapability, requireCapability } from "../../lib/permissions.js";
 
 const keySchema = z
   .string()
@@ -46,7 +46,16 @@ export function adminMemberFieldsRoutes(
 ): void {
   app.get(
     "/admin/member-fields",
-    { preHandler: [requireCapability("member.view")] },
+    {
+      preHandler: [async (request) => {
+        try {
+          await assertCapability(request, "member.view");
+        } catch (error) {
+          if (!(error instanceof LoyaltyError) || error.httpStatus !== 403) throw error;
+          await assertCapability(request, "member.manage");
+        }
+      }],
+    },
     async (request, reply) => {
       const fields = await prisma.memberFieldDefinition.findMany({
         where: { programId: request.programId },

@@ -95,6 +95,7 @@ export interface CampaignWithVariants {
     name: string;
     trafficPct: number;
     config: Record<string, unknown> | null;
+    isActive?: boolean;
     createdAt: Date;
   }[];
 }
@@ -125,6 +126,8 @@ export interface EstimateInput {
   estimatedMembers?: number;
   /** Maximum number of grants a member may receive for the campaign. */
   maxUsesPerMember?: number;
+  /** Optional A/B variants; each may override the campaign multiplier. */
+  variants?: Array<{ trafficPct: number; config?: Record<string, unknown> }>;
   /** Purchase campaigns multiply a transaction base; standing events grant the multiplier directly. */
   isPurchase?: boolean;
 }

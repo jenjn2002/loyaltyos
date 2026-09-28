@@ -1,4 +1,4 @@
-import { evaluateRules } from "@loyaltyos/campaigns";
+import { assignVariant, evaluateRules } from "@loyaltyos/campaigns";
 import { SegmentsService } from "@loyaltyos/segments";
 import { prisma } from "../db.js";
 import { walletService } from "./wallets.js";
@@ -52,13 +52,13 @@ export async function issueOccasion(
   payload: Record<string, unknown> = {},
   options: { ignoreSchedule?: boolean; allowMissingDefinition?: boolean; allowAnyType?: boolean } = {},
 ) {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: { variants: true } });
   if (!campaign || (campaign.type !== "BONUS_POINTS" && !options.allowAnyType)) return;
   if (campaign.segmentId && !(await segments.evaluate(memberId, campaign.segmentId)).belongsTo) return;
   const result = await prisma.$transaction(async (tx) => {
     // Serialize with edits, approvals and other runs; the grant and application commit together.
     await tx.$queryRaw`SELECT "id" FROM "Campaign" WHERE "id" = ${campaignId} FOR UPDATE`;
-    const current = await tx.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+    const current = await tx.campaign.findUniqueOrThrow({ where: { id: campaignId }, include: { variants: { where: { isActive: true } } } });
     if (current.updatedAt.getTime() !== campaign.updatedAt.getTime()) return;
     const now = new Date();
     if (!current.isActive || current.deletedAt || (!options.ignoreSchedule && current.startsAt && current.startsAt > now) || (current.endsAt && current.endsAt < now)) return;
@@ -84,7 +84,17 @@ export async function issueOccasion(
       ]);
       if (applications + claims >= current.maxUsesPerMember) return;
     }
-    const amount = current.multiplier;
+    const variantId = current.abTesting && current.variants.length
+      ? assignVariant(memberId, campaignId, current.variants)
+      : null;
+    const selectedVariant = current.variants.find((variant) => variant.id === variantId);
+    const variantConfig = selectedVariant?.config && typeof selectedVariant.config === "object"
+      ? selectedVariant.config as Record<string, unknown>
+      : {};
+    const configuredMultiplier = variantConfig.multiplier;
+    const amount = typeof configuredMultiplier === "number" && Number.isSafeInteger(configuredMultiplier) && configuredMultiplier > 0
+      ? configuredMultiplier
+      : current.multiplier;
     if (!Number.isSafeInteger(amount) || amount <= 0 || !current.pointTypeId) throw new LoyaltyError("CAMPAIGN_GRANT_INVALID", 409);
     const [applicationTotal, claimTotal] = await Promise.all([
       tx.campaignApplication.aggregate({ where: { campaignId }, _sum: { pointsAwarded: true } }),
@@ -92,7 +102,7 @@ export async function issueOccasion(
     ]);
     if (current.maxBudget && (applicationTotal._sum.pointsAwarded ?? 0) + (claimTotal._sum.pointsAwarded ?? 0) + amount > current.maxBudget) return;
     if (current.issuanceMode === "CLAIM") {
-      const claim = await tx.campaignClaim.create({ data: { campaignId, memberId, occurrence, pointsAwarded: amount } });
+      const claim = await tx.campaignClaim.create({ data: { campaignId, memberId, occurrence, variantId, pointsAwarded: amount } });
       return { ...claim, alreadyIssued: false };
     }
     const result = await walletService.issueWithTransaction(tx, {
@@ -101,7 +111,7 @@ export async function issueOccasion(
       idempotencyKey: key,
       metadata: { eventType, occurrence, campaignId },
     });
-    const application = await tx.campaignApplication.create({ data: { campaignId, memberId, idempotencyKey: key, pointsAwarded: amount, metadata: { eventType, occurrence, transactionId: result.transactionId } } });
+    const application = await tx.campaignApplication.create({ data: { campaignId, memberId, variantId, idempotencyKey: key, pointsAwarded: amount, metadata: { eventType, occurrence, transactionId: result.transactionId } } });
     return { ...application, alreadyIssued: false };
   }, { timeout: 15000 });
 

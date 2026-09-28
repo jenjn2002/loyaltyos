@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { createdByForEntities } from "../../lib/created-by.js";
+import { LoyaltyError } from "../../lib/errors.js";
 
 const badges = new BadgesService(prisma);
 
@@ -30,6 +31,12 @@ const updateSchema = z.object({
   seriesPosition: z.number().int().min(1).optional(),
   isActive: z.boolean().optional(),
 });
+
+async function requireProgramBadge(id: string, programId: string) {
+  const badge = await badges.getById(id);
+  if (badge.programId !== programId) throw new LoyaltyError("BADGE_NOT_FOUND", 404);
+  return badge;
+}
 
 export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   // POST /admin/badges — Create badge
@@ -91,7 +98,7 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
   // GET /admin/badges/:id — Get badge by id
   app.get("/admin/badges/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const badge = await badges.getById(id);
+    const badge = await requireProgramBadge(id, request.programId);
     return reply.send({ data: badge });
   });
 
@@ -99,6 +106,7 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
   app.patch("/admin/badges/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const body = updateSchema.parse(request.body);
+    await requireProgramBadge(id, request.programId);
     const badge = await badges.update(id, body);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "badge", id, body);
     return reply.send({ data: badge });
@@ -107,6 +115,7 @@ export function adminBadgesRoutes(app: FastifyInstance, _opts: unknown, done: ()
   // DELETE /admin/badges/:id — Soft delete badge
   app.delete("/admin/badges/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    await requireProgramBadge(id, request.programId);
     await badges.delete(id);
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "badge", id, { isActive: false });
     return reply.status(204).send();

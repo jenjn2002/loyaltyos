@@ -12,14 +12,19 @@ export interface CouponCreateInput {
   maxUses?: number;
   maxUsesPerMember?: number;
   isStackable?: boolean;
+  isActive?: boolean;
   channels?: string[];
   startsAt?: Date;
   expiresAt?: Date;
 }
 
-export type CouponUpdateInput = Partial<Omit<CouponCreateInput, "programId" | "code" | "mode">>;
+export type CouponUpdateInput = Omit<Partial<CouponCreateInput>, "programId" | "code" | "mode" | "maxUses" | "expiresAt"> & {
+  maxUses?: number | null;
+  expiresAt?: Date | null;
+};
 
 export interface CouponValidateContext {
+  programId: string;
   memberId: string;
   purchaseAmount?: number;
   channel?: string;

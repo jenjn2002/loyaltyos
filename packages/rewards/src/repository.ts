@@ -29,9 +29,6 @@ export function createRepository(prisma: PrismaClient) {
     async findById(id: string): Promise<RewardWithRedemptions | null> {
       return prisma.reward.findFirst({
         where: { id, deletedAt: null },
-        include: {
-          redemptions: { select: { id: true, memberId: true } },
-        },
       }) as Promise<RewardWithRedemptions | null>;
     },
 
@@ -80,9 +77,6 @@ export function createRepository(prisma: PrismaClient) {
       const [items, total] = await Promise.all([
         prisma.reward.findMany({
           where,
-          include: {
-            redemptions: { select: { id: true, memberId: true } },
-          },
           skip: (page - 1) * pageSize,
           take: pageSize,
           orderBy: { createdAt: "desc" },

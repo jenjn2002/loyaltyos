@@ -15,23 +15,76 @@ export async function runOccasions(now = new Date()): Promise<void> {
       AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }, { OR: [{ endsAt: null }, { endsAt: { gte: now } }] }],
     } });
     if (!campaigns.length) continue;
-    let cursor: string | undefined;
-    do {
-      const members = await prisma.member.findMany({
-        where: { programId: definition.programId, status: "ACTIVE", deletedAt: null },
-        select: { id: true, joinedAt: true, metadata: true }, orderBy: { id: "asc" }, take: 200,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      for (const member of members) for (const campaign of campaigns) {
-        const key = parsed.data.mode === "MANUAL"
-          ? `manual:${campaign.updatedAt.toISOString()}`
-          : occasionKey(parsed.data, member, now, campaign.startsAt && campaign.startsAt > campaign.createdAt ? campaign.startsAt : campaign.createdAt);
-        if (!key) continue;
-        try { await issueOccasion(campaign.id, member.id, key, definition.key); }
-        catch (error) { failures++; console.error("Occasion issuance failed", { campaignId: campaign.id, memberId: member.id, occurrence: key, error }); }
+    for (const campaign of campaigns) {
+      let manualRunClaimed = false;
+      if (parsed.data.mode === "MANUAL") {
+        let execution = await prisma.campaignManualExecution.findUnique({ where: { campaignId: campaign.id } });
+        if (!execution) {
+          try {
+            execution = await prisma.campaignManualExecution.create({ data: { campaignId: campaign.id } });
+            manualRunClaimed = true;
+          } catch (error) {
+            if (!(error && typeof error === "object" && "code" in error && error.code === "P2002")) throw error;
+            execution = await prisma.campaignManualExecution.findUnique({ where: { campaignId: campaign.id } });
+          }
+        }
+        if (!manualRunClaimed && execution && execution.status !== "COMPLETED") {
+          const staleLease = execution.status === "RUNNING" && execution.startedAt.getTime() < now.getTime() - 10 * 60_000;
+          if (execution.status === "FAILED" || staleLease) {
+            const claim = await prisma.campaignManualExecution.updateMany({
+              where: { id: execution.id, status: execution.status, startedAt: execution.startedAt },
+              data: { status: "RUNNING", startedAt: now, completedAt: null, error: null },
+            });
+            manualRunClaimed = claim.count === 1;
+          }
+        }
+        if (!manualRunClaimed) continue;
       }
-      cursor = members.length === 200 ? members[members.length - 1]!.id : undefined;
-    } while (cursor);
+
+      let campaignFailures = 0;
+      let cursor: string | undefined;
+      do {
+        const members = await prisma.member.findMany({
+          where: { programId: definition.programId, status: "ACTIVE", deletedAt: null },
+          select: { id: true, joinedAt: true, metadata: true }, orderBy: { id: "asc" }, take: 200,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        for (const member of members) {
+          const occurrence = parsed.data.mode === "MANUAL"
+            ? `manual:${campaign.id}`
+            : occasionKey(parsed.data, member, now, campaign.startsAt && campaign.startsAt > campaign.createdAt ? campaign.startsAt : campaign.createdAt);
+          if (!occurrence) continue;
+          try {
+            await issueOccasion(
+              campaign.id,
+              member.id,
+              occurrence,
+              definition.key,
+              {},
+              parsed.data.mode === "MANUAL" ? { ignoreSchedule: true, allowMissingDefinition: true } : {},
+            );
+          } catch (error) {
+            failures++;
+            campaignFailures++;
+            console.error("Occasion issuance failed", { campaignId: campaign.id, memberId: member.id, occurrence, error });
+          }
+        }
+        cursor = members.length === 200 ? members[members.length - 1]!.id : undefined;
+      } while (cursor);
+
+      if (manualRunClaimed) {
+        const stillRunnable = await prisma.campaign.findFirst({
+          where: { id: campaign.id, isActive: true, deletedAt: null, approvalStatus: { in: ["NOT_REQUIRED", "APPROVED"] } },
+          select: { id: true },
+        });
+        await prisma.campaignManualExecution.update({
+          where: { campaignId: campaign.id },
+          data: campaignFailures > 0 || !stillRunnable
+            ? { status: "FAILED", completedAt: null, error: campaignFailures > 0 ? `${campaignFailures} member issuance attempts failed.` : "Campaign was paused during execution." }
+            : { status: "COMPLETED", completedAt: new Date(), error: null },
+        });
+      }
+    }
   }
   if (failures) throw new Error(`${failures} occasion grants failed; see worker logs. Successful grants will not be repeated.`);
 }

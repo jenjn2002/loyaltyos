@@ -59,7 +59,12 @@ describe("LoyaltyPointsCard", () => {
   });
 
   it("renders balance stats after fetch succeeds", async () => {
-    const balance: Balance = { confirmed: 5000, pending: 1000, total: 6000 };
+    const balance: Balance = {
+      wallets: [
+        { pointTypeId: "p", code: "P-CREDIT", name: "Purchase Credit", unitLabel: "P", balance: 5000 },
+        { pointTypeId: "r", code: "R-CREDIT", name: "Reward Credit", unitLabel: "R", balance: 1000 },
+      ],
+    };
     const mock = mockFetchWithData(balance);
 
     const el = await fixture<LoyaltyPointsCard>(html`
@@ -76,7 +81,9 @@ describe("LoyaltyPointsCard", () => {
 
     expect(mock.mock.calls.length).toBeGreaterThan(0);
     const stats = el.shadowRoot!.querySelectorAll(".stat-value");
-    expect(stats.length).toBe(3);
+    expect(stats.length).toBe(2);
+    expect(el.shadowRoot!.textContent).toContain("Purchase Credit");
+    expect(el.shadowRoot!.textContent).toContain("Reward Credit");
   });
 
   it("shows error message on fetch failure", async () => {
@@ -98,7 +105,9 @@ describe("LoyaltyPointsCard", () => {
   });
 
   it("re-fetches on loyaltyos:balance-updated event", async () => {
-    const balance: Balance = { confirmed: 5000, pending: 0, total: 5000 };
+    const balance: Balance = {
+      wallets: [{ pointTypeId: "p", code: "P-CREDIT", name: "Purchase Credit", unitLabel: "P", balance: 5000 }],
+    };
     const mock = vi
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({ data: balance }), { status: 200 }));

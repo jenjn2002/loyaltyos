@@ -4,29 +4,25 @@ import { z } from "zod";
 import type { LoyaltyOSClient } from "../client.js";
 import { mapAxiosError } from "../errors.js";
 
-const CampaignType = z.enum([
-  "bonus_points",
-  "spend_and_get",
-  "frequency",
-  "milestone",
-  "referral",
-  "birthday",
-  "flash_sale",
-  "tier_upgrade_bonus",
-]);
-
 const CampaignStatus = z.enum(["active", "draft", "paused", "ended"]);
 
 export const CampaignCreateSchema = z.object({
   name: z.string().min(1).max(100),
-  type: CampaignType,
-  startDate: z.string().describe("ISO datetime"),
-  endDate: z.string().optional().describe("ISO datetime, omit for open-ended"),
+  pointTypeId: z.string().min(1).describe("Point type to issue"),
+  type: z.enum(["BONUS_POINTS", "SPEND_AND_GET", "FREQUENCY", "MILESTONE", "REFERRAL", "BIRTHDAY", "ANNIVERSARY", "FLASH_SALE", "TIER_UPGRADE_BONUS"]),
+  startsAt: z.string().nullable().optional().describe("ISO datetime"),
+  endsAt: z.string().nullable().optional().describe("ISO datetime, omit for open-ended"),
+  eventType: z.string().optional().describe("Configured trigger event key"),
   segmentId: z.string().optional().describe("Target segment ID; omit for all members"),
-  rules: z.record(z.unknown()).describe("Type-specific rules object"),
-  stackable: z.boolean().optional().default(false),
-  budgetCap: z.number().optional().describe("Max total points for this campaign"),
-  status: z.enum(["draft", "active"]).optional().default("draft"),
+  conditions: z.record(z.unknown()).optional().describe("Campaign condition object"),
+  multiplier: z.number().int().positive().optional().describe("Points awarded per qualifying event"),
+  isStackable: z.boolean().optional().default(false),
+  maxBudget: z.number().int().positive().nullable().optional().describe("Omit or null for unlimited"),
+  maxUsesPerMember: z.number().int().min(0).optional(),
+  issuanceMode: z.enum(["AUTO", "CLAIM"]).optional(),
+  issuancePolicy: z.enum(["STANDING", "APPROVAL_REQUIRED"]).optional(),
+  saveAsDraft: z.boolean().optional().default(true),
+  justification: z.string().optional(),
 });
 
 export const CampaignsListSchema = z.object({

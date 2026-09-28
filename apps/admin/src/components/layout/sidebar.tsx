@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Award,
   BarChart3,
+  Bell,
   ChevronDown,
+  Download,
   Gift,
   History,
   LayoutDashboard,
@@ -25,6 +27,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { EnvironmentSwitch } from "@/components/layout/environment-switch";
 import {
   Select,
   SelectContent,
@@ -36,8 +39,15 @@ import { Separator } from "@/components/ui/separator";
 import { persistLocale } from "@/i18n";
 import { adminLogout, fetchApi, isAdminAuthenticated } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-
 import { useAdminNotifications } from "./admin-notification-context";
+
+const EXPORTABLE_CAPABILITIES = [
+  "member.view", "wallet.view", "bank.view", "exchange.view", "point_type.view",
+  "issuance.view", "campaign.view", "event.view", "coupon.view", "reward.view",
+  "segment.view", "tier.view", "badge.view", "approval.view", "workflow.view",
+  "audit.view", "notification.view", "giftcard.view", "coalition.view", "project.view",
+  "recognition.view",
+];
 
 interface SidebarItem {
   to: string;
@@ -162,8 +172,13 @@ export function Sidebar(): JSX.Element {
     enabled: authenticated,
     staleTime: 30_000,
   });
-  const canSee = ({ capability }: SidebarItem): boolean =>
-    !authenticated || admin.isLoading || admin.data?.capabilities[capability] !== false;
+  const canSee = ({ capability }: SidebarItem): boolean => {
+    if (!authenticated || admin.isLoading) return true;
+    if (capability === "exports.view") {
+      return EXPORTABLE_CAPABILITIES.some((item) => admin.data?.capabilities[item] === true);
+    }
+    return admin.data?.capabilities[capability] === true;
+  };
   const filterLinks = (items: SidebarItem[]): SidebarItem[] => items.filter(canSee);
   const links = filterLinks([
     {
@@ -180,6 +195,8 @@ export function Sidebar(): JSX.Element {
       capability: "permission.manage",
     },
     { to: "/logs", label: ui("Logs"), icon: History, capability: "audit.view" },
+    { to: "/exports", label: ui("Data export"), icon: Download, capability: "exports.view" },
+    { to: "/projects", label: ui("Group projects"), icon: Users, capability: "project.view" },
     { to: "/segments", label: t("navigation.segments"), icon: PieChart, capability: "segment.view" },
     { to: "/badges", label: t("navigation.badges"), icon: Award, capability: "badge.view" },
     { to: "/tiers", label: t("navigation.tiers"), icon: BarChart3, capability: "tier.view" },
@@ -203,6 +220,7 @@ export function Sidebar(): JSX.Element {
       capability: "workflow.view",
     },
     { to: "/event-definitions", label: ui("Event definitions"), icon: Zap, capability: "event.view" },
+    { to: "/notification-templates", label: ui("Notification templates"), icon: Bell, capability: "notification.view" },
     { to: "/credits/categories", label: ui("Recognition categories"), capability: "recognition.view" },
   ]);
   const campaignLinks = filterLinks([
@@ -240,6 +258,7 @@ export function Sidebar(): JSX.Element {
   const automationSectionActive =
     location.pathname.startsWith("/workflows") ||
     location.pathname.startsWith("/event-definitions") ||
+    location.pathname.startsWith("/notification-templates") ||
     location.pathname.startsWith("/credits/categories") ||
     location.pathname.startsWith("/settings");
   const campaignsSectionActive =
@@ -323,6 +342,7 @@ export function Sidebar(): JSX.Element {
           .map((item) => <SidebarLink key={item.to} item={item} />)}
       </nav>
       <div className="border-t p-4 space-y-3">
+        {authenticated && <EnvironmentSwitch />}
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">{t("settings.language")}</label>
           <Select value={i18n.language} onValueChange={handleLocaleChange}>

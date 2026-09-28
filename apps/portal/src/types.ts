@@ -6,13 +6,18 @@ export interface MemberProfile {
   lastName: string | null;
   department?: string | null;
   photoUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+  memberFields?: Array<{
+    key: string;
+    label: string;
+    type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT";
+    required: boolean;
+    options: string[];
+  }>;
   joinedAt: string;
 }
 
 export interface Balance {
-  confirmed: number;
-  pending: number;
-  total: number;
   wallets?: Array<{
     pointTypeId: string;
     code: string;
@@ -207,6 +212,7 @@ export interface PointTransaction {
   amount: number;
   balanceAfter: number;
   source: string;
+  sourceLabel?: string;
   reason: string | null;
   message: string | null;
   pointType: {
@@ -237,7 +243,7 @@ export interface Reward {
   category: string | null;
   tierRequired: string | null;
   isActive: boolean;
-  redemptions: { id: string; memberId: string }[];
+  redemptions?: { id: string; memberId: string }[];
   pointPrices?: {
     id: string;
     pointTypeId: string;
@@ -289,9 +295,16 @@ export interface TierStatus {
     name: string;
     rank: number;
     minPoints: number;
+    qualificationOperator?: "AND" | "OR";
   } | null;
   pointsProgress: number;
   pointsToNext: number | null;
+  nextTierProgress?: Array<{
+    pointTypeId: string;
+    earned: number;
+    required: number;
+    remaining: number;
+  }>;
 }
 
 export interface RedeemResult {

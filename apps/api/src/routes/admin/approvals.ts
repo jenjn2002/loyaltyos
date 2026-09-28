@@ -6,11 +6,13 @@ import {
   getApprovalRequest,
   listApprovalRequests,
 } from "../../lib/approval-workflows.js";
+import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { requireCapability } from "../../lib/permissions.js";
 import { pointExchangeApprovalHook } from "../../lib/workflow-integrations.js";
 import { notifyCreditExchangeDecision } from "../../lib/member-notifications.js";
 import { runOccasions } from "../../workers/occasions.js";
+import { prisma } from "../../db.js";
 
 const pageQuery = z.object({
   status: z.enum(["PENDING", "APPROVED", "REJECTED", "CANCELLED"]).optional(),
@@ -36,13 +38,41 @@ export function adminApprovalsRoutes(
     },
   );
 
+  app.post(
+    "/admin/approvals/read-state",
+    { preHandler: [requireCapability("approval.inbox")] },
+    async (request, reply) => {
+      const body = z.object({
+        ids: z.array(z.string().min(1)).max(200),
+        isRead: z.boolean(),
+      }).parse(request.body);
+      const currentAdminId = adminId(request);
+      const requestedIds = [...new Set(body.ids)];
+      const inbox = await listApprovalRequests(request.programId, { inboxForAdminId: currentAdminId });
+      const inboxIds = new Set(inbox.map((item) => item.id));
+      if (requestedIds.some((id) => !inboxIds.has(id)))
+        throw new LoyaltyError("APPROVAL_REQUEST_NOT_IN_INBOX", 404);
+      if (body.isRead && requestedIds.length > 0) {
+        await prisma.adminApprovalNotificationRead.createMany({
+          data: requestedIds.map((approvalRequestId) => ({ adminUserId: currentAdminId, approvalRequestId })),
+          skipDuplicates: true,
+        });
+      } else if (requestedIds.length > 0) {
+        await prisma.adminApprovalNotificationRead.deleteMany({
+          where: { adminUserId: currentAdminId, approvalRequestId: { in: requestedIds } },
+        });
+      }
+      return reply.status(204).send();
+    },
+  );
+
   app.get(
     "/admin/approvals/history",
     { preHandler: [requireCapability("approval.view")] },
     async (request, reply) => {
       const query = pageQuery.parse(request.query);
       return reply.send({
-        data: await listApprovalRequests(request.programId, { status: query.status }),
+        data: await listApprovalRequests(request.programId, { status: query.status, resolvedOnly: query.status === undefined }),
       });
     },
   );
@@ -79,6 +109,14 @@ export function adminApprovalsRoutes(
       if (result.actionKey === "POINT_EXCHANGE" && (result.status === "APPROVED" || result.status === "REJECTED")) {
         await notifyCreditExchangeDecision(request.programId, result.subjectId, result.status);
       }
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "approval_request", id, {
+        operation: kind,
+        actionKey: result.actionKey,
+        subjectType: result.subjectType,
+        subjectId: result.subjectId,
+        status: result.status,
+        comment: body.comment ?? null,
+      });
       return reply.send({ data: result });
     };
 

@@ -129,7 +129,7 @@ export function createRepository(prisma: PrismaClient) {
       const page = pagination?.page ?? 1;
       const pageSize = pagination?.pageSize ?? 20;
 
-      const where: Prisma.NotificationWhereInput = { memberId };
+      const where: Prisma.NotificationWhereInput = { memberId, channel: "IN_APP" };
 
       const [items, total] = await Promise.all([
         prisma.notification.findMany({
@@ -146,16 +146,25 @@ export function createRepository(prisma: PrismaClient) {
 
     async countUnreadNotifications(memberId: string): Promise<number> {
       return prisma.notification.count({
-        where: { memberId, status: { not: "READ" } },
+        where: { memberId, channel: "IN_APP", readAt: null, status: { not: "READ" } },
       });
     },
 
     async markMemberNotificationsRead(memberId: string): Promise<number> {
       const result = await prisma.notification.updateMany({
-        where: { memberId, status: { not: "READ" } },
-        data: { status: "READ", readAt: new Date() },
+        where: { memberId, channel: "IN_APP", readAt: null, status: { not: "READ" } },
+        data: { readAt: new Date(), status: "READ" },
       });
       return result.count;
+    },
+
+    async setMemberNotificationRead(memberId: string, id: string, read: boolean): Promise<NotificationRow | null> {
+      const result = await prisma.notification.updateMany({
+        where: { id, memberId, channel: "IN_APP" },
+        data: { readAt: read ? new Date() : null, status: read ? "READ" : "SENT" },
+      });
+      if (result.count === 0) return null;
+      return prisma.notification.findFirst({ where: { id, memberId, channel: "IN_APP" } });
     },
 
     // Webhook Subscriptions
@@ -168,8 +177,8 @@ export function createRepository(prisma: PrismaClient) {
       return prisma.webhookSubscription.create({ data });
     },
 
-    async findWebhookById(id: string) {
-      return prisma.webhookSubscription.findFirst({ where: { id } });
+    async findWebhookById(id: string, programId: string) {
+      return prisma.webhookSubscription.findFirst({ where: { id, programId } });
     },
 
     async findWebhooks(
@@ -194,18 +203,22 @@ export function createRepository(prisma: PrismaClient) {
 
     async updateWebhook(
       id: string,
+      programId: string,
       data: { url?: string; events?: string[]; secret?: string; isActive?: boolean },
     ) {
-      return prisma.webhookSubscription.update({ where: { id }, data });
+      const updated = await prisma.webhookSubscription.updateMany({ where: { id, programId }, data });
+      if (updated.count === 0) return null;
+      return prisma.webhookSubscription.findFirst({ where: { id, programId } });
     },
 
-    async deleteWebhook(id: string): Promise<void> {
-      await prisma.webhookSubscription.delete({ where: { id } });
+    async deleteWebhook(id: string, programId: string): Promise<boolean> {
+      const deleted = await prisma.webhookSubscription.deleteMany({ where: { id, programId } });
+      return deleted.count > 0;
     },
 
     // Notification list (admin)
     async findNotifications(
-      _programId: string,
+      programId: string,
       filters: {
         channel?: string;
         status?: string;
@@ -214,7 +227,7 @@ export function createRepository(prisma: PrismaClient) {
         pageSize?: number;
       } = {},
     ) {
-      const where: Prisma.NotificationWhereInput = {};
+      const where: Prisma.NotificationWhereInput = { member: { is: { programId } } };
       if (filters.channel) where.channel = filters.channel as never;
       if (filters.status) where.status = filters.status as never;
       if (filters.memberId) where.memberId = filters.memberId;

@@ -4,34 +4,19 @@ import { z } from "zod";
 import type { LoyaltyOSClient } from "../client.js";
 import { mapAxiosError } from "../errors.js";
 
-const SegmentRuleSchema = z.object({
-  field: z.enum([
-    "pointBalance",
-    "tier",
-    "inactiveDays",
-    "totalSpend",
-    "joinedDaysAgo",
-    "lastPurchaseDaysAgo",
-    "tags",
-  ]),
-  operator: z.enum(["gt", "lt", "eq", "gte", "lte", "in", "not_in"]),
-  value: z.unknown(),
-});
-
 export const SegmentCreateSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  rules: z.array(SegmentRuleSchema).min(1),
-  logic: z.enum(["AND", "OR"]).optional().default("AND"),
-});
+  type: z.enum(["STATIC", "DYNAMIC"]).default("DYNAMIC"),
+  rules: z.record(z.unknown()).optional().describe("Nested rule group, e.g. {all:[{field:'department',eq:'Sales'}]}"),
+  memberIds: z.array(z.string().min(1)).optional(),
+}).strict();
 
 export const SegmentsListSchema = z.object({});
 
 export const SegmentPreviewSchema = z.object({
-  rules: z.array(SegmentRuleSchema).min(1),
-  logic: z.enum(["AND", "OR"]).optional().default("AND"),
-  sampleSize: z.number().int().min(1).max(20).optional().default(5),
-});
+  rules: z.record(z.unknown()),
+}).strict();
 
 export function registerSegmentTools(server: McpServer, client: LoyaltyOSClient): void {
   server.tool(

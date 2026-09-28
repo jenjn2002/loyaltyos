@@ -7,11 +7,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { LoyaltyOSClient } from "./client.js";
 import { defaultRateLimiter } from "./rate-limiter.js";
 import { createMcpServer } from "./server.js";
+import { extractApiKeyFromHeaders, validateApiKey } from "./auth.js";
 
 const LOYALTYOS_API_URL = process.env.LOYALTYOS_API_URL ?? "http://localhost:3002";
 const LOYALTYOS_API_KEY = process.env.LOYALTYOS_API_KEY ?? "";
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT ?? "stdio";
 const MCP_SERVER_PORT = Number(process.env.MCP_SERVER_PORT ?? "3010");
+const MCP_API_KEY = process.env.MCP_API_KEY ?? "";
 
 async function startStdio(): Promise<void> {
   const client = new LoyaltyOSClient(LOYALTYOS_API_URL, LOYALTYOS_API_KEY);
@@ -22,6 +24,7 @@ async function startStdio(): Promise<void> {
 }
 
 async function startSSE(): Promise<void> {
+  if (!MCP_API_KEY) throw new Error("MCP_API_KEY must be configured for SSE transport");
   const client = new LoyaltyOSClient(LOYALTYOS_API_URL, LOYALTYOS_API_KEY);
 
   // We use a simple HTTP server for SSE transport using the MCP SDK's
@@ -49,6 +52,15 @@ async function startSSE(): Promise<void> {
       }
 
       if (req.method === "POST" && req.url === "/mcp") {
+        const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
+        const providedKey = extractApiKeyFromHeaders(authorization ? { authorization } : {});
+        try {
+          validateApiKey(providedKey, MCP_API_KEY);
+        } catch {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
         try {
           defaultRateLimiter.check("sse");
           const server = createMcpServer(client);

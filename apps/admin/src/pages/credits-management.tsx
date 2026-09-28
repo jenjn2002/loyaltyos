@@ -17,6 +17,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { fetchApi } from "@/lib/api-client";
 
 interface PointType {
@@ -31,6 +38,15 @@ interface PointType {
   exchangeable: boolean;
   cashEligible: boolean;
   expiryMode: string;
+}
+interface ImportMemberField {
+  id: string;
+  key: string;
+  label: string;
+  type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT";
+  required: boolean;
+  isActive: boolean;
+  options: string[] | null;
 }
 interface Bank {
   pointTypeId: string;
@@ -115,12 +131,21 @@ interface Cycle {
   pointTypeId: string;
   startsAt: string;
   endsAt: string;
+  createdAt: string;
   status: string;
   opening: number;
   allocated: number;
   closing: number;
-  pointType: { code: string; name: string };
+  clearedAt: string | null;
+  clearReason: string | null;
+  note: string | null;
+  pointType: { code: string; name: string; unitLabel: string };
   createdBy?: { id: string; name: string; email: string | null } | null;
+  closedBy?: { id: string; name: string; email: string | null; type: string } | null;
+}
+interface CycleDetail extends Cycle {
+  pointType: { id: string; code: string; name: string; unitLabel: string };
+  transactions: Page<BankTransaction>;
 }
 interface BankTransaction {
   id: string;
@@ -134,6 +159,7 @@ interface BankTransaction {
   createdAt: string;
   pointType: { id: string; code: string; name: string; unitLabel: string };
   cycle: { id: string; startsAt: string; endsAt: string; status: string } | null;
+  actor?: { id: string; name: string; email: string | null; type: string } | null;
 }
 type LedgerSource = "wallet" | "bank";
 interface BulkBatch {
@@ -148,6 +174,12 @@ interface BulkBatch {
 export type CreditsSection = "wallets" | "banks" | "ledger" | "exchange" | "categories" | "import";
 
 const BULK_REQUIRED_FIELDS = ["email", "externalId"] as const;
+
+export function canonicalImportField(value: string): string {
+  const unquoted = value.replace(/^\uFEFF/, "").trim().replace(/^"([\s\S]*)"$/, "$1").replaceAll('""', '"');
+  const normalized = unquoted.trim().replace(/[\s-]+/g, "_").toLowerCase();
+  return normalized === "external_id" ? "externalid" : normalized;
+}
 const BULK_OPTIONAL_MEMBER_FIELDS = [
   "memberId",
   "phone",
@@ -172,7 +204,11 @@ function buildBulkHeader(types: PointType[], selectedFields: string[] = [...BULK
   ].join(",");
 }
 
-function importFieldLabel(field: string, types: PointType[]): string {
+function importFieldLabel(field: string, types: PointType[], memberFields: ImportMemberField[] = []): string {
+  if (field.startsWith("custom:")) {
+    const customField = memberFields.find((item) => item.key === field.slice("custom:".length));
+    return customField ? `${customField.label} · ${ui("Member field")}` : field;
+  }
   const [prefix, code] = field.split("_");
   const pointType = types.find((type) => type.code.toLowerCase() === code?.toLowerCase());
   if (prefix === "point" && pointType) return `${pointType.name} · ${ui("Point adjustment")}`;
@@ -268,6 +304,19 @@ function actorLabel(item: LedgerItem | BankTransaction): string {
   return `${item.actorType ?? "—"}: ${item.actorId}`;
 }
 
+function bankTransactionTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    ISSUANCE: "Bank funding",
+    ALLOCATION: "Member issuance",
+    AUTO_ISSUANCE: "Automatic issuance",
+    GIVE_ALLOCATION: "Give allowance used",
+    RETURN: "Returned to bank",
+    PROJECT_FUNDING: "Project budget reserved",
+    PROJECT_RETURN: "Unused project budget returned",
+  };
+  return ui(labels[type] ?? type);
+}
+
 export function CreditsManagementPage({
   section = "wallets",
 }: {
@@ -305,6 +354,8 @@ export function CreditsManagementPage({
   const [cycleStart, setCycleStart] = useState("");
   const [cycleEnd, setCycleEnd] = useState("");
   const [cycleNote, setCycleNote] = useState("");
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
+  const [cycleDetailPage, setCycleDetailPage] = useState(1);
   const [bulkFormat, setBulkFormat] = useState<"csv" | "xlsx">("csv");
   const [bulkSelectedFields, setBulkSelectedFields] = useState<string[]>([...BULK_REQUIRED_FIELDS]);
   const [bulkContent, setBulkContent] = useState(`${buildBulkHeader([], [...BULK_REQUIRED_FIELDS])}\n`);
@@ -319,18 +370,36 @@ export function CreditsManagementPage({
     () => (pointTypes.data ?? []).filter((type) => type.isActive && !type.archivedAt),
     [pointTypes.data],
   );
+  const importMemberFields = useQuery({
+    queryKey: ["member-fields", "bulk-import"],
+    queryFn: () => fetchApi<ImportMemberField[]>("/admin/member-fields"),
+    enabled: section === "import",
+  });
+  const activeMemberFields = useMemo(
+    () => (importMemberFields.data ?? []).filter((field) => field.isActive),
+    [importMemberFields.data],
+  );
   const importFieldOptions = useMemo(
     () => [
       ...BULK_REQUIRED_FIELDS.map((key) => ({ key, mandatory: true })),
       ...BULK_OPTIONAL_MEMBER_FIELDS.map((key) => ({ key, mandatory: false })),
+      ...activeMemberFields.map((field) => ({ key: `custom:${field.key}`, mandatory: field.required })),
       ...activeTypes.flatMap((type) => [
         { key: `point_${type.code}`, mandatory: false },
         { key: `balance_${type.code}`, mandatory: false },
         ...(type.expiryMode === "PER_GRANT" ? [{ key: `expiry_${type.code}`, mandatory: false }] : []),
       ]),
     ],
-    [activeTypes],
+    [activeTypes, activeMemberFields],
   );
+  useEffect(() => {
+    const requiredCustom = activeMemberFields.filter((field) => field.required).map((field) => `custom:${field.key}`);
+    if (!requiredCustom.length) return;
+    const selected = [...new Set([...BULK_REQUIRED_FIELDS, ...requiredCustom])];
+    setBulkSelectedFields((current) => [...new Set([...current, ...requiredCustom])]);
+    const emptyTemplate = `${buildBulkHeader([], [...BULK_REQUIRED_FIELDS])}\n`;
+    setBulkContent((current) => current === emptyTemplate ? `${buildBulkHeader(activeTypes, selected)}\n` : current);
+  }, [activeMemberFields, activeTypes]);
   const banks = useQuery({
     queryKey: ["credits", "banks"],
     queryFn: () => fetchApi<Bank[]>("/admin/credits/bank"),
@@ -356,6 +425,11 @@ export function CreditsManagementPage({
     queryKey: ["credits", "bank-cycles"],
     queryFn: () => fetchApi<Cycle[]>("/admin/credits/bank/cycles"),
     enabled: section === "banks",
+  });
+  const cycleDetail = useQuery({
+    queryKey: ["credits", "bank-cycle", selectedCycleId, cycleDetailPage],
+    queryFn: () => fetchApi<CycleDetail>(`/admin/credits/bank/cycles/${selectedCycleId}?page=${cycleDetailPage}&pageSize=25`),
+    enabled: section === "banks" && Boolean(selectedCycleId),
   });
   const ledger = useQuery<Page<LedgerItem | BankTransaction>>({
     queryKey: [
@@ -645,12 +719,15 @@ export function CreditsManagementPage({
         const headers = content
           .split(/\r?\n/)
           .map((line) => line.split(",").map((value) => value.trim()))
-          .find((line) => line.some((value) => value === "email" || value === "externalId" || value === "memberId"));
+          .find((line) => line.some((value) => ["email", "externalid", "external_id", "memberid"].includes(canonicalImportField(value))));
         if (headers?.length) {
-          const known = new Set(importFieldOptions.map((option) => option.key));
           setBulkSelectedFields([
             ...BULK_REQUIRED_FIELDS,
-            ...headers.filter((header) => known.has(header) && !BULK_REQUIRED_FIELDS.includes(header as (typeof BULK_REQUIRED_FIELDS)[number])),
+            ...headers.flatMap((header) => {
+              const canonical = canonicalImportField(header);
+              const field = importFieldOptions.find((option) => canonicalImportField(option.key) === canonical)?.key;
+              return field && !BULK_REQUIRED_FIELDS.includes(field as (typeof BULK_REQUIRED_FIELDS)[number]) ? [field] : [];
+            }),
           ]);
         }
       }
@@ -688,6 +765,12 @@ export function CreditsManagementPage({
     anchor.click();
     URL.revokeObjectURL(url);
   };
+
+  const cycleDetailData = cycleDetail.data?.id === selectedCycleId ? cycleDetail.data : null;
+  const cycleTransactionPages = Math.max(
+    1,
+    cycleDetailData?.transactions.totalPages ?? 1,
+  );
 
   return (
     <div className="space-y-6 pb-10">
@@ -1443,36 +1526,135 @@ export function CreditsManagementPage({
                   }}
                 >{ui("Open cycle")}</Button>
                 <div className="space-y-2">
-                  {(cycles.data ?? []).map((cycle) => (
-                    <div
-                      key={cycle.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
-                    >
-                      <span>
-                        {cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleDateString()}–
-                        {new Date(cycle.endsAt).toLocaleDateString()} · {cycle.status}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{ui("Created by")}: {cycle.createdBy ? `${cycle.createdBy.name}${cycle.createdBy.email ? ` · ${cycle.createdBy.email}` : ""}` : ui("System / legacy")}</span>
-                      <span>
-                        Opening {cycle.opening.toLocaleString()} · allocated{" "}
-                        {cycle.allocated.toLocaleString()} · closing{" "}
-                        {cycle.closing.toLocaleString()}
-                      </span>
-                      {cycle.status === "OPEN" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            clearCycle.mutate(cycle.id);
-                          }}
-                        >{ui("Close cycle")}</Button>
-                      )}
-                    </div>
-                  ))}
+                  {(cycles.data ?? []).map((cycle) => {
+                    return (
+                      <div key={cycle.id} className="overflow-hidden rounded-md border text-sm">
+                        <div className="space-y-3 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleDateString()}–{new Date(cycle.endsAt).toLocaleDateString()}</p>
+                              <p className="text-xs text-muted-foreground">{ui(cycle.status)}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedCycleId(cycle.id);
+                                  setCycleDetailPage(1);
+                                }}
+                              >{ui("View details")}</Button>
+                              {cycle.status === "OPEN" && (
+                                <Button size="sm" variant="outline" onClick={() => clearCycle.mutate(cycle.id)}>
+                                  {ui("Close cycle")}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+                            <p>{ui("Opening balance")}: <span className="font-medium">{cycle.opening.toLocaleString()}</span></p>
+                            <p>{ui("Allocated")}: <span className="font-medium">{cycle.allocated.toLocaleString()}</span></p>
+                            {cycle.status === "CLEARED" && <p>{ui("Closing balance")}: <span className="font-medium">{cycle.closing.toLocaleString()}</span></p>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
           )}
+
+          <Dialog
+            open={Boolean(selectedCycleId)}
+            onOpenChange={(open) => {
+              if (!open) setSelectedCycleId(null);
+            }}
+          >
+            <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto">
+              <DialogHeader className="pr-8">
+                <DialogTitle>
+                  {cycleDetailData
+                    ? `${cycleDetailData.pointType.name} · ${ui("Bank cycle")}`
+                    : ui("Bank cycle details")}
+                </DialogTitle>
+                <DialogDescription>
+                  {cycleDetailData
+                    ? `${new Date(cycleDetailData.startsAt).toLocaleDateString()}–${new Date(cycleDetailData.endsAt).toLocaleDateString()}`
+                    : ui("Cycle details and transactions.")}
+                </DialogDescription>
+              </DialogHeader>
+
+              {cycleDetail.isError ? (
+                <p role="alert" className="text-sm text-destructive">{cycleDetail.error.message}</p>
+              ) : cycleDetail.isLoading || !cycleDetailData ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">{ui("Loading…")}</p>
+              ) : (
+                <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">{ui("Status")}</p>
+                      <p className="mt-1 font-medium">{ui(cycleDetailData.status)}</p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">{ui("Opening balance")}</p>
+                      <p className="mt-1 font-medium">{cycleDetailData.opening.toLocaleString()} {cycleDetailData.pointType.unitLabel}</p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">{ui("Allocated")}</p>
+                      <p className="mt-1 font-medium">{cycleDetailData.allocated.toLocaleString()} {cycleDetailData.pointType.unitLabel}</p>
+                    </div>
+                    {cycleDetailData.status === "CLEARED" && (
+                      <div className="rounded-md border p-3">
+                        <p className="text-xs text-muted-foreground">{ui("Closing balance")}</p>
+                        <p className="mt-1 font-medium">{cycleDetailData.closing.toLocaleString()} {cycleDetailData.pointType.unitLabel}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-x-6 gap-y-3 rounded-md border p-4 text-sm sm:grid-cols-2">
+                    <p><strong>{ui("Opened by")}:</strong> {cycleDetailData.createdBy ? `${cycleDetailData.createdBy.name}${cycleDetailData.createdBy.email ? ` · ${cycleDetailData.createdBy.email}` : ""}` : ui("System / legacy")}</p>
+                    <p><strong>{ui("Opened at")}:</strong> {new Date(cycleDetailData.createdAt).toLocaleString()}</p>
+                    {cycleDetailData.note && <p><strong>{ui("Opening note")}:</strong> {cycleDetailData.note}</p>}
+                    {cycleDetailData.status === "CLEARED" && <p><strong>{ui("Closed by")}:</strong> {cycleDetailData.closedBy ? `${cycleDetailData.closedBy.name}${cycleDetailData.closedBy.email ? ` · ${cycleDetailData.closedBy.email}` : ""}` : ui("System / legacy")}</p>}
+                    {cycleDetailData.status === "CLEARED" && cycleDetailData.clearedAt && <p><strong>{ui("Closed at")}:</strong> {new Date(cycleDetailData.clearedAt).toLocaleString()}</p>}
+                    {cycleDetailData.status === "CLEARED" && <p className="sm:col-span-2"><strong>{ui("Closing reason")}:</strong> {cycleDetailData.clearReason || ui("No closing reason recorded.")}</p>}
+                  </div>
+
+                  <section className="space-y-3">
+                    <div>
+                      <h3 className="font-semibold">{ui("Cycle transactions")}</h3>
+                      <p className="text-sm text-muted-foreground">{cycleDetailData.transactions.total} {ui("transactions")}</p>
+                    </div>
+                    {cycleDetailData.transactions.items.length > 0 ? (
+                      <div className="max-h-[35vh] space-y-2 overflow-y-auto rounded-md border p-2">
+                        {cycleDetailData.transactions.items.map((transaction) => (
+                          <div key={transaction.id} className="grid gap-1 rounded-md border bg-background p-3 text-xs sm:grid-cols-[1fr_auto]">
+                            <div className="min-w-0">
+                              <p className="font-medium">{bankTransactionTypeLabel(transaction.type)} · {new Date(transaction.createdAt).toLocaleString()}</p>
+                              <p className="mt-1 break-words text-muted-foreground">{ui("Reason:")} {transaction.reason || "—"}</p>
+                              <p className="mt-1 text-muted-foreground">{ui("Actor:")} {transaction.actor?.name ?? transaction.actorId}{transaction.actor?.email ? ` · ${transaction.actor.email}` : ""}</p>
+                            </div>
+                            <div className="text-left sm:text-right">
+                              <p className="font-semibold">{transaction.amount > 0 ? "+" : ""}{transaction.amount.toLocaleString()} {cycleDetailData.pointType.unitLabel}</p>
+                              <p className="mt-1 text-muted-foreground">{ui("Bank balance after")}: {transaction.balanceAfter.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">{ui("No bank transactions are linked to this cycle.")}</p>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <Button size="sm" variant="outline" disabled={cycleDetailPage <= 1} onClick={() => setCycleDetailPage((page) => page - 1)}>{ui("Previous")}</Button>
+                      <span className="text-xs text-muted-foreground">{ui("Page")} {cycleDetailData.transactions.page} / {cycleTransactionPages} · {cycleDetailData.transactions.total} {ui("transactions")}</span>
+                      <Button size="sm" variant="outline" disabled={cycleDetailPage >= cycleTransactionPages} onClick={() => setCycleDetailPage((page) => page + 1)}>{ui("Next")}</Button>
+                    </div>
+                  </section>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {section === "categories" && (
             <Card>
@@ -1616,7 +1798,7 @@ export function CreditsManagementPage({
                           });
                         }}
                       />
-                      <span className="flex-1">{importFieldLabel(option.key, activeTypes)}</span>
+                      <span className="flex-1">{importFieldLabel(option.key, activeTypes, activeMemberFields)}</span>
                       {option.mandatory && <span className="text-xs font-medium text-muted-foreground">{ui("Mandatory")}</span>}
                     </label>
                   );

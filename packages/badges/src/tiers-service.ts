@@ -42,6 +42,22 @@ function qualifies(
   return tier.qualificationOperator === "OR" ? matches.some(Boolean) : matches.every(Boolean);
 }
 
+function progressByPointType(
+  next: TierRow | null,
+  pointTotals: Record<string, number>,
+): TierEvaluationResult["nextTierProgress"] {
+  if (!next) return [];
+  return qualificationRules(next).map((rule) => {
+    const earned = pointTotals[rule.pointTypeId] ?? 0;
+    return {
+      pointTypeId: rule.pointTypeId,
+      earned,
+      required: rule.minPoints,
+      remaining: Math.max(0, rule.minPoints - earned),
+    };
+  });
+}
+
 function progressToNext(
   current: TierRow,
   next: TierRow | null,
@@ -156,6 +172,7 @@ export class TiersService {
         pointsProgress: 0,
         pointsToNext: null,
         nextTier: null,
+        nextTierProgress: [],
       };
     }
 
@@ -203,6 +220,7 @@ export class TiersService {
         pointsProgress,
         pointsToNext,
         nextTier,
+        nextTierProgress: progressByPointType(nextTier, pointTotals),
       };
     }
 
@@ -222,6 +240,7 @@ export class TiersService {
         pointsProgress,
         pointsToNext,
         nextTier,
+        nextTierProgress: progressByPointType(nextTier, pointTotals),
       };
     }
 
@@ -247,6 +266,7 @@ export class TiersService {
         pointsProgress,
         pointsToNext,
         nextTier,
+        nextTierProgress: progressByPointType(nextTier, pointTotals),
       };
     }
 
@@ -264,6 +284,7 @@ export class TiersService {
       pointsProgress: 0,
       pointsToNext: firstTierDeficits.length > 0 ? Math.max(...firstTierDeficits) : null,
       nextTier: tiers[0] ?? null,
+      nextTierProgress: progressByPointType(tiers[0] ?? null, pointTotals),
     };
   }
 

@@ -29,6 +29,7 @@ interface ImportRow {
   status?: "ACTIVE" | "INACTIVE";
   username?: string;
   password?: string;
+  metadata: Record<string, unknown>;
   points: Record<string, { amount: number; expiresAt?: string }>;
   targetBalances: Record<string, { amount: number; expiresAt?: string }>;
   validationErrors: string[];
@@ -36,6 +37,11 @@ interface ImportRow {
 
 function normalizedKey(key: string): string {
   return key.replace(/[\s-]+/g, "_").toLowerCase();
+}
+
+function canonicalImportKey(key: string): string {
+  const normalized = normalizedKey(key);
+  return normalized === "external_id" ? "externalid" : normalized;
 }
 
 function pointCodeKey(code: string): string {
@@ -46,6 +52,7 @@ const IMPORT_HEADER_KEYS = new Set([
   "memberid",
   "email",
   "externalid",
+  "external_id",
   "phone",
   "firstname",
   "lastname",
@@ -71,18 +78,29 @@ const BASE_IMPORT_HEADERS = [
   "password",
 ] as const;
 
-function isRecognizedImportHeader(header: string): boolean {
+interface ImportMemberField {
+  key: string;
+  label: string;
+  type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT";
+  required: boolean;
+  isActive: boolean;
+  options: unknown;
+}
+
+function isRecognizedImportHeader(header: string, memberFields: ImportMemberField[] = []): boolean {
   const key = normalizedKey(header);
   return (
     IMPORT_HEADER_KEYS.has(key) ||
+    memberFields.some((field) => key === `custom:${field.key}`) ||
+    key.startsWith("custom:") ||
     /^(?:point|points|wallet|credit)_[a-z0-9_-]+$/.test(key) ||
     /^(?:balance|balances|target_balance|target)_[a-z0-9_-]+$/.test(key) ||
     /^(?:expiry|expires_at)_[a-z0-9_-]+$/.test(key)
   );
 }
 
-function isRecognizedImportHeaderRow(headers: string[]): boolean {
-  return headers.filter(isRecognizedImportHeader).length >= 2;
+function isRecognizedImportHeaderRow(headers: string[], memberFields: ImportMemberField[] = []): boolean {
+  return headers.filter((header) => isRecognizedImportHeader(header, memberFields)).length >= 2;
 }
 
 function defaultImportHeaders(
@@ -98,7 +116,7 @@ function defaultImportHeaders(
 }
 
 function selectedHeaderSet(selectedFields?: string[]): Set<string> | null {
-  return selectedFields?.length ? new Set(selectedFields.map(normalizedKey)) : null;
+  return selectedFields?.length ? new Set(selectedFields.map(canonicalImportKey)) : null;
 }
 
 function filterSelectedFields<T extends Record<string, unknown>>(
@@ -108,43 +126,51 @@ function filterSelectedFields<T extends Record<string, unknown>>(
   const selected = selectedHeaderSet(selectedFields);
   if (!selected) return row;
   return Object.fromEntries(
-    Object.entries(row).filter(([key]) => selected.has(normalizedKey(key))),
+    Object.entries(row).filter(([key]) => selected.has(canonicalImportKey(key))),
   ) as T;
 }
 
-function parseCsv(
+export function parseCsv(
   input: string,
   pointCodes: string[],
   selectedFields?: string[],
+  memberFields: ImportMemberField[] = [],
 ): Record<string, string>[] {
-  const lines = input
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0);
-  if (lines.length === 0) return [];
-  const parseLine = (line: string): string[] => {
-    const cells: string[] = [];
-    let current = "";
-    let quoted = false;
-    for (let index = 0; index < line.length; index += 1) {
-      const character = line[index] ?? "";
-      if (character === '"' && line[index + 1] === '"') {
-        current += '"';
+  const source = input.replace(/^\uFEFF/, "");
+  const parsedLines: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    if (character === '"') {
+      if (quoted && source[index + 1] === '"') {
+        field += '"';
         index += 1;
-      } else if (character === '"') quoted = !quoted;
-      else if (character === "," && !quoted) {
-        cells.push(current.trim());
-        current = "";
-      } else current += character;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      row.push(field.trim());
+      field = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      row.push(field.trim());
+      if (row.some((value) => value.length > 0)) parsedLines.push(row);
+      row = [];
+      field = "";
+      if (character === "\r" && source[index + 1] === "\n") index += 1;
+    } else {
+      field += character;
     }
-    cells.push(current.trim());
-    return cells;
-  };
-  const parsedLines = lines.map(parseLine);
+  }
+  if (quoted) throw new LoyaltyError("BULK_CSV_UNCLOSED_QUOTE", 400);
+  row.push(field.trim());
+  if (row.some((value) => value.length > 0)) parsedLines.push(row);
+  if (parsedLines.length === 0) return [];
   // Accept an optional title/comment line before the CSV header. Without this,
   // a preamble is mistaken for the header and the real first data row is lost.
   const headerIndex = parsedLines.findIndex((headers) => {
-    return headers.length > 0 && isRecognizedImportHeaderRow(headers);
+    return headers.length > 0 && isRecognizedImportHeaderRow(headers, memberFields);
   });
   if (headerIndex < 0) {
     const maxColumns = Math.max(...parsedLines.map((values) => values.length));
@@ -168,9 +194,9 @@ function parseCsv(
   });
 }
 
-function normalizeRow(row: Record<string, unknown>): ImportRow {
+function normalizeRow(row: Record<string, unknown>, memberFields: ImportMemberField[] = []): ImportRow {
   const validationErrors: string[] = [];
-  const values = new Map(Object.entries(row).map(([key, value]) => [normalizedKey(key), value]));
+  const values = new Map(Object.entries(row).map(([key, value]) => [canonicalImportKey(key), value]));
   const stringValue = (...keys: string[]): string | undefined => {
     for (const key of keys) {
       const raw = values.get(normalizedKey(key));
@@ -186,6 +212,42 @@ function normalizeRow(row: Record<string, unknown>): ImportRow {
   };
   const points: ImportRow["points"] = {};
   const targetBalances: ImportRow["targetBalances"] = {};
+  const metadata: ImportRow["metadata"] = {};
+  const fieldByKey = new Map(memberFields.filter((field) => field.isActive).map((field) => [field.key, field]));
+  for (const [header, raw] of Object.entries(row)) {
+    const key = canonicalImportKey(header);
+    if (!key.startsWith("custom:")) continue;
+    const fieldKey = key.slice("custom:".length);
+    const definition = fieldByKey.get(fieldKey);
+    if (!definition) {
+      validationErrors.push(`Unknown custom member field ${fieldKey}`);
+      continue;
+    }
+    const text = raw == null ? "" : String(raw).trim();
+    if (!text) {
+      metadata[fieldKey] = "";
+      continue;
+    }
+    if (definition.type === "NUMBER") {
+      const value = Number(text);
+      if (!Number.isFinite(value)) validationErrors.push(`Invalid number in custom field ${definition.label}`);
+      else metadata[fieldKey] = value;
+    } else if (definition.type === "BOOLEAN") {
+      const value = text.toLowerCase();
+      if (["true", "1", "yes", "y"].includes(value)) metadata[fieldKey] = true;
+      else if (["false", "0", "no", "n"].includes(value)) metadata[fieldKey] = false;
+      else validationErrors.push(`Invalid yes/no value in custom field ${definition.label}`);
+    } else if (definition.type === "DATE") {
+      if (Number.isNaN(Date.parse(text))) validationErrors.push(`Invalid date in custom field ${definition.label}`);
+      else metadata[fieldKey] = text;
+    } else if (definition.type === "SELECT") {
+      const options = Array.isArray(definition.options) ? definition.options : [];
+      if (!options.includes(text)) validationErrors.push(`Invalid option in custom field ${definition.label}`);
+      else metadata[fieldKey] = text;
+    } else {
+      metadata[fieldKey] = text;
+    }
+  }
   for (const [key, raw] of values) {
     const match = /^(?:point|points|wallet|credit)_([a-z0-9_-]+)$/.exec(key);
     if (!match || raw == null || String(raw).trim() === "") continue;
@@ -246,20 +308,46 @@ function normalizeRow(row: Record<string, unknown>): ImportRow {
     status: rawStatus === "ACTIVE" || rawStatus === "INACTIVE" ? rawStatus : undefined,
     username: stringValue("username", "portal_username"),
     password: stringValue("password", "initial_password"),
+    metadata,
     points,
     targetBalances,
     validationErrors,
   };
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function validateImportedMemberMetadata(
+  metadata: Record<string, unknown>,
+  memberFields: ImportMemberField[],
+): void {
+  for (const field of memberFields.filter((item) => item.isActive)) {
+    const value = metadata[field.key];
+    const missing = value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+    if (field.required && missing) throw new LoyaltyError("MEMBER_FIELD_REQUIRED", 400, { field: field.key, label: field.label });
+    if (missing) continue;
+    const valid = field.type === "TEXT" ? typeof value === "string"
+      : field.type === "NUMBER" ? typeof value === "number" && Number.isFinite(value)
+        : field.type === "BOOLEAN" ? typeof value === "boolean"
+          : field.type === "DATE" ? typeof value === "string" && !Number.isNaN(Date.parse(value))
+            : field.type === "SELECT" && typeof value === "string" && Array.isArray(field.options) && field.options.includes(value);
+    if (!valid) throw new LoyaltyError("MEMBER_FIELD_VALUE_INVALID", 400, { field: field.key, label: field.label });
+  }
+}
+
 async function parseRows(
   body: z.infer<typeof bulkBodySchema>,
   pointCodes: string[],
+  memberFields: ImportMemberField[],
 ): Promise<ImportRow[]> {
   if (body.format === "json")
-    return (body.rows ?? []).map((row) => normalizeRow(filterSelectedFields(row, body.selectedFields)));
+    return (body.rows ?? []).map((row) => normalizeRow(filterSelectedFields(row, body.selectedFields), memberFields));
   if (!body.content) throw new LoyaltyError("BULK_CONTENT_REQUIRED", 400);
-  if (body.format === "csv") return parseCsv(body.content, pointCodes, body.selectedFields).map(normalizeRow);
+  if (body.format === "csv") return parseCsv(body.content, pointCodes, body.selectedFields, memberFields).map((row) => normalizeRow(row, memberFields));
   const ExcelJS = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(body.content, "base64") as never);
@@ -275,7 +363,7 @@ async function parseRows(
   });
   const headerRow = worksheetRows
     .filter((entry) => entry.rowNumber <= 20)
-    .find((entry) => isRecognizedImportHeaderRow(entry.values));
+    .find((entry) => isRecognizedImportHeaderRow(entry.values, memberFields));
   const maxColumns = Math.max(...worksheetRows.map((entry) => entry.values.length), 0);
   const headers = headerRow
     ? headerRow.values
@@ -293,7 +381,7 @@ async function parseRows(
     });
     rows.push(filterSelectedFields(output, body.selectedFields));
   }
-  return rows.map(normalizeRow);
+  return rows.map((row) => normalizeRow(row, memberFields));
 }
 
 export function adminCreditUsersRoutes(
@@ -303,17 +391,31 @@ export function adminCreditUsersRoutes(
 ): void {
   app.post(
     "/admin/members/bulk",
-    { preHandler: [requireCapability("member.manage"), requireCapability("wallet.adjust")] },
+    { preHandler: [requireCapability("member.manage")] },
     async (request, reply) => {
       const body = bulkBodySchema.parse(request.body);
-      const pointTypes = await prisma.pointTypeDefinition.findMany({
-        where: { programId: request.programId, archivedAt: null, isActive: true },
-      });
+      const [pointTypes, memberFields] = await Promise.all([
+        prisma.pointTypeDefinition.findMany({
+          where: { programId: request.programId, archivedAt: null, isActive: true },
+        }),
+        prisma.memberFieldDefinition.findMany({
+          where: { programId: request.programId },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        }),
+      ]);
       const rows = await parseRows(
         body,
         pointTypes.map((pointType) => pointType.code),
+        memberFields,
       );
       if (rows.length === 0) throw new LoyaltyError("BULK_ROWS_REQUIRED", 400);
+      if (
+        rows.some(
+          (row) => Object.keys(row.points).length > 0 || Object.keys(row.targetBalances).length > 0,
+        )
+      ) {
+        await assertCapability(request, "wallet.adjust");
+      }
       if (rows.some((row) => row.username ?? row.password)) {
         await assertCapability(request, "member.credentials.manage");
       }
@@ -383,6 +485,9 @@ export function adminCreditUsersRoutes(
               throw new LoyaltyError("BULK_IDENTIFIERS_MATCH_DIFFERENT_MEMBERS", 409);
             const existing = matches[0];
             if (row.memberId && !existing) throw new LoyaltyError("BULK_MEMBER_NOT_FOUND", 404);
+            const existingMetadata = recordValue(existing?.metadata);
+            const mergedMetadata = { ...existingMetadata, ...row.metadata };
+            validateImportedMemberMetadata(mergedMetadata, memberFields);
             const now = new Date();
             let member = existing
               ? await tx.member.update({
@@ -395,6 +500,7 @@ export function adminCreditUsersRoutes(
                     lastName: row.lastName !== undefined ? row.lastName : existing.lastName,
                     department: row.department !== undefined ? row.department : existing.department,
                     photoUrl: row.photoUrl !== undefined ? row.photoUrl : existing.photoUrl,
+                    ...(Object.keys(row.metadata).length ? { metadata: mergedMetadata as never } : {}),
                     ...(row.status === "ACTIVE"
                       ? { status: "ACTIVE" as const, deletedAt: null, deactivatedAt: null }
                       : row.status === "INACTIVE"
@@ -412,6 +518,7 @@ export function adminCreditUsersRoutes(
                     lastName: row.lastName,
                     department: row.department,
                     photoUrl: row.photoUrl,
+                    metadata: mergedMetadata as never,
                     status: row.status ?? "ACTIVE",
                     deactivatedAt: row.status === "INACTIVE" ? now : null,
                     deletedAt: row.status === "INACTIVE" ? now : null,

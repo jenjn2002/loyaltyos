@@ -1,4 +1,3 @@
-import type { AdminRole } from "@prisma/client";
 import type { FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 
 import { prisma } from "../db.js";
@@ -29,6 +28,8 @@ export const ADMIN_CAPABILITIES = [
   "campaign.view",
   "campaign.manage",
   "campaign.execute",
+  "project.view",
+  "project.manage",
   "segment.view",
   "segment.manage",
   "tier.view",
@@ -37,6 +38,10 @@ export const ADMIN_CAPABILITIES = [
   "badge.manage",
   "coupon.view",
   "coupon.manage",
+  "coalition.view",
+  "coalition.manage",
+  "giftcard.view",
+  "giftcard.manage",
   "event.view",
   "event.manage",
   "issuance.view",
@@ -53,7 +58,7 @@ export const ADMIN_CAPABILITIES = [
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
 
-export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
+export const ADMIN_ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Owner",
   OPERATOR: "Operator",
   ANALYST: "Auditor",
@@ -75,15 +80,16 @@ const ownerOnlyByDefault = new Set<AdminCapability>([
   "member.credentials.manage",
 ]);
 
-export function defaultCapability(role: AdminRole, capability: AdminCapability): boolean {
+export function defaultCapability(role: string, capability: AdminCapability): boolean {
   if (role === "SUPER_ADMIN") return true;
   if (role === "ANALYST") return readCapabilities.has(capability);
-  return !ownerOnlyByDefault.has(capability);
+  if (role === "OPERATOR") return !ownerOnlyByDefault.has(capability);
+  return false;
 }
 
 export async function capabilitiesFor(
   programId: string,
-  role: AdminRole,
+  role: string,
 ): Promise<Record<AdminCapability, boolean>> {
   if (role === "SUPER_ADMIN") {
     return Object.fromEntries(ADMIN_CAPABILITIES.map((capability) => [capability, true])) as Record<
@@ -141,13 +147,25 @@ export function requireCapability(capability: AdminCapability): preHandlerAsyncH
 }
 
 export function capabilityForAdminRequest(method: string, url: string): AdminCapability | null {
+  url = url.split("?")[0] ?? url;
   const write = method !== "GET" && method !== "HEAD";
+  // Dataset-level read permissions are enforced by the export route itself.
   if (url.startsWith("/api/v1/admin/workflows")) return write ? "workflow.manage" : "workflow.view";
+  if (
+    url.startsWith("/api/v1/admin/workflow-approvers") ||
+    url.startsWith("/api/v1/admin/workflow-scope-options")
+  )
+    return write ? "workflow.manage" : "workflow.view";
   if (url.startsWith("/api/v1/admin/approvals")) {
     if (url.endsWith("/approve") || url.endsWith("/reject")) return "approval.decide";
-    return url.includes("/inbox") ? "approval.inbox" : "approval.view";
+    return url.includes("/inbox") || url.endsWith("/read-state") ? "approval.inbox" : "approval.view";
   }
-  if (url.startsWith("/api/v1/admin/permissions")) return "permission.manage";
+  if (
+    url.startsWith("/api/v1/admin/permissions") ||
+    url.startsWith("/api/v1/admin/roles") ||
+    url.startsWith("/api/v1/admin/users")
+  )
+    return "permission.manage";
   if (url.startsWith("/api/v1/admin/settings")) return write ? "settings.manage" : "settings.view";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";
@@ -155,7 +173,9 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
     return write ? "issuance.manage" : "issuance.view";
   if (url.startsWith("/api/v1/admin/issuance-proposals")) return "wallet.adjust";
   if (url.startsWith("/api/v1/admin/member-fields"))
-    return write ? "member.manage" : "member.view";
+    return write ? "member.manage" : null;
+  if (url.startsWith("/api/v1/admin/project-fields") || url.startsWith("/api/v1/admin/projects"))
+    return write ? "project.manage" : "project.view";
   if (url.startsWith("/api/v1/admin/logs")) return "audit.view";
   if (url.startsWith("/api/v1/admin/event-definitions"))
     return write ? "event.manage" : "event.view";
@@ -170,7 +190,9 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.startsWith("/api/v1/admin/credits/categories"))
     return write ? "recognition.manage" : "recognition.view";
   if (url.startsWith("/api/v1/admin/credits")) return write ? "wallet.adjust" : "wallet.view";
-  if (url.startsWith("/api/v1/admin/rewards") || url.startsWith("/api/v1/admin/giftcards"))
+  if (url.startsWith("/api/v1/admin/giftcards"))
+    return write ? "giftcard.manage" : "giftcard.view";
+  if (url.startsWith("/api/v1/admin/rewards"))
     return write ? "reward.manage" : "reward.view";
   if (url.startsWith("/api/v1/admin/campaigns/") && url.endsWith("/run-now"))
     return "campaign.execute";
@@ -185,10 +207,12 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.startsWith("/api/v1/admin/tiers"))
     return write ? "tier.manage" : "tier.view";
   if (url.startsWith("/api/v1/admin/coalition"))
-    return write ? "campaign.manage" : "campaign.view";
+    return write ? "coalition.manage" : "coalition.view";
+  if (url.startsWith("/api/v1/admin/notification-templates/") && url.endsWith("/preview"))
+    return "notification.view";
   if (url.startsWith("/api/v1/admin/notification") || url.startsWith("/api/v1/admin/webhooks"))
     return write ? "notification.manage" : "notification.view";
   if (url.startsWith("/api/v1/admin/programs"))
-    return write ? "point_type.manage" : "point_type.view";
+    return write ? "settings.manage" : "settings.view";
   return null;
 }

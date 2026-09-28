@@ -250,6 +250,65 @@ describe("TiersService.evaluateMember", () => {
     expect(result.pointsToNext).toBe(2500);
     expect(result.nextTier?.name).toBe("Gold");
   });
+
+  it("returns separate progress for every point type required by the next tier", async () => {
+    const silver = tierRow({
+      id: "tier-1",
+      name: "Silver",
+      rank: 1,
+      pointTypeId: "pt-p",
+      qualificationRules: [
+        { pointTypeId: "pt-p", minPoints: 0 },
+        { pointTypeId: "pt-r", minPoints: 0 },
+      ],
+      qualificationOperator: "AND",
+    });
+    const gold = tierRow({
+      id: "tier-2",
+      name: "Gold",
+      rank: 2,
+      pointTypeId: "pt-p",
+      qualificationRules: [
+        { pointTypeId: "pt-p", minPoints: 20000 },
+        { pointTypeId: "pt-r", minPoints: 10000 },
+      ],
+      qualificationOperator: "AND",
+    });
+    mockPrisma.tier.findMany.mockResolvedValue([silver, gold]);
+    mockPrisma.member.findFirst.mockResolvedValue({
+      id: "mem-1",
+      programId: "prog-1",
+      email: null,
+      phone: null,
+      firstName: null,
+      lastName: null,
+      tags: [],
+      joinedAt: new Date(),
+      deletedAt: null,
+      pointWallets: [
+        { pointTypeId: "pt-p", totalEarned: 500, totalSpent: 0, balance: 500, pointType: { isPrimary: true } },
+        { pointTypeId: "pt-r", totalEarned: 1000, totalSpent: 0, balance: 1000, pointType: { isPrimary: false } },
+      ],
+      memberTiers: [],
+    });
+    mockPrisma.event.findMany.mockResolvedValue([]);
+    mockPrisma.memberTier.findMany.mockResolvedValue([]);
+    mockPrisma.memberTier.findFirst.mockResolvedValue({
+      id: "mt-1",
+      memberId: "mem-1",
+      tierId: "tier-1",
+      upgradedAt: new Date(),
+      downgradedAt: null,
+      tier: silver,
+    });
+
+    const result = await service().evaluateMember("mem-1", "prog-1");
+
+    expect(result.nextTierProgress).toEqual([
+      { pointTypeId: "pt-p", earned: 500, required: 20000, remaining: 19500 },
+      { pointTypeId: "pt-r", earned: 1000, required: 10000, remaining: 9000 },
+    ]);
+  });
 });
 
 describe("TiersService.benefits", () => {

@@ -41,6 +41,7 @@ interface MemberField {
 const modes = {
   EXTERNAL: "External event",
   MANUAL: "Manual event",
+  MEMBER_CHECK_IN: "Member check-in",
   ONBOARDING: "Onboarding",
   MEMBER_DATE_ANNUAL: "Annual member date",
   ANNUAL_DATE: "Fixed annual date",
@@ -64,6 +65,9 @@ function preview(automation: Automation, fields: MemberField[]): string {
   }
   if (automation.mode === "MANUAL") {
     return ui("This event is a manual placeholder for campaigns. The campaign runs once after approval.");
+  }
+  if (automation.mode === "MEMBER_CHECK_IN") {
+    return ui("Members can check in once per local day. The selected campaign grants points and records the activity on their calendar.");
   }
   if (automation.mode === "ONBOARDING") {
     return ui("The scheduler checks new member accounts automatically each day.");
@@ -174,7 +178,7 @@ export function EventDefinitionsPage(): JSX.Element {
       <Card>
         <CardHeader>
           <CardTitle>{ui(editing ? "Edit event" : "Create event definition")}</CardTitle>
-          <CardDescription>{ui("Choose an internal schedule or an external integration source.")}</CardDescription>
+          <CardDescription>{ui("Choose a schedule, member action or external integration source.")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { coalitionService, getCachedExternalBalance } from "../lib/coalition-setup.js";
+import { LoyaltyError } from "../lib/errors.js";
 
 // ── Schemas ────────────────────────────────────────────────────────
 
@@ -36,12 +37,19 @@ const reverseSchema = z.object({
 // ── Routes ─────────────────────────────────────────────────────────
 
 export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
+  const requireServerKey = (request: { apiKeyScope: string; actor: { type: string } }): void => {
+    if (request.apiKeyScope !== "SERVER" || request.actor.type !== "API_KEY") {
+      throw new LoyaltyError("SERVER_SCOPE_REQUIRED", 403);
+    }
+  };
+
   // ═══ Accumulate ═══
 
   app.post(
     "/coalition/accumulate",
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (request, reply) => {
+      requireServerKey(request);
       const idempotencyKey = request.headers["idempotency-key"] as string;
       if (!idempotencyKey) {
         return reply.status(400).send({
@@ -71,6 +79,7 @@ export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () =
     "/coalition/redeem",
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (request, reply) => {
+      requireServerKey(request);
       const idempotencyKey = request.headers["idempotency-key"] as string;
       if (!idempotencyKey) {
         return reply.status(400).send({
@@ -100,6 +109,7 @@ export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () =
     "/coalition/convert",
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (request, reply) => {
+      requireServerKey(request);
       const idempotencyKey = request.headers["idempotency-key"] as string;
       if (!idempotencyKey) {
         return reply.status(400).send({
@@ -125,6 +135,7 @@ export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () =
   // ═══ Reverse ═══
 
   app.post("/coalition/reverse", async (request, reply) => {
+    requireServerKey(request);
     const idempotencyKey = request.headers["idempotency-key"] as string;
     if (!idempotencyKey) {
       return reply.status(400).send({
@@ -142,6 +153,7 @@ export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () =
   // ═══ Member Balance ═══
 
   app.get("/members/:id/coalition/balance", async (request, reply) => {
+    requireServerKey(request);
     const { id: memberId } = z.object({ id: z.string() }).parse(request.params);
     const programId = request.programId || (request.headers["x-program-id"] as string);
 
@@ -155,6 +167,7 @@ export function coalitionRoutes(app: FastifyInstance, _opts: unknown, done: () =
   // ═══ Member History ═══
 
   app.get("/members/:id/coalition/history", async (request, reply) => {
+    requireServerKey(request);
     const { id: memberId } = z.object({ id: z.string() }).parse(request.params);
     const programId = request.programId || (request.headers["x-program-id"] as string);
 

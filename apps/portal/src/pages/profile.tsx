@@ -78,6 +78,7 @@ export default function Profile() {
     lastName: "",
     department: "",
     photoUrl: "",
+    metadata: {} as Record<string, unknown>,
   });
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark" | "auto">(
@@ -124,6 +125,7 @@ export default function Profile() {
         lastName: profileForm.lastName,
         department: profileForm.department,
         photoUrl: profileForm.photoUrl || null,
+        metadata: profileForm.metadata,
       }),
     onSuccess: () => {
       setEditing(false);
@@ -194,6 +196,16 @@ export default function Profile() {
                     <dd>{profile.data.phone}</dd>
                   </div>
                 )}
+                {(profile.data.memberFields ?? []).map((field) => {
+                  const value = profile.data?.metadata?.[field.key];
+                  if (value === undefined || value === null || value === "") return null;
+                  return (
+                    <div key={field.key} className="flex justify-between gap-3">
+                      <dt>{field.label}</dt>
+                      <dd className="text-right">{typeof value === "boolean" ? (value ? ui("Yes") : ui("No")) : String(value)}</dd>
+                    </div>
+                  );
+                })}
                 <div className="flex justify-between">
                   <dt>{t("id")}</dt>
                   <dd className="font-mono text-xs">{session?.memberId}</dd>
@@ -226,6 +238,41 @@ export default function Profile() {
                   placeholder={ui("Department")}
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
                 />
+                {(profile.data?.memberFields ?? []).map((field) => (
+                  <label key={field.key} className="block text-sm font-medium">
+                    {field.label}{field.required ? " *" : ""}
+                    {field.type === "BOOLEAN" ? (
+                      <input
+                        type="checkbox"
+                        checked={Boolean(profileForm.metadata[field.key])}
+                        onChange={(event) => setProfileForm((form) => ({ ...form, metadata: { ...form.metadata, [field.key]: event.target.checked } }))}
+                        className="ml-2"
+                      />
+                    ) : field.type === "SELECT" ? (
+                      <select
+                        value={String(profileForm.metadata[field.key] ?? "")}
+                        onChange={(event) => setProfileForm((form) => ({ ...form, metadata: { ...form.metadata, [field.key]: event.target.value } }))}
+                        className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                      >
+                        <option value="">{ui("Select")}</option>
+                        {(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type === "DATE" ? "date" : field.type === "NUMBER" ? "number" : "text"}
+                        value={String(profileForm.metadata[field.key] ?? "")}
+                        onChange={(event) => setProfileForm((form) => ({
+                          ...form,
+                          metadata: {
+                            ...form.metadata,
+                            [field.key]: field.type === "NUMBER" && event.target.value !== "" ? Number(event.target.value) : event.target.value,
+                          },
+                        }))}
+                        className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                      />
+                    )}
+                  </label>
+                ))}
                 <label className="block text-sm font-medium">
                   {t("profilePhoto")}
                   <input
@@ -284,6 +331,7 @@ export default function Profile() {
                     lastName: profile.data?.lastName ?? "",
                     department: profile.data?.department ?? "",
                     photoUrl: profile.data?.photoUrl ?? "",
+                    metadata: profile.data?.metadata ?? {},
                   });
                   setEditing(true);
                 }}
@@ -321,6 +369,7 @@ export default function Profile() {
         <h2 id="preferences-heading" className="text-lg font-semibold">
           {t("preferences")}
         </h2>
+
 
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
           <div className="flex items-center gap-3">

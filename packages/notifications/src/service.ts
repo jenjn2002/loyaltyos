@@ -306,13 +306,9 @@ export class NotificationsService {
     notificationId: string,
     read: boolean,
   ): Promise<NotificationRow> {
-    const notification = await this.repo.findNotificationById(notificationId);
-    if (!notification || notification.memberId !== memberId) throw new NotificationNotFoundError(notificationId);
-    return this.repo.updateNotificationStatus(
-      notificationId,
-      read ? "READ" : "SENT",
-      { readAt: read ? new Date() : null },
-    );
+    const notification = await this.repo.setMemberNotificationRead(memberId, notificationId, read);
+    if (!notification) throw new NotificationNotFoundError(notificationId);
+    return notification;
   }
 
   async getMemberUnreadNotificationCount(memberId: string): Promise<number> {
@@ -329,10 +325,8 @@ export class NotificationsService {
     return this.repo.createWebhook(input);
   }
 
-  async getWebhook(id: string) {
-    const wh = await this.repo.findWebhookById(id);
-    if (!wh) throw new Error("Webhook not found");
-    return wh;
+  async getWebhook(id: string, programId: string) {
+    return this.repo.findWebhookById(id, programId);
   }
 
   async listWebhooks(
@@ -342,22 +336,28 @@ export class NotificationsService {
     const { items, total } = await this.repo.findWebhooks(programId, filters);
     const page = filters.page ?? 1;
     const pageSize = filters.pageSize ?? 20;
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return {
+      items: items.map(({ secret: _secret, ...webhook }) => webhook),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async updateWebhook(
     id: string,
+    programId: string,
     data: { url?: string; events?: string[]; secret?: string; isActive?: boolean },
   ) {
-    const wh = await this.repo.findWebhookById(id);
-    if (!wh) throw new Error("Webhook not found");
-    return this.repo.updateWebhook(id, data);
+    const webhook = await this.repo.updateWebhook(id, programId, data);
+    if (!webhook) return null;
+    const { secret: _secret, ...safeWebhook } = webhook;
+    return safeWebhook;
   }
 
-  async deleteWebhook(id: string): Promise<void> {
-    const wh = await this.repo.findWebhookById(id);
-    if (!wh) throw new Error("Webhook not found");
-    await this.repo.deleteWebhook(id);
+  async deleteWebhook(id: string, programId: string): Promise<boolean> {
+    return this.repo.deleteWebhook(id, programId);
   }
 
   // ── Admin notification list ────────────────────────
@@ -381,7 +381,7 @@ export class NotificationsService {
   async getMemberNotifications(
     memberId: string,
     pagination?: { page?: number; pageSize?: number },
-  ): Promise<PaginatedResult<NotificationRow>> {
+  ): Promise<PaginatedResult<NotificationRow & { isRead: boolean }>> {
     const page = pagination?.page ?? 1;
     const pageSize = pagination?.pageSize ?? 20;
     const { items, total } = await this.repo.findNotificationsByMember(memberId, {
@@ -389,7 +389,10 @@ export class NotificationsService {
       pageSize,
     });
     return {
-      items,
+      items: items.map((notification) => ({
+        ...notification,
+        isRead: notification.readAt !== null || notification.status === "READ",
+      })),
       total,
       page,
       pageSize,
