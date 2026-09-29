@@ -15,6 +15,7 @@ import { LoyaltyError } from "./errors.js";
 export const POINT_TYPE_CODES = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 export const POINT_EXPIRY_MODES = ["NEVER", "AFTER_DAYS", "FIXED_DATE", "PER_GRANT"] as const;
 export const POINT_GIVE_SOURCES = ["BALANCE", "ALLOWANCE", "BOTH"] as const;
+export const BANK_CYCLE_RETURN_TYPES = ["RETURN", "PROJECT_RETURN"] as const;
 
 export interface PointTypeSelector {
   pointTypeId?: string;
@@ -639,7 +640,7 @@ async function creditBank(
         orderBy: { startsAt: "desc" },
         select: { id: true },
       });
-  return tx.pointBankTransaction.create({
+  const transaction = await tx.pointBankTransaction.create({
     data: {
       bankId: bank.id,
       programId: input.programId,
@@ -653,6 +654,23 @@ async function creditBank(
       cycleId: input.cycleId ?? activeCycle?.id,
     },
   });
+  const cycleId = input.cycleId ?? activeCycle?.id;
+  if (
+    cycleId &&
+    BANK_CYCLE_RETURN_TYPES.includes(input.type as (typeof BANK_CYCLE_RETURN_TYPES)[number])
+  ) {
+    const reduced = await tx.pointBankCycle.updateMany({
+      where: { id: cycleId, allocated: { gte: input.amount } },
+      data: { allocated: { decrement: input.amount } },
+    });
+    if (reduced.count === 0) {
+      await tx.pointBankCycle.update({
+        where: { id: cycleId },
+        data: { allocated: 0 },
+      });
+    }
+  }
+  return transaction;
 }
 
 export const CREDIT_RECOGNITION_TEMPLATE = {
@@ -1555,6 +1573,7 @@ export class WalletService {
       actions?: string[];
       counterpartyMemberId?: string;
       categoryId?: string;
+      memberIds?: string[];
       from?: Date;
       to?: Date;
       page?: number;
@@ -1566,6 +1585,7 @@ export class WalletService {
     const where: Prisma.CustomPointTransactionWhereInput = {
       programId,
       ...(input.memberId ? { memberId: input.memberId } : {}),
+      ...(input.memberIds ? { memberId: { in: input.memberIds } } : {}),
       ...(input.pointTypeId ? { pointTypeId: input.pointTypeId } : {}),
       ...(input.actions?.length ? { action: { in: input.actions } } : input.action ? { action: input.action } : {}),
       ...(input.counterpartyMemberId ? { counterpartyMemberId: input.counterpartyMemberId } : {}),

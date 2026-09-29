@@ -2,6 +2,7 @@ import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { fetchApi } from "../lib/api-client";
 
@@ -13,6 +14,7 @@ interface NotificationItem {
   readAt?: string | null;
   isRead?: boolean;
   createdAt: string;
+  metadata?: { projectId?: unknown } | null;
 }
 
 interface NotificationPage {
@@ -118,7 +120,7 @@ export default function Notifications() {
                     if (unread) updateReadState.mutate({ id: item.id, read: true });
                   }}
                   onKeyDown={(event) => {
-                    if ((event.key === "Enter" || event.key === " ") && unread) {
+                    if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ") && unread) {
                       event.preventDefault();
                       updateReadState.mutate({ id: item.id, read: true });
                     }
@@ -141,6 +143,14 @@ export default function Notifications() {
                     </button>
                   </div>
                   {item.body && <NotificationBody body={item.body} />}
+                  {typeof item.metadata?.projectId === "string" && item.metadata.projectId && (
+                    <Link
+                      to={`/projects?project=${encodeURIComponent(item.metadata.projectId)}`}
+                      className="mt-2 inline-flex font-semibold text-[var(--color-primary)] underline"
+                    >
+                      {ui("View project")}
+                    </Link>
+                  )}
                   <p className="mt-2 text-xs text-[var(--color-text-secondary)]">{new Date(item.createdAt).toLocaleString()}</p>
                 </article>
               );

@@ -449,6 +449,7 @@
     "INTERNAL_ERROR": "Internal error",
     "INSUFFICIENT_BALANCE": "Insufficient balance",
     "VALIDATION_ERROR": "Request validation failed",
+    "BULK_EMAIL_REQUIRED": "Email is required for a new member",
     "TRANSACTION_NOT_FOUND": "Transaction not found",
     "ALREADY_REVERSED": "Already reversed",
     "CAMPAIGN_NOT_FOUND": "Campaign not found",

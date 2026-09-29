@@ -41,6 +41,19 @@ type ExpiryMode = "NEVER" | "AFTER_DAYS" | "FIXED_DATE" | "PER_GRANT";
 type GiveSource = "BALANCE" | "ALLOWANCE" | "BOTH";
 export type PointTypesView = "registry" | "editor";
 
+const expiryModeLabel: Record<ExpiryMode, string> = {
+  NEVER: "Never expires",
+  AFTER_DAYS: "After a number of days from creation",
+  FIXED_DATE: "Fixed expiry date",
+  PER_GRANT: "Expiry is set for each grant",
+};
+
+const giveSourceLabel: Record<GiveSource, string> = {
+  BALANCE: "Owned balance",
+  ALLOWANCE: "Give allowance",
+  BOTH: "Owned balance or give allowance",
+};
+
 interface TransferRule {
   id?: string;
   destinationPointTypeId: string;
@@ -622,15 +635,15 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Settings2 className="h-6 w-6" />
             {view === "registry"
-              ? "Point type registry"
+              ? ui("Point type registry")
               : editingId
-                ? `Edit ${selected?.name ?? ui("point type")}`
-                : "Create point type"}
+                ? `${ui("Edit")} ${selected?.name ?? ui("point type")}`
+                : ui("Create point type")}
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
             {view === "registry"
-              ? "Review all configured wallet types, their lifecycle and allowed transfer paths."
-              : "Configure identity, expiry, visibility, operations and the explicit Give transfer matrix."}
+              ? ui("Review all configured wallet types, their lifecycle and allowed transfer paths.")
+              : ui("Configure identity, expiry, visibility, operations and the explicit Give transfer matrix.")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1357,10 +1370,10 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                       {pointType.description ?? ui("No description")}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {pointType.expiryMode.replaceAll("_", " ")} · Give{" "}
-                      {pointType.giveEnabled ? `from ${pointType.giveSource.toLowerCase()}` : "off"}{" "}
-                      · {pointType.outgoingTransferRules.length} allowed destination(s) · Portal{" "}
-                      {pointType.showOnMemberProfile ? "visible" : "hidden"}
+                      {ui(expiryModeLabel[pointType.expiryMode])} · {ui("Give source")}: {" "}
+                      {ui(pointType.giveEnabled ? giveSourceLabel[pointType.giveSource] : "Off")} · {" "}
+                      {ui("Allowed destinations")}: {pointType.outgoingTransferRules.length} · {ui("Portal")}: {" "}
+                      {ui(pointType.showOnMemberProfile ? "Visible" : "Hidden")}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">{ui("Created by")}: {pointType.createdBy ? `${pointType.createdBy.name}${pointType.createdBy.email ? ` · ${pointType.createdBy.email}` : ""}` : ui("System / legacy")}</p>
                     {pointType.outgoingTransferRules.length > 0 && (

@@ -116,7 +116,7 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
       const targetMatchesFor = async (term: string): Promise<Prisma.AuditLogWhereInput[]> => {
         if (term.length < 2) return [];
         const contains = { contains: term, mode: "insensitive" as const };
-        const [campaigns, coupons, rewards, segments, tiers, badges, events, workflows, approvalRequests, pointTypes, cycles, members] = await Promise.all([
+const [campaigns, coupons, rewards, segments, tiers, badges, events, workflows, approvalRequests, pointTypes, cycles, members, projects, tasks] = await Promise.all([
           prisma.campaign.findMany({ where: { programId: request.programId, name: contains }, select: { id: true } }),
           prisma.coupon.findMany({ where: { programId: request.programId, code: contains }, select: { id: true } }),
           prisma.reward.findMany({ where: { programId: request.programId, name: contains }, select: { id: true } }),
@@ -135,11 +135,14 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
             where: { programId: request.programId, OR: [{ firstName: contains }, { lastName: contains }, { email: contains }] },
             select: { id: true },
           }),
+          prisma.project.findMany({ where: { programId: request.programId, name: contains }, select: { id: true } }),
+          prisma.projectTask.findMany({ where: { project: { programId: request.programId }, title: contains }, select: { id: true } }),
         ]);
         const grouped: Array<[string, Array<{ id: string }>]> = [
           ["campaign", campaigns], ["coupon", coupons], ["reward", rewards], ["segment", segments], ["tier", tiers],
           ["badge", badges], ["event_definition", events], ["approval_workflow", workflows],
           ["approval_request", approvalRequests], ["point_type_definition", pointTypes], ["point_bank_cycle", cycles],
+          ["project", projects], ["project_task", tasks],
         ];
         const matches: Prisma.AuditLogWhereInput[] = grouped.flatMap(([entityType, rows]) => rows.length
           ? [{ entityType, entityId: { in: rows.map((row) => row.id) } }]
@@ -198,7 +201,7 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
       const [items, total] = await Promise.all([
         prisma.auditLog.findMany({
           where,
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           skip: (query.page - 1) * query.pageSize,
           take: query.pageSize,
         }),
@@ -242,7 +245,7 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
       const idsFor = (entityType: string): string[] => [...new Set(
         items.filter((item) => item.entityType === entityType && item.entityId).map((item) => item.entityId!),
       )];
-      const [campaigns, cycles, rewards, segments, tiers, events, workflows, approvalRequests, coupons, badges, pointTypes] = await Promise.all([
+      const [campaigns, cycles, rewards, segments, tiers, events, workflows, approvalRequests, coupons, badges, pointTypes, projects, tasks] = await Promise.all([
         prisma.campaign.findMany({ where: { programId: request.programId, id: { in: idsFor("campaign") } }, select: { id: true, name: true } }),
         prisma.pointBankCycle.findMany({ where: { programId: request.programId, id: { in: idsFor("point_bank_cycle") } }, include: { pointType: { select: { code: true, name: true } } } }),
         prisma.reward.findMany({ where: { programId: request.programId, id: { in: idsFor("reward") } }, select: { id: true, name: true } }),
@@ -254,6 +257,8 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
         prisma.coupon.findMany({ where: { programId: request.programId, id: { in: idsFor("coupon") } }, select: { id: true, code: true } }),
         prisma.badge.findMany({ where: { programId: request.programId, id: { in: idsFor("badge") } }, select: { id: true, name: true } }),
         prisma.pointTypeDefinition.findMany({ where: { programId: request.programId, id: { in: idsFor("point_type_definition") } }, select: { id: true, name: true, code: true } }),
+        prisma.project.findMany({ where: { programId: request.programId, id: { in: idsFor("project") } }, select: { id: true, name: true } }),
+        prisma.projectTask.findMany({ where: { project: { programId: request.programId }, id: { in: idsFor("project_task") } }, select: { id: true, title: true, project: { select: { name: true } } } }),
       ]);
       const campaignById = new Map(campaigns.map((item) => [item.id, item.name]));
       const cycleById = new Map(cycles.map((item) => [item.id, item]));
@@ -285,6 +290,11 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
 
       const targetLabel = (item: (typeof items)[number]): string | null => {
         if (!item.entityId) return null;
+        if (item.entityType === "project") return projects.find((project) => project.id === item.entityId)?.name ?? null;
+        if (item.entityType === "project_task") {
+          const task = tasks.find((task) => task.id === item.entityId);
+          return task ? `${task.project.name} · ${task.title}` : null;
+        }
         if (item.entityType === "campaign") return campaignById.get(item.entityId) ?? null;
         if (item.entityType === "coupon") return couponById.get(item.entityId) ?? null;
         if (item.entityType === "reward") return rewardById.get(item.entityId) ?? null;
@@ -320,7 +330,11 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
           items: items.map((item) => ({
             ...item,
             actor: actorDetails(item.actorType, item.actorId),
-            targetLabel: targetLabel(item),
+            targetLabel: targetLabel(item) ?? (() => {
+              const diff = item.diff as Record<string, unknown> | null;
+              const snapshot = diff?.name ?? diff?.title ?? diff?.email;
+              return typeof snapshot === "string" ? snapshot : null;
+            })(),
           })),
           total,
           page: query.page,

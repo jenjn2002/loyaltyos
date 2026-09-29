@@ -408,6 +408,7 @@ function CampaignClaims({
         queryClient.invalidateQueries({ queryKey: ["campaign-claims"] }),
         queryClient.invalidateQueries({ queryKey: ["balance"] }),
         queryClient.invalidateQueries({ queryKey: ["credits"] }),
+        queryClient.invalidateQueries({ queryKey: ["tier"] }),
       ]);
       if (claims.length <= 1 && page > 1) onPageChange(page - 1);
     },
@@ -515,6 +516,7 @@ export default function Home() {
         queryClient.invalidateQueries({ queryKey: ["balance"] }),
         queryClient.invalidateQueries({ queryKey: ["credits", "balances"] }),
         queryClient.invalidateQueries({ queryKey: ["campaign-claims"] }),
+        queryClient.invalidateQueries({ queryKey: ["tier"] }),
       ]);
     },
     onError: (_error, eventKey) => {

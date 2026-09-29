@@ -67,6 +67,15 @@ interface LedgerItem {
   actorType: string | null;
   actorId: string | null;
   createdAt: string;
+  source?: string;
+  sourceLabel?: string;
+  expiresAt?: string | null;
+  exchangeRequestId?: string | null;
+  reversedFromId?: string | null;
+  reversedById?: string | null;
+  counterparty?: LedgerItem["member"];
+  categoryRef?: { name: string } | null;
+  actor?: BankTransaction["actor"];
   pointType: { code: string; name: string; unitLabel: string };
   member?: {
     id: string;
@@ -173,7 +182,7 @@ interface BulkBatch {
 
 export type CreditsSection = "wallets" | "banks" | "ledger" | "exchange" | "categories" | "import";
 
-const BULK_REQUIRED_FIELDS = ["email", "externalId"] as const;
+const BULK_REQUIRED_FIELDS = ["email"] as const;
 
 export function canonicalImportField(value: string): string {
   const unquoted = value.replace(/^\uFEFF/, "").trim().replace(/^"([\s\S]*)"$/, "$1").replaceAll('""', '"');
@@ -182,6 +191,7 @@ export function canonicalImportField(value: string): string {
 }
 const BULK_OPTIONAL_MEMBER_FIELDS = [
   "memberId",
+  "externalId",
   "phone",
   "firstName",
   "lastName",
@@ -299,6 +309,7 @@ function isBankTransaction(item: LedgerItem | BankTransaction): item is BankTran
 }
 
 function actorLabel(item: LedgerItem | BankTransaction): string {
+  if (item.actor && item.actor.type !== "EXTERNAL") return [ui(item.actor.name), item.actor.email].filter(Boolean).join(" · ");
   if (isBankTransaction(item)) return item.actorId || "—";
   if (!item.actorId) return item.actorType ?? "—";
   return `${item.actorType ?? "—"}: ${item.actorId}`;
@@ -324,6 +335,9 @@ export function CreditsManagementPage({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
+  const [exchangeTab, setExchangeTab] = useState<"requests" | "rates">("requests");
+  const [exchangeStatus, setExchangeStatus] = useState("");
+  const [exchangePage, setExchangePage] = useState(1);
   const [bankTypeId, setBankTypeId] = useState("");
   const [bankAmount, setBankAmount] = useState("1000");
   const [bankReason, setBankReason] = useState("");
@@ -338,6 +352,9 @@ export function CreditsManagementPage({
   const [ledgerAction, setLedgerAction] = useState("");
   const [ledgerSource, setLedgerSource] = useState<LedgerSource>("wallet");
   const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerFrom, setLedgerFrom] = useState("");
+  const [ledgerTo, setLedgerTo] = useState("");
+  const invalidLedgerDates = Boolean(ledgerFrom && ledgerTo && ledgerFrom > ledgerTo);
   const [rateTypeId, setRateTypeId] = useState("");
   const [ratePayout, setRatePayout] = useState<"CASH" | "NON_CASH">("NON_CASH");
   const [rateValue, setRateValue] = useState("1");
@@ -411,9 +428,9 @@ export function CreditsManagementPage({
     enabled: section === "exchange",
   });
   const requests = useQuery({
-    queryKey: ["credits", "exchange-requests"],
+    queryKey: ["credits", "exchange-requests", exchangeStatus, exchangePage],
     queryFn: () =>
-      fetchApi<Page<ExchangeRequest>>("/admin/credits/exchange-requests?page=1&pageSize=50"),
+      fetchApi<Page<ExchangeRequest>>(`/admin/credits/exchange-requests?page=${exchangePage}&pageSize=20${exchangeStatus ? `&status=${exchangeStatus}` : ""}`),
     enabled: section === "exchange",
   });
   const categories = useQuery({
@@ -440,9 +457,12 @@ export function CreditsManagementPage({
       ledgerTypeId,
       ledgerMemberId,
       ledgerAction,
+      ledgerFrom, ledgerTo,
     ],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(ledgerPage), pageSize: "25" });
+      if (ledgerFrom) params.set("from", new Date(`${ledgerFrom}T00:00:00`).toISOString());
+      if (ledgerTo) params.set("to", new Date(`${ledgerTo}T23:59:59.999`).toISOString());
       if (ledgerTypeId) params.set("pointTypeId", ledgerTypeId);
       if (ledgerSource === "bank") {
         if (ledgerAction) params.set("type", ledgerAction);
@@ -450,11 +470,11 @@ export function CreditsManagementPage({
           `/admin/credits/bank/transactions?${params.toString()}`,
         );
       }
-      if (ledgerMemberId) params.set("memberId", ledgerMemberId);
+      if (ledgerMemberId.trim()) params.set("member", ledgerMemberId.trim());
       if (ledgerAction) params.set("action", ledgerAction);
       return fetchApi<Page<LedgerItem>>(`/admin/credits/transactions?${params.toString()}`);
     },
-    enabled: section === "ledger",
+    enabled: section === "ledger" && !invalidLedgerDates,
   });
 
   useEffect(() => {
@@ -1010,6 +1030,7 @@ export function CreditsManagementPage({
                   value={ledgerSource}
                   onChange={(event) => {
                     setLedgerSource(event.target.value as LedgerSource);
+                    setLedgerAction("");
                     setLedgerPage(1);
                   }}
                 >
@@ -1028,7 +1049,7 @@ export function CreditsManagementPage({
                   }}
                 >
                   <option value="">{ui("All types")}</option>
-                  {activeTypes.map((type) => (
+                  {(pointTypes.data ?? []).map((type) => (
                     <option key={type.id} value={type.id}>
                       {type.name}
                     </option>
@@ -1036,7 +1057,7 @@ export function CreditsManagementPage({
                 </select>
               </Field>
               {ledgerSource === "wallet" && (
-                <Field id="ledger-member" label={ui("Member ID")} help={ui("Limit results to one member.")}>
+                <Field id="ledger-member" label={ui("Member name, email or ID")} help={ui("Limit results to one member.")}>
                   <Input
                     id="ledger-member"
                     value={ledgerMemberId}
@@ -1058,14 +1079,28 @@ export function CreditsManagementPage({
               >
                 <Input
                   id="ledger-action"
+                  list="ledger-action-options"
                   value={ledgerAction}
                   onChange={(event) => {
                     setLedgerAction(event.target.value.toUpperCase());
                     setLedgerPage(1);
                   }}
                 />
+                <datalist id="ledger-action-options">{(ledgerSource === "bank"
+                  ? ["ISSUANCE", "ALLOCATION", "AUTO_ISSUANCE", "GIVE_ALLOCATION", "RETURN", "PROJECT_FUNDING", "PROJECT_RETURN"]
+                  : ["EARN", "GRANT", "ADJUSTMENT", "GIVE_IN", "GIVE_OUT", "GIVE_ALLOWANCE_OUT", "REDEEM", "EXCHANGE", "REVERSAL", "EXPIRATION", "EXPIRATION_RESET", "CLEARANCE"]
+                ).map((action) => <option key={action} value={action}>{ledgerSource === "bank" ? bankTransactionTypeLabel(action) : ui(action)}</option>)}</datalist>
               </Field>
             </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div><Label htmlFor="ledger-from">{ui("From date")}</Label><Input id="ledger-from" type="date" value={ledgerFrom} onChange={(event) => { setLedgerFrom(event.target.value); setLedgerPage(1); }} /></div>
+              <div><Label htmlFor="ledger-to">{ui("To date")}</Label><Input id="ledger-to" type="date" value={ledgerTo} onChange={(event) => { setLedgerTo(event.target.value); setLedgerPage(1); }} /></div>
+              <Button variant="outline" onClick={() => { setLedgerTypeId(""); setLedgerMemberId(""); setLedgerAction(""); setLedgerFrom(""); setLedgerTo(""); setLedgerPage(1); }}>{ui("Clear filters")}</Button>
+              <Button variant="outline" disabled={invalidLedgerDates || ledger.isFetching} onClick={() => void ledger.refetch()}>{ui("Refresh")}</Button>
+            </div>
+            {invalidLedgerDates && <p role="alert" className="text-sm text-destructive">{ui("End date must be on or after start date")}</p>}
+            {ledger.isError && <p role="alert" className="text-sm text-destructive">{ui("Unable to load ledger. Please try again.")}</p>}
+            {ledger.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading…")}</p>}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -1075,31 +1110,53 @@ export function CreditsManagementPage({
                     <th className="p-2">{ui("Action type")}</th>
                     <th className="p-2">{ui("Target employee")}</th>
                     <th className="p-2">{ui("Target employee email")}</th>
+                    <th className="p-2">{ui("Reason")}</th>
                     <th className="p-2">{ui("Type")}</th>
+                    <th className="p-2">{ui("Transaction details")}</th>
+                    <th className="p-2 text-right">{ui("Balance before")}</th>
                     <th className="p-2 text-right">{ui("Amount")}</th>
                     <th className="p-2 text-right">{ui("Balance")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(ledger.data?.items ?? []).map((item) => (
+                  {(!invalidLedgerDates && !ledger.isError ? ledger.data?.items ?? [] : []).map((item) => (
                     <tr key={item.id} className="border-b">
                       <td className="p-2 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
                       <td className="p-2">
                         {actorLabel(item)}
                       </td>
                       <td className="p-2">
-                        {isBankTransaction(item) ? item.type : item.action}
+                        {isBankTransaction(item) ? bankTransactionTypeLabel(item.type) : ui(item.action)}
                       </td>
                       <td className="p-2">
                         {isBankTransaction(item) ? ui("Bank") : displayName(item.member)}
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {isBankTransaction(item) ? item.reason : item.reason ?? item.message}
-                        </span>
                       </td>
                       <td className="p-2 text-sm text-muted-foreground">
                         {isBankTransaction(item) ? "—" : item.member?.email ?? "—"}
                       </td>
+                      <td className="p-2 text-sm">{item.reason ?? "—"}</td>
                       <td className="p-2">{item.pointType.code}</td>
+                      <td className="min-w-48 p-2 text-xs">
+                        {!isBankTransaction(item) && <p>{item.sourceLabel ?? item.source ?? "—"}</p>}
+                        <details className="mt-1"><summary className="cursor-pointer text-muted-foreground">{ui("Transaction details")}</summary>
+                          <dl className="mt-2 space-y-2 break-all">
+                            <div><dt>{ui("Transaction ID")}</dt><dd>{item.id}</dd></div>
+                            <div><dt>{ui("Actor ID")}</dt><dd>{item.actorId ?? "—"}</dd></div>
+                            <div><dt>{ui("Reason")}</dt><dd>{item.reason ?? "—"}</dd></div>
+                            {isBankTransaction(item) ? <div><dt>{ui("Bank cycle")}</dt><dd>{item.cycle ? `${new Date(item.cycle.startsAt).toLocaleDateString()} – ${new Date(item.cycle.endsAt).toLocaleDateString()} · ${ui(item.cycle.status)}` : "—"}</dd></div> : <>
+                              <div><dt>{ui("Source")}</dt><dd>{item.source ?? "—"}</dd></div>
+                              <div><dt>{ui("Exchange request ID")}</dt><dd>{item.exchangeRequestId ?? "—"}</dd></div>
+                              <div><dt>{ui("Reversal of transaction")}</dt><dd>{item.reversedFromId ?? "—"}</dd></div>
+                              <div><dt>{ui("Reversed by transaction")}</dt><dd>{item.reversedById ?? "—"}</dd></div>
+                              <div><dt>{ui("Counterparty")}</dt><dd>{item.counterparty ? `${displayName(item.counterparty)} · ${item.counterparty.email ?? ""}` : "—"}</dd></div>
+                              <div><dt>{ui("Category")}</dt><dd>{item.categoryRef?.name ?? "—"}</dd></div>
+                              <div><dt>{ui("Message")}</dt><dd>{item.message ?? "—"}</dd></div>
+                              <div><dt>{ui("Expires at")}</dt><dd>{item.expiresAt ? new Date(item.expiresAt).toLocaleString() : "—"}</dd></div>
+                            </>}
+                          </dl>
+                        </details>
+                      </td>
+                      <td className="p-2 text-right">{(item.balanceAfter - item.amount).toLocaleString()}</td>
                       <td
                         className={`p-2 text-right font-semibold ${item.amount >= 0 ? "text-green-600" : "text-red-600"}`}
                       >
@@ -1112,7 +1169,9 @@ export function CreditsManagementPage({
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-end gap-2">
+            {!ledger.isLoading && !ledger.isError && !invalidLedgerDates && !ledger.data?.items.length && <p className="text-sm text-muted-foreground">{ui("No transactions match these filters.")}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <span className="mr-auto text-xs text-muted-foreground">{ui("Page")} {ledgerPage} / {Math.max(1, ledger.data?.totalPages ?? 1)} · {ledger.data?.total ?? 0} {ui("transactions")}</span>
               <Button
                 size="sm"
                 variant="outline"
@@ -1135,8 +1194,12 @@ export function CreditsManagementPage({
       )}
 
       {section === "exchange" && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Card>
+        <div className="space-y-5">
+          <div className="flex flex-wrap gap-2" aria-label={ui("Exchange vouchers")}>
+            <Button variant={exchangeTab === "requests" ? "default" : "outline"} aria-pressed={exchangeTab === "requests"} onClick={() => setExchangeTab("requests")}>{ui("Exchange vouchers")}</Button>
+            <Button variant={exchangeTab === "rates" ? "default" : "outline"} aria-pressed={exchangeTab === "rates"} onClick={() => setExchangeTab("rates")}>{ui("Exchange rates")}</Button>
+          </div>
+          <Card hidden={exchangeTab !== "rates"}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ArrowRightLeft />{ui("Exchange rates")}</CardTitle>
@@ -1330,10 +1393,10 @@ export function CreditsManagementPage({
                   >
                     <div>
                       <span>
-                        {rate.pointType.name} · {rate.payoutType} · v{rate.version}
+                        {rate.pointType.name} · {rate.payoutType === "CASH" ? ui("Cash") : ui("Non-cash")} · v{rate.version}
                       </span>
                       <span className="ml-2 rounded-full border px-2 py-0.5 text-xs">
-                        {rate.isActive ? ui("Active") : "Historical"}
+                        {rate.isActive ? ui("Active") : ui("Historical")}
                       </span>
                       <p className="mt-1 text-xs">
                         {(rate.valueMinorPerPoint / 100).toFixed(2)} {rate.currency} / {rate.pointType.unitLabel} · {rate.payoutMechanism}
@@ -1355,24 +1418,41 @@ export function CreditsManagementPage({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card hidden={exchangeTab !== "requests"}>
             <CardHeader>
               <CardTitle>{ui("Accounting exchange vouchers")}</CardTitle>
               <CardDescription>
                 {ui("Stored accounting documents with strict transitions: Pending → Approved → Completed. Cancellation before completion automatically refunds the member wallet.")}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="w-full sm:w-60">
+                  <Label htmlFor="exchange-status">{ui("Status")}</Label>
+                  <select id="exchange-status" className={`${selectClass} mt-1.5`} value={exchangeStatus} onChange={(event) => { setExchangeStatus(event.target.value); setExchangePage(1); }}>
+                    <option value="">{ui("All statuses")}</option>
+                    <option value="PENDING">{ui("Pending")}</option>
+                    <option value="APPROVED">{ui("Approved")}</option>
+                    <option value="COMPLETED">{ui("Completed")}</option>
+                    <option value="CANCELLED">{ui("Cancelled")}</option>
+                    <option value="REJECTED">{ui("Rejected")}</option>
+                  </select>
+                </div>
+                <Button variant="outline" disabled={requests.isFetching} onClick={() => void requests.refetch()}>{ui("Refresh")}</Button>
+              </div>
+              {requests.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading...")}</p>}
+              {requests.isError && <p role="alert" className="text-sm text-destructive">{ui("Failed to load data. Please try again.")}</p>}
               {(requests.data?.items ?? []).map((item) => (
-                <div key={item.id} className="rounded-md border p-3 text-sm">
-                  <div className="flex justify-between">
-                    <div>
+                <div key={item.id} className="rounded-lg border p-4 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 break-words">
                       <strong>{item.documentNumber}</strong>
-                      <p className="text-muted-foreground">{displayName(item.member)}</p>
+                      <p className="mt-1">{displayName(item.member)}</p>
+                      {item.member?.email && <p className="text-xs text-muted-foreground">{item.member.email}</p>}
                     </div>
-                    <span>{item.status}</span>
+                    <span className="rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium">{ui(({ PENDING: "Pending", APPROVED: "Approved", COMPLETED: "Completed", CANCELLED: "Cancelled", REJECTED: "Rejected" } as Record<string, string>)[item.status] ?? item.status)}</span>
                   </div>
-                  <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-2">
+                  <div className="mt-3 grid gap-2 break-words text-muted-foreground sm:grid-cols-2">
                     <p>
                       {ui("Debit:")} {item.amount.toLocaleString()} {item.pointType.unitLabel}
                     </p>
@@ -1385,7 +1465,7 @@ export function CreditsManagementPage({
                       {item.pointType.unitLabel}
                     </p>
                     <p>
-                      {ui("Method:")} {item.payoutType} · {item.payoutMechanism}
+                      {ui("Method:")} {item.payoutType === "CASH" ? ui("Cash") : ui("Non-cash")} · {item.payoutMechanism}
                     </p>
                     <p>{ui("Requested:")} {new Date(item.requestedAt).toLocaleString()}</p>
                     {item.approvedAt && (
@@ -1408,10 +1488,11 @@ export function CreditsManagementPage({
                   {item.cancellationReason && (
                     <p className="mt-2 text-destructive">{ui("Cancellation:")} {item.cancellationReason}</p>
                   )}
-                  <div className="mt-2 flex gap-2">
+                  <div className="mt-4 flex flex-wrap gap-2">
                     {item.status === "PENDING" && (
                       <Button
                         size="sm"
+                        disabled={transitionExchange.isPending}
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "approve" });
                         }}
@@ -1420,6 +1501,7 @@ export function CreditsManagementPage({
                     {item.status === "APPROVED" && (
                       <Button
                         size="sm"
+                        disabled={transitionExchange.isPending}
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "complete" });
                         }}
@@ -1428,6 +1510,7 @@ export function CreditsManagementPage({
                     {["PENDING", "APPROVED"].includes(item.status) && (
                       <Button
                         size="sm"
+                        disabled={transitionExchange.isPending}
                         variant="outline"
                         onClick={() => {
                           transitionExchange.mutate({ id: item.id, action: "cancel" });
@@ -1437,9 +1520,16 @@ export function CreditsManagementPage({
                   </div>
                 </div>
               ))}
-              {(requests.data?.items ?? []).length === 0 && (
+              {!requests.isLoading && !requests.isError && (requests.data?.items ?? []).length === 0 && (
                 <p className="text-sm text-muted-foreground">{ui("No exchange requests.")}</p>
               )}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                <span className="text-sm text-muted-foreground">{ui("Page")} {exchangePage} · {requests.data?.total ?? 0} {ui("Exchange vouchers")}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={exchangePage === 1 || requests.isFetching} onClick={() => setExchangePage((page) => page - 1)}>{ui("Previous")}</Button>
+                  <Button variant="outline" size="sm" disabled={requests.isFetching || exchangePage * 20 >= (requests.data?.total ?? 0)} onClick={() => setExchangePage((page) => page + 1)}>{ui("Next")}</Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1774,7 +1864,7 @@ export function CreditsManagementPage({
             <div className="space-y-3 rounded-md border p-4">
               <div>
                 <p className="font-medium">{ui("Fields to import")}</p>
-                <p className="text-xs text-muted-foreground">{ui("Email or External ID is required for a new member. Member ID can be used to update an existing member.")}</p>
+                <p className="text-xs text-muted-foreground">{ui("Email is required for a new member. Member ID can be used to update an existing member.")}</p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {importFieldOptions.map((option) => {

@@ -1,6 +1,8 @@
-import { Bell } from "lucide-react";
-import { useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Bell, Menu } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { ui } from "@/lib/ui-text";
 
@@ -21,18 +23,39 @@ export function AppLayout(): JSX.Element {
 function AdminLayoutContent(): JSX.Element {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const location = useLocation();
   const { requests, unreadRequests, unreadCount, markRead, markUnread, markAllRead } = useAdminNotifications();
 
+  useEffect(() => {
+    setNavigationOpen(false);
+    setOpen(false);
+  }, [location.pathname, location.search]);
+
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="ml-64 flex-1 p-8">
-        <div className="relative mb-6 flex justify-end">
+    <div className="min-h-screen bg-muted/30">
+      <div className="hidden lg:block"><Sidebar /></div>
+      <main className="min-w-0 lg:ml-64">
+        <header className="relative z-30 flex h-14 items-center justify-between gap-3 border-b bg-background px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <Dialog open={navigationOpen} onOpenChange={setNavigationOpen}>
+              <DialogTrigger asChild>
+                <button type="button" className="rounded-md p-2 hover:bg-accent lg:hidden" aria-label={ui("Open navigation")}><Menu className="h-5 w-5" /></button>
+              </DialogTrigger>
+              <DialogContent className="left-0 top-0 h-dvh w-72 max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 gap-0 rounded-none p-0 sm:rounded-none" aria-describedby={undefined} onClick={(event) => { if (event.target instanceof Element && event.target.closest("a[href]")) setNavigationOpen(false); }}>
+                <DialogTitle className="sr-only">{ui("Navigation")}</DialogTitle>
+                <Sidebar embedded />
+              </DialogContent>
+            </Dialog>
+            <p className="truncate text-sm font-medium text-muted-foreground">{ui("Administration")}</p>
+          </div>
+          <div className="relative">
           <button
             type="button"
             className="relative rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             aria-label={ui("Admin notifications")}
             title={ui("Admin notifications")}
+            aria-expanded={open}
             onClick={() => setOpen((current) => !current)}
           >
             <Bell className="h-5 w-5" />
@@ -86,8 +109,11 @@ function AdminLayoutContent(): JSX.Element {
               </div>
             </div>
           )}
+          </div>
+        </header>
+        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
+          <Outlet />
         </div>
-        <Outlet />
       </main>
     </div>
   );

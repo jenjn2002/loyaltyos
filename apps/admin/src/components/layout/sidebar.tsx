@@ -67,7 +67,7 @@ function SidebarLink({ item, nested = false }: { item: SidebarItem; nested?: boo
       className={({ isActive }) =>
         cn(
           nested
-            ? "block rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+            ? "flex items-center rounded-md px-3 py-2 text-sm transition-colors"
             : "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isActive
             ? "bg-primary text-primary-foreground"
@@ -75,8 +75,8 @@ function SidebarLink({ item, nested = false }: { item: SidebarItem; nested?: boo
         )
       }
     >
-      {Icon && !nested && <Icon className="h-4 w-4" />}
-      <span className="flex-1">{item.label}</span>
+      {Icon && !nested && <Icon className="h-4 w-4 shrink-0" />}
+      <span className="min-w-0 flex-1">{item.label}</span>
       {item.badgeCount !== undefined && item.badgeCount > 0 && (
         <span className="ml-2 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white" aria-label={`${item.badgeCount} pending approvals`}>
           {item.badgeCount > 99 ? "99+" : item.badgeCount}
@@ -117,7 +117,7 @@ function SidebarDropdown({
         )}
         onClick={onToggle}
       >
-        <Icon className="h-4 w-4" />
+        <Icon className="h-4 w-4 shrink-0" />
         <span className="flex-1 text-left">{label}</span>
         {notificationCount > 0 && <span className="h-2 w-2 rounded-full bg-red-600" aria-label={`${notificationCount} pending approvals`} />}
         <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
@@ -133,7 +133,7 @@ function SidebarDropdown({
   );
 }
 
-export function Sidebar(): JSX.Element {
+export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Element {
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const [membersOpen, setMembersOpen] = useState(
@@ -146,6 +146,7 @@ export function Sidebar(): JSX.Element {
     () =>
       location.pathname.startsWith("/workflows") ||
       location.pathname.startsWith("/event-definitions") ||
+      location.pathname.startsWith("/notification-templates") ||
       location.pathname.startsWith("/credits/categories") ||
       location.pathname.startsWith("/settings"),
   );
@@ -160,7 +161,7 @@ export function Sidebar(): JSX.Element {
   );
   const [creditsOpen, setCreditsOpen] = useState(
     () =>
-      location.pathname.startsWith("/credits") ||
+      ["/credits/wallets", "/credits/banks", "/credits/ledger"].some((path) => location.pathname.startsWith(path)) ||
       location.pathname.startsWith("/point-types") ||
       location.pathname.startsWith("/issuance-rules"),
   );
@@ -268,7 +269,7 @@ export function Sidebar(): JSX.Element {
   const approvalsSectionActive =
     location.pathname.startsWith("/approvals") || location.pathname.startsWith("/credits/exchange");
   const creditSectionActive =
-    location.pathname.startsWith("/credits") ||
+    ["/credits/wallets", "/credits/banks", "/credits/ledger"].some((path) => location.pathname.startsWith(path)) ||
     location.pathname.startsWith("/point-types") ||
     location.pathname.startsWith("/issuance-rules");
 
@@ -278,11 +279,11 @@ export function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background">
+    <aside className={cn("flex flex-col bg-background", embedded ? "h-full min-h-0 w-full" : "fixed left-0 top-0 z-40 h-dvh w-64 border-r")}>
       <div className="flex h-14 items-center border-b px-6">
         <span className="text-lg font-semibold">{ui("LoyaltyOS")}</span>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {links
           .filter(({ to }) => to === "/" || to === "/permissions")
           .map((item) => <SidebarLink key={item.to} item={item} />)}

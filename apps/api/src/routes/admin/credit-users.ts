@@ -44,6 +44,10 @@ function canonicalImportKey(key: string): string {
   return normalized === "external_id" ? "externalid" : normalized;
 }
 
+export function validateImportEmail(memberId?: string, email?: string | null): void {
+  if (!memberId && !email) throw new LoyaltyError("BULK_EMAIL_REQUIRED", 400);
+}
+
 function pointCodeKey(code: string): string {
   return code.replace(/[-_]/g, "").toUpperCase();
 }
@@ -439,8 +443,7 @@ export function adminCreditUsersRoutes(
         try {
           if (row.validationErrors.length > 0)
             throw new LoyaltyError(row.validationErrors.join("; "), 400);
-          if (!row.memberId && !row.email && !row.externalId)
-            throw new LoyaltyError("BULK_EMAIL_OR_EXTERNAL_ID_REQUIRED", 400);
+          validateImportEmail(row.memberId, row.email);
           const normalizedUsername = row.username ? validateMemberUsername(row.username) : null;
           if (row.password && !normalizedUsername)
             throw new LoyaltyError("USERNAME_REQUIRED_FOR_PASSWORD", 400);

@@ -551,7 +551,7 @@ describe("POST /events with campaign integration", () => {
       programId: "prog-1",
       type: "purchase",
       memberId: "mem-1",
-      payload: { amount: 100 },
+      payload: {},
       idempotencyKey: "idem-dup",
       processed: true,
       error: null,

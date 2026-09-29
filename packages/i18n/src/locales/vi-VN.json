@@ -449,6 +449,7 @@
     "INTERNAL_ERROR": "Lỗi hệ thống",
     "INSUFFICIENT_BALANCE": "Số dư không đủ",
     "VALIDATION_ERROR": "Xác thực yêu cầu không thành công",
+    "BULK_EMAIL_REQUIRED": "Member mới bắt buộc phải có email",
     "TRANSACTION_NOT_FOUND": "Không tìm thấy giao dịch",
     "ALREADY_REVERSED": "Đã đảo ngược",
     "CAMPAIGN_NOT_FOUND": "Không tìm thấy chiến dịch",

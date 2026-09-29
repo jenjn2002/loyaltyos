@@ -125,6 +125,10 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Manage projects",
     description: "Create project plans, request budget approval, invite members, manage tasks, submit point distributions and close projects.",
   },
+  "project.finance.view": {
+    label: "View confidential project finances",
+    description: "View budgets, point distributions and budget history for projects managed by other project managers.",
+  },
   "segment.view": {
     label: "View segments",
     description: "Read segment definitions and their matched members.",
@@ -279,7 +283,7 @@ const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[]
       "giftcard.manage",
     ],
   },
-  { id: "projects", label: "Group projects", capabilities: ["project.view", "project.manage"] },
+  { id: "projects", label: "Group projects", capabilities: ["project.view", "project.manage", "project.finance.view"] },
   { id: "integrations", label: "Integrations", capabilities: ["coalition.view", "coalition.manage"] },
   {
     id: "automation",

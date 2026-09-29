@@ -12,7 +12,7 @@ import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
 import { assertCapability, requireCapability } from "../lib/permissions.js";
-import { walletService } from "../lib/wallets.js";
+import { BANK_CYCLE_RETURN_TYPES, walletService } from "../lib/wallets.js";
 import { pointExchangeApprovalHook } from "../lib/workflow-integrations.js";
 import { notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
@@ -30,6 +30,24 @@ const pageSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+function bankCycleAllocationWhere(
+  cycleId: string,
+  through?: Date | null,
+): Prisma.PointBankTransactionWhereInput {
+  return {
+    cycleId,
+    ...(through ? { createdAt: { lte: through } } : {}),
+    OR: [
+      { amount: { lt: 0 } },
+      { type: { in: [...BANK_CYCLE_RETURN_TYPES] }, amount: { gt: 0 } },
+    ],
+  };
+}
+
+function netBankCycleAllocated(transactionTotal: number | null, fallback: number): number {
+  return transactionTotal === null ? fallback : Math.max(0, -transactionTotal);
+}
+
 const exchangeStatusSchema = z.enum(["PENDING", "APPROVED", "COMPLETED", "CANCELLED", "REJECTED"]);
 
 async function memberLocale(memberId: string, programId: string): Promise<string> {
@@ -44,7 +62,7 @@ interface BankCycleActor {
   id: string;
   name: string;
   email: string | null;
-  type: "ADMIN_USER" | "MEMBER" | "SYSTEM" | "AUTOMATION" | "EXTERNAL";
+  type: "ADMIN_USER" | "MEMBER" | "API_KEY" | "SYSTEM" | "AUTOMATION" | "EXTERNAL";
 }
 
 async function resolveBankCycleActors(
@@ -57,7 +75,7 @@ async function resolveBankCycleActors(
     ...actorIds,
     ...actorIds.flatMap((id) => id.startsWith("admin:") ? [id.slice("admin:".length)] : []),
   ])];
-  const [admins, members] = await Promise.all([
+  const [admins, members, apiKeys] = await Promise.all([
     prisma.adminUser.findMany({
       where: { programId, id: { in: lookupIds } },
       select: { id: true, name: true, email: true },
@@ -66,6 +84,7 @@ async function resolveBankCycleActors(
       where: { programId, id: { in: lookupIds } },
       select: { id: true, firstName: true, lastName: true, email: true },
     }),
+    prisma.apiKey.findMany({ where: { programId, id: { in: lookupIds } }, select: { id: true, name: true } }),
   ]);
   const adminById = new Map(admins.map((admin) => [admin.id, admin]));
   const memberById = new Map(members.map((member) => [member.id, member]));
@@ -83,7 +102,12 @@ async function resolveBankCycleActors(
       resolved.set(rawId, { id: member.id, name: fullName || member.email || "Member", email: member.email, type: "MEMBER" });
       continue;
     }
-    if (rawId.startsWith("system:")) {
+    const apiKey = apiKeys.find((key) => key.id === normalizedId);
+    if (apiKey) {
+      resolved.set(rawId, { ...apiKey, name: apiKey.name ?? "API key", email: null, type: "API_KEY" });
+      continue;
+    }
+    if (rawId === "system" || rawId.startsWith("system:")) {
       resolved.set(rawId, { id: rawId, name: "System", email: null, type: "SYSTEM" });
       continue;
     }
@@ -418,13 +442,20 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .extend({
           pointTypeId: z.string().optional(),
           type: z.string().trim().min(1).max(80).optional(),
+          from: z.string().datetime().optional(),
+          to: z.string().datetime().optional(),
         })
         .parse(request.query);
       const where: Prisma.PointBankTransactionWhereInput = {
         programId: request.programId,
         ...(query.pointTypeId ? { pointTypeId: query.pointTypeId } : {}),
         ...(query.type ? { type: query.type } : {}),
+        ...((query.from || query.to) ? { createdAt: {
+          ...(query.from ? { gte: new Date(query.from) } : {}),
+          ...(query.to ? { lte: new Date(query.to) } : {}),
+        } } : {}),
       };
+      if (query.from && query.to && new Date(query.from) > new Date(query.to)) throw new LoyaltyError("INVALID_DATE_RANGE", 400);
       const [items, total] = await Promise.all([
         prisma.pointBankTransaction.findMany({
           where,
@@ -432,15 +463,16 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             pointType: { select: { id: true, code: true, name: true, unitLabel: true } },
             cycle: { select: { id: true, startsAt: true, endsAt: true, status: true } },
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           skip: (query.page - 1) * query.pageSize,
           take: query.pageSize,
         }),
         prisma.pointBankTransaction.count({ where }),
       ]);
+      const actors = await resolveBankCycleActors(request.programId, items.map((item) => item.actorId));
       return reply.send({
         data: {
-          items,
+          items: items.map((item) => ({ ...item, actor: actors.get(item.actorId) ?? null })),
           total,
           page: query.page,
           pageSize: query.pageSize,
@@ -505,18 +537,38 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           pointTypeId: z.string().optional(),
           action: z.string().optional(),
           counterpartyMemberId: z.string().optional(),
+          member: z.string().trim().min(1).max(100).optional(),
           categoryId: z.string().optional(),
           from: z.string().datetime().optional(),
           to: z.string().datetime().optional(),
         })
         .parse(request.query);
-      return reply.send({
-        data: await walletService.history(request.programId, {
+      if (query.from && query.to && new Date(query.from) > new Date(query.to)) throw new LoyaltyError("INVALID_DATE_RANGE", 400);
+      const matchedMembers = query.member ? await prisma.member.findMany({
+        where: { programId: request.programId, OR: [
+          { id: query.member }, { email: { contains: query.member, mode: "insensitive" } },
+          { firstName: { contains: query.member, mode: "insensitive" } }, { lastName: { contains: query.member, mode: "insensitive" } },
+        ] }, select: { id: true },
+      }) : undefined;
+      const history = await walletService.history(request.programId, {
           ...query,
+          memberIds: matchedMembers?.map((member) => member.id),
           from: query.from ? new Date(query.from) : undefined,
           to: query.to ? new Date(query.to) : undefined,
-        }),
-      });
+        });
+      const actors = await resolveBankCycleActors(request.programId, history.items.flatMap((item) => item.actorId ? [item.actorId] : []));
+      const sourceIds = (prefix: string) => [...new Set(history.items.filter((item) => item.source.startsWith(prefix)).map((item) => item.source.slice(prefix.length)))];
+      const projectIds = sourceIds("project:");
+      const rewardIds = sourceIds("reward:");
+      const [projects, rewards] = await Promise.all([
+        projectIds.length ? prisma.project.findMany({ where: { programId: request.programId, id: { in: projectIds } }, select: { id: true, name: true } }) : [],
+        rewardIds.length ? prisma.reward.findMany({ where: { programId: request.programId, id: { in: rewardIds } }, select: { id: true, name: true } }) : [],
+      ]);
+      const labels = new Map<string, string>([...projects.map((item) => [`project:${item.id}`, item.name] as const), ...rewards.map((item) => [`reward:${item.id}`, item.name] as const)]);
+      return reply.send({ data: { ...history, items: history.items.map((item) => ({
+        ...item, actor: item.actorId ? actors.get(item.actorId) ?? null : null,
+        sourceLabel: labels.get(item.source) ?? ("sourceLabel" in item ? item.sourceLabel : undefined),
+      })) } });
     },
   );
 
@@ -899,11 +951,42 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         orderBy: { startsAt: "desc" },
         take: 100,
       });
-      const creators = await createdByForEntities(
-        request.programId,
-        "point_bank_cycle",
-        cycles.map((cycle) => cycle.id),
-      );
+      const [creators, allocationTotals] = await Promise.all([
+        createdByForEntities(request.programId, "point_bank_cycle", cycles.map((cycle) => cycle.id)),
+        cycles.length === 0
+          ? []
+          : prisma.pointBankTransaction.groupBy({
+              by: ["cycleId"],
+              where: {
+                programId: request.programId,
+                cycleId: { in: cycles.map((cycle) => cycle.id) },
+                AND: [
+                  {
+                    OR: [
+                      { amount: { lt: 0 } },
+                      { type: { in: [...BANK_CYCLE_RETURN_TYPES] }, amount: { gt: 0 } },
+                    ],
+                  },
+                  {
+                    OR: cycles.map((cycle) => ({
+                      cycleId: cycle.id,
+                      ...(cycle.clearedAt ? { createdAt: { lte: cycle.clearedAt } } : {}),
+                    })),
+                  },
+                ],
+              },
+              _sum: { amount: true },
+            }),
+      ]);
+      const allocationsByCycle = new Map<string, number>();
+      for (const allocation of allocationTotals) {
+        if (allocation.cycleId) {
+          allocationsByCycle.set(
+            allocation.cycleId,
+            netBankCycleAllocated(allocation._sum.amount, 0),
+          );
+        }
+      }
       const actors = await resolveBankCycleActors(
         request.programId,
         cycles.flatMap((cycle) => cycle.clearedBy ? [cycle.clearedBy] : []),
@@ -911,6 +994,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       return reply.send({
         data: cycles.map((cycle) => ({
           ...cycle,
+          allocated: allocationsByCycle.get(cycle.id) ?? cycle.allocated,
           transactionsCount: cycle._count.transactions,
           createdBy: creators.get(cycle.id) ?? null,
           closedBy: cycle.clearedBy ? actors.get(cycle.clearedBy) ?? null : null,
@@ -930,18 +1014,23 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         include: { pointType: { select: { id: true, code: true, name: true, unitLabel: true } } },
       });
       if (!cycle) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
+      const transactionCutoff = cycle.clearedAt ?? cycle.endsAt;
       const transactionWhere: Prisma.PointBankTransactionWhereInput = {
         programId: request.programId,
         pointTypeId: cycle.pointTypeId,
-        OR: [
-          { cycleId: cycle.id },
+        AND: [
           {
-            cycleId: null,
-            createdAt: { gte: cycle.startsAt, lte: cycle.endsAt },
+            OR: [
+              { cycleId: cycle.id, createdAt: { lte: transactionCutoff } },
+              {
+                cycleId: null,
+                createdAt: { gte: cycle.startsAt, lte: transactionCutoff },
+              },
+            ],
           },
         ],
       };
-      const [items, total, creators] = await Promise.all([
+      const [items, total, allocation, creators] = await Promise.all([
         prisma.pointBankTransaction.findMany({
           where: transactionWhere,
           include: {
@@ -953,6 +1042,14 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           take: query.pageSize,
         }),
         prisma.pointBankTransaction.count({ where: transactionWhere }),
+        prisma.pointBankTransaction.aggregate({
+          where: {
+            programId: request.programId,
+            pointTypeId: cycle.pointTypeId,
+            ...bankCycleAllocationWhere(cycle.id, cycle.clearedAt),
+          },
+          _sum: { amount: true },
+        }),
         createdByForEntities(request.programId, "point_bank_cycle", [cycle.id]),
       ]);
       const actorIds = [
@@ -963,6 +1060,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       return reply.send({
         data: {
           ...cycle,
+          allocated: netBankCycleAllocated(allocation._sum.amount, cycle.allocated),
           createdBy: creators.get(cycle.id) ?? null,
           closedBy: cycle.clearedBy ? actors.get(cycle.clearedBy) ?? null : null,
           transactions: {
@@ -1080,7 +1178,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         const [currentBank, allocations] = await Promise.all([
           tx.pointBank.findUniqueOrThrow({ where: { id: bank.id } }),
           tx.pointBankTransaction.aggregate({
-            where: { cycleId: cycle.id, amount: { lt: 0 } },
+            where: bankCycleAllocationWhere(cycle.id),
             _sum: { amount: true },
           }),
         ]);
@@ -1088,7 +1186,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           where: { id },
           data: {
             status: "CLEARED",
-            allocated: Math.abs(allocations._sum.amount ?? 0),
+            allocated: netBankCycleAllocated(allocations._sum.amount, 0),
             closing: currentBank.balance,
             clearedAt: new Date(),
             clearedBy: request.actor.id,

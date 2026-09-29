@@ -90,6 +90,7 @@ function actionLabel(action: string): string {
 function actorLabel(actor: AuditActor): string {
   if (actor.name && actor.email) return `${actor.name} · ${actor.email}`;
   if (actor.name) return actor.name;
+  if (actor.email) return actor.email;
   return `${ui(actor.type)} · ${actor.id}`;
 }
 
@@ -122,6 +123,15 @@ function dataSummary(value: Record<string, unknown> | null): string {
 
 function featureLabel(value: string): string {
   return ui(value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
+}
+
+function RecordedData({ value }: { value: unknown }): JSX.Element {
+  if (value === null || value === undefined) return <span>—</span>;
+  if (typeof value !== "object") return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+  return <dl className="space-y-2 border-l pl-3">{Object.entries(value).map(([key, item]) => <div key={key}>
+    <dt className="text-xs font-medium text-muted-foreground">{ui(key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()))}</dt>
+    <dd className="mt-1 text-sm"><RecordedData value={item} /></dd>
+  </div>)}</dl>;
 }
 
 export function LogsPage(): JSX.Element {
@@ -306,7 +316,7 @@ export function LogsPage(): JSX.Element {
                         <TableRow key={`${entry.id}-details`}>
                           <TableCell colSpan={6} className="bg-muted/30">
                             <div className="grid gap-4 md:grid-cols-2">
-                              <div><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{ui("Recorded data")}</p><pre className="max-h-64 overflow-auto rounded-md border bg-background p-3 text-xs">{prettyJson(entry.diff)}</pre></div>
+                              <div><p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{ui("Recorded data")}</p><div className="max-h-96 overflow-auto rounded-md border bg-background p-3"><RecordedData value={entry.diff} /></div><details className="mt-2"><summary className="cursor-pointer text-xs text-muted-foreground">{ui("Technical data")}</summary><pre className="max-h-64 overflow-auto p-3 text-xs">{prettyJson(entry.diff)}</pre></details></div>
                               <div className="space-y-2 text-sm"><p><strong>{ui("Actor ID")}:</strong> {entry.actorId}</p><p><strong>{ui("Feature")}:</strong> {featureLabel(entry.entityType)}</p><p><strong>{ui("Target")}:</strong> {entry.targetLabel ?? "—"}</p><p><strong>{ui("Target ID")}:</strong> {entry.entityId ?? "—"}</p><p><strong>{ui("Reason")}:</strong> {entry.reason ?? "—"}</p></div>
                             </div>
                           </TableCell>

@@ -6,7 +6,7 @@ import { prisma } from "../../db.js";
 import { createApprovalRequestWithClient } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
-import { assertCapability, requireCapability } from "../../lib/permissions.js";
+import { assertCapability, requireCapability, type AdminCapability } from "../../lib/permissions.js";
 import { walletService } from "../../lib/wallets.js";
 
 const fieldSchema = z.object({
@@ -50,6 +50,56 @@ async function ownedProject(programId: string, adminId: string, id: string) {
   const project = await prisma.project.findFirst({ where: { id, programId, createdByAdminId: adminId } });
   if (!project) throw new LoyaltyError("PROJECT_NOT_FOUND", 404);
   return project;
+}
+
+async function hasCapability(request: Parameters<typeof assertCapability>[0], capability: AdminCapability): Promise<boolean> {
+  try {
+    await assertCapability(request, capability);
+    return true;
+  } catch (error) {
+    if (error instanceof LoyaltyError && error.httpStatus === 403) return false;
+    throw error;
+  }
+}
+
+function projectAccessFlags(
+  request: { adminId: string | null },
+  createdByAdminId: string,
+  canManageProjects: boolean,
+  canViewProjectFinance: boolean,
+): { canManage: boolean; canViewBudget: boolean } {
+  const isProjectManager = Boolean(request.adminId && request.adminId === createdByAdminId);
+  return {
+    canManage: isProjectManager && canManageProjects,
+    canViewBudget: isProjectManager || canViewProjectFinance,
+  };
+}
+
+type ProjectApprovalSummary = {
+  id: string;
+  status: string;
+  requestedAt: Date;
+  resolvedAt: Date | null;
+  decision: string | null;
+  comment: string | null;
+};
+
+function approvalSummary(request: {
+  id: string;
+  status: string;
+  requestedAt: Date;
+  resolvedAt: Date | null;
+  resolutionComment: string | null;
+  decisions: { decision: string; comment: string | null }[];
+}): ProjectApprovalSummary {
+  return {
+    id: request.id,
+    status: request.status,
+    requestedAt: request.requestedAt,
+    resolvedAt: request.resolvedAt,
+    decision: request.decisions[0]?.decision ?? null,
+    comment: request.resolutionComment ?? request.decisions[0]?.comment ?? null,
+  };
 }
 
 async function validateFieldValues(
@@ -170,12 +220,24 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     return reply.send({ data: { fields: canManageProjects ? fields : [], canManageProjects, pointTypes: pointTypes.map(({ banks, ...type }) => ({ ...type, bankBalance: canViewBankBalances ? banks[0]?.balance ?? 0 : null })), members } });
   });
   app.get("/admin/projects", { preHandler: [requireCapability("project.view")] }, async (request, reply) => {
+    const [canManageProjects, canViewProjectFinance] = await Promise.all([
+      hasCapability(request, "project.manage"),
+      hasCapability(request, "project.finance.view"),
+    ]);
     const data = await prisma.project.findMany({
       where: { programId: request.programId },
       include: { createdBy: { select: { id: true, name: true, email: true } }, budgets: { include: { pointType: { select: { code: true, name: true } } } }, _count: { select: { members: true, tasks: true } } },
       orderBy: { updatedAt: "desc" },
     });
-    return reply.send({ data });
+    return reply.send({ data: data.map((project) => {
+      const flags = projectAccessFlags(request, project.createdByAdminId, canManageProjects, canViewProjectFinance);
+      return {
+        ...project,
+        fieldValues: flags.canViewBudget ? project.fieldValues : {},
+        budgets: flags.canViewBudget ? project.budgets : [],
+        ...flags,
+      };
+    }) });
   });
   app.post("/admin/projects", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
     const body = projectSchema.parse(request.body);
@@ -193,19 +255,67 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
   });
   app.get("/admin/projects/:id", { preHandler: [requireCapability("project.view")] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+    const access = await prisma.project.findFirst({
+      where: { id, programId: request.programId },
+      select: { id: true, createdByAdminId: true },
+    });
+    if (!access) throw new LoyaltyError("PROJECT_NOT_FOUND", 404);
+    const [canManageProjects, canViewProjectFinance] = await Promise.all([
+      hasCapability(request, "project.manage"),
+      hasCapability(request, "project.finance.view"),
+    ]);
+    const flags = projectAccessFlags(request, access.createdByAdminId, canManageProjects, canViewProjectFinance);
     const project = await prisma.project.findFirst({
       where: { id, programId: request.programId },
       include: {
         createdBy: { select: { id: true, name: true, email: true } },
-        budgets: { include: { pointType: { select: { code: true, name: true, unitLabel: true } } } },
+        budgets: flags.canViewBudget ? { include: { pointType: { select: { code: true, name: true, unitLabel: true } } } } : false,
         members: { include: { member: { select: { id: true, email: true, firstName: true, lastName: true, department: true } } }, orderBy: { invitedAt: "desc" } },
         tasks: { include: { assignee: { select: { id: true, email: true, firstName: true, lastName: true } } }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
-        issueBatches: { include: { allocations: { include: { member: { select: { id: true, email: true, firstName: true, lastName: true } }, pointType: { select: { code: true, name: true } } } } }, orderBy: { createdAt: "desc" } },
-        budgetTransactions: { include: { pointType: { select: { code: true, name: true } } }, orderBy: { createdAt: "desc" } },
+        issueBatches: flags.canViewBudget ? { include: { allocations: { include: { member: { select: { id: true, email: true, firstName: true, lastName: true } }, pointType: { select: { code: true, name: true } } } } }, orderBy: { createdAt: "desc" } } : false,
+        budgetTransactions: flags.canViewBudget ? { include: { pointType: { select: { code: true, name: true } } }, orderBy: { createdAt: "desc" } } : false,
       },
     });
     if (!project) throw new LoyaltyError("PROJECT_NOT_FOUND", 404);
-    return reply.send({ data: project });
+    const projectApprovalSummary = flags.canViewBudget
+      ? await (async () => {
+          const batchIds = project.issueBatches.map((batch) => batch.id);
+          const approvals = await prisma.approvalRequest.findMany({
+            where: {
+              programId: request.programId,
+              OR: [
+                { actionKey: "PROJECT_PLAN_APPROVAL", subjectType: "Project", subjectId: id },
+                ...(batchIds.length ? [{ actionKey: "PROJECT_POINT_ISSUANCE", subjectType: "ProjectIssueBatch", subjectId: { in: batchIds } }] : []),
+              ],
+            },
+            select: {
+              id: true,
+              actionKey: true,
+              status: true,
+              requestedAt: true,
+              resolvedAt: true,
+              resolutionComment: true,
+              decisions: { orderBy: { createdAt: "desc" }, take: 1, select: { decision: true, comment: true } },
+            },
+            orderBy: { requestedAt: "desc" },
+          });
+          const plan = approvals.find((item) => item.actionKey === "PROJECT_PLAN_APPROVAL");
+          const distribution = approvals.find((item) => item.actionKey === "PROJECT_POINT_ISSUANCE");
+          return {
+            plan: plan ? approvalSummary(plan) : null,
+            distribution: distribution ? approvalSummary(distribution) : null,
+          };
+        })()
+      : null;
+    return reply.send({ data: {
+      ...project,
+      fieldValues: flags.canViewBudget ? project.fieldValues : {},
+      budgets: flags.canViewBudget ? project.budgets : [],
+      issueBatches: flags.canViewBudget ? project.issueBatches : [],
+      budgetTransactions: flags.canViewBudget ? project.budgetTransactions : [],
+      ...flags,
+      approvalSummary: projectApprovalSummary,
+    } });
   });
   app.patch("/admin/projects/:id", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
@@ -215,7 +325,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     await validateFieldValues(request.programId, body.fieldValues, jsonRecord(existing.fieldValues));
     await syncBudgets(request.programId, id, body.budgets);
     const project = await prisma.project.update({ where: { id }, data: { name: body.name, description: body.description ?? null, fieldValues: json(body.fieldValues) } });
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "UPDATE", name: body.name });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "UPDATE", name: body.name, before: { name: existing.name, description: existing.description }, after: { name: project.name, description: project.description } });
     return reply.send({ data: project });
   });
   app.post("/admin/projects/:id/submit-plan", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -259,6 +369,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const members = await prisma.member.findMany({ where: { id: { in: ids }, programId: request.programId, deletedAt: null, status: "ACTIVE" }, select: { id: true } });
     if (members.length !== ids.length) throw new LoyaltyError("PROJECT_MEMBER_NOT_FOUND", 404);
     let invited = 0;
+    const invitedMemberIds: string[] = [];
     for (const member of members) {
       const existingMembership = await prisma.projectMember.findUnique({
         where: { projectId_memberId: { projectId: id, memberId: member.id } },
@@ -269,8 +380,9 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       const prior = await prisma.notification.findFirst({ where: { memberId: member.id, metadata: { path: ["projectInvitationId"], equals: invitation.id }, status: { not: "READ" } }, select: { id: true } });
       if (!prior) await prisma.notification.create({ data: { memberId: member.id, channel: "IN_APP", subject: "Project invitation", body: `You are invited to join ${project.name}. Please review and respond in Projects.`, metadata: { projectInvitationId: invitation.id, projectId: id } } });
       invited += 1;
+      invitedMemberIds.push(member.id);
     }
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "INVITE_MEMBERS", memberCount: invited });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "INVITE_MEMBERS", name: project.name, memberCount: invited, memberIds: invitedMemberIds });
     return reply.status(201).send({ data: { invited } });
   });
   app.post("/admin/projects/:id/tasks", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -298,16 +410,20 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       if (!accepted) throw new LoyaltyError("PROJECT_MEMBER_MUST_ACCEPT_FIRST", 409);
     }
     const task = await prisma.projectTask.update({ where: { id: taskId }, data: { ...body, dueAt: body.dueAt === undefined ? undefined : body.dueAt ? new Date(body.dueAt) : null, completedAt: body.status ? body.status === "DONE" ? new Date() : null : undefined } });
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "UPDATE", ...body });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "UPDATE", projectId: id, title: task.title,
+      before: { title: current.title, status: current.status, assigneeId: current.assigneeId, dueAt: current.dueAt?.toISOString() ?? null },
+      after: { title: task.title, status: task.status, assigneeId: task.assigneeId, dueAt: task.dueAt?.toISOString() ?? null },
+    });
     return reply.send({ data: task });
   });
   app.delete("/admin/projects/:id/tasks/:taskId", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
     const { id, taskId } = z.object({ id: z.string().min(1), taskId: z.string().min(1) }).parse(request.params);
     const project = await ownedProject(request.programId, currentAdmin(request), id);
     if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
+    const task = await prisma.projectTask.findFirst({ where: { id: taskId, projectId: id } });
     const deleted = await prisma.projectTask.deleteMany({ where: { id: taskId, projectId: id } });
     if (!deleted.count) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", taskId, { operation: "DELETE", projectId: id });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", taskId, { operation: "DELETE", projectId: id, title: task?.title, before: task ? { title: task.title, status: task.status, assigneeId: task.assigneeId } : null });
     return reply.status(204).send();
   });
   app.post("/admin/projects/:id/complete", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -398,10 +514,66 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
     const memberships = await prisma.projectMember.findMany({
       where: { memberId: request.memberId, project: { programId: request.programId, status: { notIn: ["DRAFT", "PLAN_PENDING", "PLAN_REJECTED", "APPROVED"] } } },
-      include: { project: { include: { tasks: { where: { assigneeId: request.memberId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } } } },
+      select: {
+        id: true,
+        projectId: true,
+        status: true,
+        invitedAt: true,
+        respondedAt: true,
+        project: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            status: true,
+            activatedAt: true,
+            completedAt: true,
+            closedAt: true,
+            createdBy: { select: { name: true } },
+          },
+        },
+      },
       orderBy: { invitedAt: "desc" },
     });
-    return reply.send({ data: memberships.map(({ project, ...membership }) => ({ ...membership, project: { id: project.id, name: project.name, description: project.description, status: project.status, fieldValues: project.fieldValues, tasks: project.tasks } })) });
+    const acceptedProjectIds = memberships.filter((membership) => membership.status === "ACCEPTED").map((membership) => membership.projectId);
+    const tasks = acceptedProjectIds.length
+      ? await prisma.projectTask.findMany({
+          where: { projectId: { in: acceptedProjectIds }, assigneeId: request.memberId },
+          select: { id: true, projectId: true, title: true, description: true, status: true, dueAt: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        })
+      : [];
+    const tasksByProject = new Map<string, typeof tasks>();
+    for (const task of tasks) {
+      const projectTasks = tasksByProject.get(task.projectId) ?? [];
+      projectTasks.push(task);
+      tasksByProject.set(task.projectId, projectTasks);
+    }
+    return reply.send({ data: memberships.map((membership) => ({
+      id: membership.id,
+      status: membership.status,
+      invitedAt: membership.invitedAt,
+      respondedAt: membership.respondedAt,
+      project: {
+        id: membership.project.id,
+        name: membership.project.name,
+        description: membership.project.description,
+        status: membership.project.status,
+        activatedAt: membership.project.activatedAt,
+        completedAt: membership.project.completedAt,
+        closedAt: membership.project.closedAt,
+        projectManager: membership.project.createdBy ? { name: membership.project.createdBy.name } : null,
+        tasks: membership.status === "ACCEPTED"
+          ? (tasksByProject.get(membership.projectId) ?? []).map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueAt: task.dueAt,
+            }))
+          : [],
+      },
+    })) });
   });
   app.post("/members/me/projects/:id/respond", async (request, reply) => {
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
@@ -411,6 +583,10 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     if (!membership) throw new LoyaltyError("PROJECT_INVITATION_NOT_FOUND", 404);
     if (membership.status !== "INVITED") throw new LoyaltyError("PROJECT_INVITATION_ALREADY_ANSWERED", 409);
     const updated = await prisma.projectMember.update({ where: { id: membership.id }, data: { status: response, respondedAt: new Date() } });
+    await audit(request.programId, { type: "MEMBER", id: request.memberId }, "CONFIG_CHANGE", "project", id, {
+      operation: "RESPOND_INVITATION", memberId: request.memberId,
+      before: { status: membership.status }, after: { status: response },
+    });
     return reply.send({ data: updated });
   });
   app.patch("/members/me/projects/:projectId/tasks/:taskId", async (request, reply) => {
@@ -422,6 +598,10 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const task = await prisma.projectTask.findFirst({ where: { id: taskId, projectId, assigneeId: request.memberId } });
     if (!task) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
     const updated = await prisma.projectTask.update({ where: { id: taskId }, data: { status, completedAt: status === "DONE" ? new Date() : null } });
+    await audit(request.programId, { type: "MEMBER", id: request.memberId }, "CONFIG_CHANGE", "project_task", taskId, {
+      operation: "UPDATE_TASK_STATUS", projectId, memberId: request.memberId, title: task.title,
+      before: { status: task.status }, after: { status },
+    });
     return reply.send({ data: updated });
   });
 

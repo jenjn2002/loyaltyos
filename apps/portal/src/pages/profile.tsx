@@ -196,6 +196,12 @@ export default function Profile() {
                     <dd>{profile.data.phone}</dd>
                   </div>
                 )}
+                {profile.data.department && (
+                  <div className="flex justify-between">
+                    <dt>{ui("Department")}</dt>
+                    <dd>{profile.data.department}</dd>
+                  </div>
+                )}
                 {(profile.data.memberFields ?? []).map((field) => {
                   const value = profile.data?.metadata?.[field.key];
                   if (value === undefined || value === null || value === "") return null;

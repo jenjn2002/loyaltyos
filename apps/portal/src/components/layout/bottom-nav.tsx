@@ -42,11 +42,11 @@ export default function BottomNav() {
       role="navigation"
       aria-label={t("profile")}
     >
-      <ul className="mx-auto flex max-w-lg justify-around">
+      <ul className="mx-auto flex max-w-3xl overflow-x-auto">
         {items.map((item) => {
           if (item.authRequired && !authed) return null;
           return (
-            <li key={item.to} className="flex-1">
+            <li key={item.to} className="min-w-[4.5rem] flex-1 shrink-0">
               <NavLink
                 to={item.to}
                 className={({ isActive }) =>

@@ -761,7 +761,7 @@ export default function Credits(): JSX.Element {
             <h2 className="text-lg font-semibold">{ui("My exchange requests")}</h2>
           </div>
           <span className="text-xs text-[var(--color-text-secondary)]">
-            {ui("Page")} {exchangeRequests.data?.page ?? 1} / {exchangeRequests.data?.totalPages ?? 1}
+            {ui("Page")} {exchangeRequests.data?.page ?? 1} / {Math.max(1, exchangeRequests.data?.totalPages ?? 1)}
           </span>
         </summary>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
@@ -814,7 +814,7 @@ export default function Credits(): JSX.Element {
           >{ui("Previous")}</button>
           <button
             type="button"
-            disabled={exchangePage >= (exchangeRequests.data?.totalPages ?? 1)}
+            disabled={exchangePage >= Math.max(1, exchangeRequests.data?.totalPages ?? 1)}
             onClick={() => {
               setExchangePage((page) => page + 1);
             }}

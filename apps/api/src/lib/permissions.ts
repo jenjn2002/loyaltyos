@@ -30,6 +30,7 @@ export const ADMIN_CAPABILITIES = [
   "campaign.execute",
   "project.view",
   "project.manage",
+  "project.finance.view",
   "segment.view",
   "segment.manage",
   "tier.view",
@@ -82,6 +83,10 @@ const ownerOnlyByDefault = new Set<AdminCapability>([
 
 export function defaultCapability(role: string, capability: AdminCapability): boolean {
   if (role === "SUPER_ADMIN") return true;
+  // Project finance is deliberately excluded from the generic read capability
+  // default, which would otherwise grant it to ANALYST roles because it ends
+  // in `.view`.
+  if (capability === "project.finance.view") return false;
   if (role === "ANALYST") return readCapabilities.has(capability);
   if (role === "OPERATOR") return !ownerOnlyByDefault.has(capability);
   return false;
