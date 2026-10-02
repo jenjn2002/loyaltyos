@@ -80,6 +80,14 @@ export function createRepository(prisma: PrismaClient) {
       return member.locale ?? member.program.defaultLocale;
     },
 
+    async findMemberEmail(memberId: string): Promise<string | null> {
+      const member = await prisma.member.findUnique({
+        where: { id: memberId },
+        select: { email: true },
+      });
+      return member?.email ?? null;
+    },
+
     async findProgramDefaultLocale(memberId: string): Promise<string | null> {
       const member = await prisma.member.findUnique({
         where: { id: memberId },

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type {
   CustomPointTransaction,
+  PointBankTransaction,
   PointExchangeStatus,
   PointTypeDefinition,
   Prisma,
@@ -111,14 +112,6 @@ async function ensureWallet(tx: Tx, memberId: string, programId: string, pointTy
   });
 }
 
-async function latestHash(tx: Tx, programId: string): Promise<string | null> {
-  const previous = await tx.customPointTransaction.findFirst({
-    where: { programId },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { recordHash: true },
-  });
-  return previous?.recordHash ?? null;
-}
 
 async function lockLedger(tx: Tx, programId: string): Promise<void> {
   // Serialize the hash chain per program. Without this lock, two concurrent
@@ -144,6 +137,236 @@ function ledgerHash(input: {
   previousHash: string | null;
 }): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
+async function appendLedgerTransaction(
+  tx: Tx,
+  input: Omit<Prisma.CustomPointTransactionUncheckedCreateInput, "previousHash" | "recordHash" | "hashVersion">,
+): Promise<CustomPointTransaction> {
+  await lockLedger(tx, input.programId);
+  const head = await latestLedgerHead(tx, input.programId);
+  const previousHash = head?.recordHash ?? null;
+  const now = new Date();
+  const createdAt =
+    head && head.createdAt.getTime() >= now.getTime()
+      ? new Date(head.createdAt.getTime() + 1)
+      : now;
+  const metadata = (input.metadata ?? {}) as Prisma.InputJsonValue;
+  const expiresAt = input.expiresAt == null
+    ? null
+    : input.expiresAt instanceof Date ? input.expiresAt : new Date(input.expiresAt);
+  const payload: LedgerHashPayload = {
+    walletId: input.walletId,
+    memberId: input.memberId,
+    programId: input.programId,
+    pointTypeId: input.pointTypeId,
+    action: input.action,
+    amount: input.amount,
+    balanceBefore: input.balanceBefore ?? null,
+    balanceAfter: input.balanceAfter,
+    source: input.source ?? "manual",
+    reason: input.reason ?? null,
+    message: input.message ?? null,
+    category: input.category ?? null,
+    categoryId: input.categoryId ?? null,
+    counterpartyMemberId: input.counterpartyMemberId ?? null,
+    sourcePointTypeId: input.sourcePointTypeId ?? null,
+    destinationPointTypeId: input.destinationPointTypeId ?? null,
+    exchangeRateId: input.exchangeRateId ?? null,
+    exchangeRequestId: input.exchangeRequestId ?? null,
+    actorType: input.actorType ?? null,
+    actorId: input.actorId ?? null,
+    reversedFromId: input.reversedFromId ?? null,
+    idempotencyKey: input.idempotencyKey,
+    expiresAt,
+    metadata: metadata as Prisma.JsonValue,
+    createdAt,
+    previousHash,
+    hashVersion: 2,
+  };
+  return tx.customPointTransaction.create({
+    data: {
+      ...input,
+      ...payload,
+      metadata,
+      recordHash: ledgerHashV2(payload),
+    },
+  });
+}
+type LedgerHashPayload = Pick<
+  CustomPointTransaction,
+  | "walletId"
+  | "memberId"
+  | "programId"
+  | "pointTypeId"
+  | "action"
+  | "amount"
+  | "balanceBefore"
+  | "balanceAfter"
+  | "source"
+  | "reason"
+  | "message"
+  | "category"
+  | "categoryId"
+  | "counterpartyMemberId"
+  | "sourcePointTypeId"
+  | "destinationPointTypeId"
+  | "exchangeRateId"
+  | "exchangeRequestId"
+  | "actorType"
+  | "actorId"
+  | "reversedFromId"
+  | "idempotencyKey"
+  | "expiresAt"
+  | "metadata"
+  | "createdAt"
+  | "previousHash"
+  | "hashVersion"
+>;
+
+function canonicalJson(value: unknown): string {
+  const normalize = (input: unknown): unknown => {
+    if (input instanceof Date) return input.toISOString();
+    if (Array.isArray(input)) return input.map(normalize);
+    if (input && typeof input === "object") {
+      return Object.fromEntries(
+        Object.entries(input).sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => [key, normalize(item)]),
+      );
+    }
+    return input;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function ledgerHashV2(input: LedgerHashPayload): string {
+  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+}
+
+function ledgerHashForTransaction(transaction: CustomPointTransaction): string | null {
+  if (transaction.hashVersion === 1) {
+    return ledgerHash({
+      programId: transaction.programId,
+      memberId: transaction.memberId,
+      pointTypeId: transaction.pointTypeId,
+      action: transaction.action,
+      amount: transaction.amount,
+      balanceAfter: transaction.balanceAfter,
+      source: transaction.source,
+      idempotencyKey: transaction.idempotencyKey,
+      previousHash: transaction.previousHash,
+    });
+  }
+  if (transaction.hashVersion !== 2) return null;
+  return ledgerHashV2({
+    walletId: transaction.walletId,
+    memberId: transaction.memberId,
+    programId: transaction.programId,
+    pointTypeId: transaction.pointTypeId,
+    action: transaction.action,
+    amount: transaction.amount,
+    balanceBefore: transaction.balanceBefore,
+    balanceAfter: transaction.balanceAfter,
+    source: transaction.source,
+    reason: transaction.reason,
+    message: transaction.message,
+    category: transaction.category,
+    categoryId: transaction.categoryId,
+    counterpartyMemberId: transaction.counterpartyMemberId,
+    sourcePointTypeId: transaction.sourcePointTypeId,
+    destinationPointTypeId: transaction.destinationPointTypeId,
+    exchangeRateId: transaction.exchangeRateId,
+    exchangeRequestId: transaction.exchangeRequestId,
+    actorType: transaction.actorType,
+    actorId: transaction.actorId,
+    reversedFromId: transaction.reversedFromId,
+    idempotencyKey: transaction.idempotencyKey,
+    expiresAt: transaction.expiresAt,
+    metadata: transaction.metadata ?? {},
+    createdAt: transaction.createdAt,
+    previousHash: transaction.previousHash,
+    hashVersion: transaction.hashVersion,
+  });
+}
+
+async function latestLedgerHead(tx: Tx, programId: string) {
+  return tx.customPointTransaction.findFirst({
+    where: { programId, recordHash: { not: null } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { recordHash: true, createdAt: true },
+  });
+}
+type BankLedgerHashPayload = {
+  bankId: string;
+  programId: string;
+  pointTypeId: string;
+  amount: number;
+  balanceAfter: number;
+  type: string;
+  reason: string;
+  actorId: string;
+  cycleId: string | null;
+  idempotencyKey: string;
+  createdAt: Date;
+  previousHash: string | null;
+  hashVersion: number;
+};
+
+function bankLedgerHash(input: BankLedgerHashPayload): string {
+  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+}
+
+async function appendBankTransaction(
+  tx: Tx,
+  input: Omit<Prisma.PointBankTransactionUncheckedCreateInput, "previousHash" | "recordHash" | "hashVersion">,
+): Promise<PointBankTransaction> {
+  await lockLedger(tx, `bank:${input.programId}`);
+  const head = await tx.pointBankTransaction.findFirst({
+    where: { programId: input.programId, hashVersion: 2, recordHash: { not: null } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { recordHash: true, createdAt: true },
+  });
+  const now = new Date();
+  const createdAt = head && head.createdAt.getTime() >= now.getTime()
+    ? new Date(head.createdAt.getTime() + 1)
+    : now;
+  const payload: BankLedgerHashPayload = {
+    bankId: input.bankId,
+    programId: input.programId,
+    pointTypeId: input.pointTypeId,
+    amount: input.amount,
+    balanceAfter: input.balanceAfter,
+    type: input.type,
+    reason: input.reason,
+    actorId: input.actorId,
+    cycleId: input.cycleId ?? null,
+    idempotencyKey: input.idempotencyKey,
+    createdAt,
+    previousHash: head?.recordHash ?? null,
+    hashVersion: 2,
+  };
+  return tx.pointBankTransaction.create({
+    data: { ...input, ...payload, recordHash: bankLedgerHash(payload) },
+  });
+}
+
+function bankLedgerHashForTransaction(transaction: PointBankTransaction): string | null {
+  if (transaction.hashVersion !== 2) return null;
+  return bankLedgerHash({
+    bankId: transaction.bankId,
+    programId: transaction.programId,
+    pointTypeId: transaction.pointTypeId,
+    amount: transaction.amount,
+    balanceAfter: transaction.balanceAfter,
+    type: transaction.type,
+    reason: transaction.reason,
+    actorId: transaction.actorId,
+    cycleId: transaction.cycleId,
+    idempotencyKey: transaction.idempotencyKey,
+    createdAt: transaction.createdAt,
+    previousHash: transaction.previousHash,
+    hashVersion: transaction.hashVersion,
+  });
 }
 
 interface LedgerCommon {
@@ -234,47 +457,31 @@ async function creditWallet(tx: Tx, input: CreditLedgerInput) {
       totalEarned: { increment: input.amount },
     },
   });
-  await lockLedger(tx, input.programId);
-  const previousHash = await latestHash(tx, input.programId);
-  const recordHash = ledgerHash({
-    programId: input.programId,
+  const transaction = await appendLedgerTransaction(tx, {
+    walletId: wallet.id,
     memberId: input.memberId,
+    programId: input.programId,
     pointTypeId: input.pointType.id,
     action: input.action,
     amount: input.amount,
+    balanceBefore: wallet.balance,
     balanceAfter: updated.balance,
     source: input.source,
+    reason: input.reason,
+    message: input.message,
+    category: input.category,
+    categoryId: input.categoryId,
+    counterpartyMemberId: input.counterpartyMemberId,
+    sourcePointTypeId: input.sourcePointTypeId,
+    destinationPointTypeId: input.destinationPointTypeId,
+    exchangeRateId: input.exchangeRateId,
+    exchangeRequestId: input.exchangeRequestId,
+    actorType: input.actor?.type,
+    actorId: input.actor?.id,
+    reversedFromId: input.reversedFromId,
     idempotencyKey: input.idempotencyKey,
-    previousHash,
-  });
-  const transaction = await tx.customPointTransaction.create({
-    data: {
-      walletId: wallet.id,
-      memberId: input.memberId,
-      programId: input.programId,
-      pointTypeId: input.pointType.id,
-      action: input.action,
-      amount: input.amount,
-      balanceAfter: updated.balance,
-      source: input.source,
-      reason: input.reason,
-      message: input.message,
-      category: input.category,
-      categoryId: input.categoryId,
-      counterpartyMemberId: input.counterpartyMemberId,
-      sourcePointTypeId: input.sourcePointTypeId,
-      destinationPointTypeId: input.destinationPointTypeId,
-      exchangeRateId: input.exchangeRateId,
-      exchangeRequestId: input.exchangeRequestId,
-      actorType: input.actor?.type,
-      actorId: input.actor?.id,
-      previousHash,
-      recordHash,
-      reversedFromId: input.reversedFromId,
-      idempotencyKey: input.idempotencyKey,
-      expiresAt: calculatedExpiry,
-      metadata: json(input.metadata),
-    },
+    expiresAt: calculatedExpiry,
+    metadata: json(input.metadata) ?? {},
   });
 
   const lots = input.restoredLots ?? [
@@ -362,8 +569,6 @@ async function debitWallet(tx: Tx, input: DebitLedgerInput): Promise<DebitResult
   }
 
   const updated = await tx.customPointWallet.findUniqueOrThrow({ where: { id: wallet.id } });
-  await lockLedger(tx, input.programId);
-  const previousHash = await latestHash(tx, input.programId);
   const signedAmount = -input.amount;
   const metadata = {
     ...input.metadata,
@@ -377,43 +582,30 @@ async function debitWallet(tx: Tx, input: DebitLedgerInput): Promise<DebitResult
         }
       : {}),
   };
-  const recordHash = ledgerHash({
-    programId: input.programId,
+  const transaction = await appendLedgerTransaction(tx, {
+    walletId: wallet.id,
     memberId: input.memberId,
+    programId: input.programId,
     pointTypeId: input.pointType.id,
     action: input.action,
     amount: signedAmount,
+    balanceBefore: wallet.balance,
     balanceAfter: updated.balance,
     source: input.source,
+    reason: input.reason,
+    message: input.message,
+    category: input.category,
+    categoryId: input.categoryId,
+    counterpartyMemberId: input.counterpartyMemberId,
+    sourcePointTypeId: input.sourcePointTypeId,
+    destinationPointTypeId: input.destinationPointTypeId,
+    exchangeRateId: input.exchangeRateId,
+    exchangeRequestId: input.exchangeRequestId,
+    actorType: input.actor?.type,
+    actorId: input.actor?.id,
     idempotencyKey: input.idempotencyKey,
-    previousHash,
-  });
-  const transaction = await tx.customPointTransaction.create({
-    data: {
-      walletId: wallet.id,
-      memberId: input.memberId,
-      programId: input.programId,
-      pointTypeId: input.pointType.id,
-      action: input.action,
-      amount: signedAmount,
-      balanceAfter: updated.balance,
-      source: input.source,
-      reason: input.reason,
-      message: input.message,
-      category: input.category,
-      categoryId: input.categoryId,
-      counterpartyMemberId: input.counterpartyMemberId,
-      sourcePointTypeId: input.sourcePointTypeId,
-      destinationPointTypeId: input.destinationPointTypeId,
-      exchangeRateId: input.exchangeRateId,
-      exchangeRequestId: input.exchangeRequestId,
-      actorType: input.actor?.type,
-      actorId: input.actor?.id,
-      previousHash,
-      recordHash,
-      idempotencyKey: input.idempotencyKey,
-      metadata: json(metadata),
-    },
+    expiresAt: null,
+    metadata: json(metadata) ?? {},
   });
   return {
     transaction: { ...transaction, balanceBefore: wallet.balance },
@@ -436,43 +628,28 @@ async function neutralAllowanceEntry(tx: Tx, input: LedgerCommon & { allowanceSp
     return existing;
   }
   const wallet = await ensureWallet(tx, input.memberId, input.programId, input.pointType.id);
-  await lockLedger(tx, input.programId);
-  const previousHash = await latestHash(tx, input.programId);
-  const recordHash = ledgerHash({
-    programId: input.programId,
+  return appendLedgerTransaction(tx, {
+    walletId: wallet.id,
     memberId: input.memberId,
+    programId: input.programId,
     pointTypeId: input.pointType.id,
     action: input.action,
     amount: 0,
+    balanceBefore: wallet.balance,
     balanceAfter: wallet.balance,
     source: input.source,
+    reason: input.reason,
+    message: input.message,
+    category: input.category,
+    categoryId: input.categoryId,
+    counterpartyMemberId: input.counterpartyMemberId,
+    sourcePointTypeId: input.sourcePointTypeId,
+    destinationPointTypeId: input.destinationPointTypeId,
+    actorType: input.actor?.type,
+    actorId: input.actor?.id,
     idempotencyKey: input.idempotencyKey,
-    previousHash,
-  });
-  return tx.customPointTransaction.create({
-    data: {
-      walletId: wallet.id,
-      memberId: input.memberId,
-      programId: input.programId,
-      pointTypeId: input.pointType.id,
-      action: input.action,
-      amount: 0,
-      balanceAfter: wallet.balance,
-      source: input.source,
-      reason: input.reason,
-      message: input.message,
-      category: input.category,
-      categoryId: input.categoryId,
-      counterpartyMemberId: input.counterpartyMemberId,
-      sourcePointTypeId: input.sourcePointTypeId,
-      destinationPointTypeId: input.destinationPointTypeId,
-      actorType: input.actor?.type,
-      actorId: input.actor?.id,
-      previousHash,
-      recordHash,
-      idempotencyKey: input.idempotencyKey,
-      metadata: json({ ...input.metadata, allowanceSpent: input.allowanceSpent }),
-    },
+    expiresAt: null,
+    metadata: json({ ...input.metadata, allowanceSpent: input.allowanceSpent }) ?? {},
   });
 }
 
@@ -569,19 +746,17 @@ async function debitBank(
         select: { id: true },
       });
   const cycleId = input.cycleId ?? activeCycle?.id;
-  const transaction = await tx.pointBankTransaction.create({
-    data: {
-      bankId: bank.id,
-      programId: input.programId,
-      pointTypeId: input.pointTypeId,
-      amount: -input.amount,
-      balanceAfter: updated.balance,
-      type: input.type,
-      reason: input.reason,
-      actorId: input.actorId,
-      idempotencyKey: input.idempotencyKey,
-      cycleId,
-    },
+  const transaction = await appendBankTransaction(tx, {
+    bankId: bank.id,
+    programId: input.programId,
+    pointTypeId: input.pointTypeId,
+    amount: -input.amount,
+    balanceAfter: updated.balance,
+    type: input.type,
+    reason: input.reason,
+    actorId: input.actorId,
+    idempotencyKey: input.idempotencyKey,
+    cycleId,
   });
   if (cycleId) {
     await tx.pointBankCycle.update({
@@ -640,19 +815,17 @@ async function creditBank(
         orderBy: { startsAt: "desc" },
         select: { id: true },
       });
-  const transaction = await tx.pointBankTransaction.create({
-    data: {
-      bankId: bank.id,
-      programId: input.programId,
-      pointTypeId: input.pointTypeId,
-      amount: input.amount,
-      balanceAfter: updated.balance,
-      type: input.type,
-      reason: input.reason,
-      actorId: input.actorId,
-      idempotencyKey: input.idempotencyKey,
-      cycleId: input.cycleId ?? activeCycle?.id,
-    },
+  const transaction = await appendBankTransaction(tx, {
+    bankId: bank.id,
+    programId: input.programId,
+    pointTypeId: input.pointTypeId,
+    amount: input.amount,
+    balanceAfter: updated.balance,
+    type: input.type,
+    reason: input.reason,
+    actorId: input.actorId,
+    idempotencyKey: input.idempotencyKey,
+    cycleId: input.cycleId ?? activeCycle?.id,
   });
   const cycleId = input.cycleId ?? activeCycle?.id;
   if (
@@ -677,7 +850,7 @@ export const CREDIT_RECOGNITION_TEMPLATE = {
   key: "credit-recognition",
   name: "Credit & Recognition (P/R)",
   description:
-    "P-credit with per-grant expiry and P→R Give; R-credit with renewable Give allowance.",
+    "P-credit expires a configured number of days after the point type is created; R-credit has a renewable Give allowance.",
 } as const;
 
 export class WalletService {
@@ -1026,7 +1199,8 @@ export class WalletService {
           description:
             "Project credit. It can expire and may be exchanged for cash when a cash rate is configured.",
           color: "#2563eb",
-          expiryMode: "PER_GRANT",
+          expiryMode: "AFTER_DAYS",
+          expiryDays: 365,
           transferable: true,
           redeemable: true,
           exchangeable: true,
@@ -1226,6 +1400,136 @@ export class WalletService {
     }));
   }
 
+  async verifyIntegrity(programId: string) {
+    const [transactions, wallets, banks, bankTransactions] = await Promise.all([
+      this.db.customPointTransaction.findMany({
+        where: { programId },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+      this.db.customPointWallet.findMany({ where: { programId } }),
+      this.db.pointBank.findMany({ where: { programId } }),
+      this.db.pointBankTransaction.findMany({
+        where: { programId },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+    ]);
+    const hashIssues: Array<{ transactionId: string; issue: string }> = [];
+    const walletIssues: Array<{
+      walletId: string;
+      memberId: string;
+      pointTypeId: string;
+      ledgerBalance: number;
+      walletBalance: number;
+    }> = [];
+    const bankIssues: Array<{
+      bankId: string;
+      pointTypeId: string;
+      ledgerBalance: number;
+      bankBalance: number;
+    }> = [];
+    const ledgerTotals = new Map<string, { amount: number; lastBalance: number | null }>();
+    let expectedPreviousHash: string | null = null;
+    let checkedHashes = 0;
+    let legacyUnhashed = 0;
+
+    for (const transaction of transactions) {
+      const walletTotal = ledgerTotals.get(transaction.walletId) ?? { amount: 0, lastBalance: null };
+      walletTotal.amount += transaction.amount;
+      walletTotal.lastBalance = transaction.balanceAfter;
+      ledgerTotals.set(transaction.walletId, walletTotal);
+
+      if (!transaction.recordHash) {
+        legacyUnhashed += 1;
+        continue;
+      }
+      checkedHashes += 1;
+      if (transaction.previousHash !== expectedPreviousHash) {
+        hashIssues.push({ transactionId: transaction.id, issue: "PREVIOUS_HASH_MISMATCH" });
+      }
+      const expectedHash = ledgerHashForTransaction(transaction);
+      if (!expectedHash) {
+        hashIssues.push({ transactionId: transaction.id, issue: "HASH_VERSION_UNSUPPORTED" });
+      } else if (expectedHash !== transaction.recordHash) {
+        hashIssues.push({ transactionId: transaction.id, issue: "RECORD_HASH_MISMATCH" });
+      }
+      expectedPreviousHash = transaction.recordHash;
+    }
+
+    for (const wallet of wallets) {
+      const total = ledgerTotals.get(wallet.id);
+      const ledgerBalance = total?.amount ?? 0;
+      const lastBalance = total?.lastBalance ?? 0;
+      if (ledgerBalance !== wallet.balance || lastBalance !== wallet.balance) {
+        walletIssues.push({
+          walletId: wallet.id,
+          memberId: wallet.memberId,
+          pointTypeId: wallet.pointTypeId,
+          ledgerBalance,
+          walletBalance: wallet.balance,
+        });
+      }
+    }
+
+    const bankHashIssues: Array<{ transactionId: string; issue: string }> = [];
+    let checkedBankHashes = 0;
+    let legacyBankUnhashed = 0;
+    let expectedBankPreviousHash: string | null = null;
+    for (const transaction of bankTransactions) {
+      if (!transaction.recordHash || transaction.hashVersion !== 2) {
+        legacyBankUnhashed += 1;
+        continue;
+      }
+      checkedBankHashes += 1;
+      if (transaction.previousHash !== expectedBankPreviousHash) {
+        bankHashIssues.push({ transactionId: transaction.id, issue: "PREVIOUS_HASH_MISMATCH" });
+      }
+      const expectedHash = bankLedgerHashForTransaction(transaction);
+      if (!expectedHash) {
+        bankHashIssues.push({ transactionId: transaction.id, issue: "HASH_VERSION_UNSUPPORTED" });
+      } else if (expectedHash !== transaction.recordHash) {
+        bankHashIssues.push({ transactionId: transaction.id, issue: "RECORD_HASH_MISMATCH" });
+      }
+      expectedBankPreviousHash = transaction.recordHash;
+    }
+
+    const bankTotals = new Map<string, { amount: number; lastBalance: number | null }>();
+    for (const transaction of bankTransactions) {
+      const bankTotal = bankTotals.get(transaction.bankId) ?? { amount: 0, lastBalance: null };
+      bankTotal.amount += transaction.amount;
+      bankTotal.lastBalance = transaction.balanceAfter;
+      bankTotals.set(transaction.bankId, bankTotal);
+    }
+    for (const bank of banks) {
+      const total = bankTotals.get(bank.id);
+      const ledgerBalance = total?.amount ?? 0;
+      const lastBalance = total?.lastBalance ?? 0;
+      if (ledgerBalance !== bank.balance || lastBalance !== bank.balance) {
+        bankIssues.push({
+          bankId: bank.id,
+          pointTypeId: bank.pointTypeId,
+          ledgerBalance,
+          bankBalance: bank.balance,
+        });
+      }
+    }
+
+    return {
+      checkedAt: new Date().toISOString(),
+      checkedTransactions: transactions.length,
+      checkedHashes,
+      legacyUnhashed,
+      hashIssues: hashIssues.slice(0, 100),
+      walletIssues: walletIssues.slice(0, 100),
+      checkedWallets: wallets.length,
+      bankIssues: bankIssues.slice(0, 100),
+      checkedBankTransactions: bankTransactions.length,
+      checkedBankHashes,
+      legacyBankUnhashed,
+      bankHashIssues: bankHashIssues.slice(0, 100),
+      checkedBanks: banks.length,
+      ok: hashIssues.length === 0 && walletIssues.length === 0 && bankHashIssues.length === 0 && bankIssues.length === 0,
+    };
+  }
   async adjust(
     programId: string,
     memberId: string,
@@ -1233,6 +1537,8 @@ export class WalletService {
     amount: number,
     reason: string,
     actor: LedgerActor,
+
+
     idempotencyKey: string,
     explicitExpiry?: Date,
   ) {
@@ -2256,7 +2562,6 @@ export class WalletService {
       ...(pointTypeId ? { pointTypeId } : {}),
       action: "EXPIRATION" as const,
       source: "system:expiration",
-      reversedById: null,
       metadata: { path: ["manual"], equals: true },
     };
     const latestManualRun = requestedRunId
@@ -2272,13 +2577,12 @@ export class WalletService {
       (typeof discoveredRun?.expirationRunId === "string" ? discoveredRun.expirationRunId : null);
     if (!runId) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
 
-    const candidates = await this.db.customPointTransaction.findMany({
+    const expirationRows = await this.db.customPointTransaction.findMany({
       where: {
         programId,
         ...(pointTypeId ? { pointTypeId } : {}),
         action: "EXPIRATION",
         source: "system:expiration",
-        reversedById: null,
         AND: [
           { metadata: { path: ["manual"], equals: true } },
           { metadata: { path: ["expirationRunId"], equals: runId } },
@@ -2287,6 +2591,18 @@ export class WalletService {
       include: { pointType: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
+    const resetRows = expirationRows.length
+      ? await this.db.customPointTransaction.findMany({
+          where: {
+            programId,
+            action: "EXPIRATION_RESET",
+            reversedFromId: { in: expirationRows.map((row) => row.id) },
+          },
+          select: { reversedFromId: true },
+        })
+      : [];
+    const resetIds = new Set(resetRows.flatMap((row) => row.reversedFromId ? [row.reversedFromId] : []));
+    const candidates = expirationRows.filter((row) => !resetIds.has(row.id));
     if (candidates.length === 0) throw new LoyaltyError("EXPIRATION_RUN_NOT_FOUND", 404);
 
     let restored = 0;
@@ -2296,7 +2612,16 @@ export class WalletService {
           where: { id: candidate.id },
           include: { pointType: true },
         });
-        if (!original || original.reversedById) continue;
+        if (!original) continue;
+        const existingReset = await tx.customPointTransaction.findFirst({
+          where: {
+            programId,
+            action: "EXPIRATION_RESET",
+            reversedFromId: original.id,
+          },
+          select: { id: true },
+        });
+        if (existingReset) continue;
         const metadata = metadataOf(original.metadata);
         const rawLots = Array.isArray(metadata?.consumedLots) ? metadata.consumedLots : [];
         const restoredLots = rawLots
@@ -2311,7 +2636,7 @@ export class WalletService {
             expiresAt: lot.expiresAt ? new Date(lot.expiresAt) : null,
           }));
         const amount = Math.abs(original.amount);
-        const transaction = await creditWallet(tx, {
+        await creditWallet(tx, {
           memberId: original.memberId,
           programId,
           pointType: original.pointType,
@@ -2328,10 +2653,6 @@ export class WalletService {
             expirationRunId: runId,
             reversedExpirationId: original.id,
           },
-        });
-        await tx.customPointTransaction.update({
-          where: { id: original.id },
-          data: { reversedById: transaction.id },
         });
         restored += amount;
       }
@@ -2462,6 +2783,8 @@ export class WalletService {
         status: "INACTIVE",
         deactivatedAt: member.deactivatedAt ?? new Date(),
         deletedAt: member.deletedAt ?? new Date(),
+        lastWorkingDay: null,
+        offboardingReason: null,
       },
     });
     return transactions;

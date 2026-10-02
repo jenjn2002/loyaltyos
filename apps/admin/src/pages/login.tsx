@@ -94,7 +94,7 @@ export function LoginPage(): JSX.Element {
           </form>
           <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
-            <span>{t("or")}</span>
+            <span>{t("portal.or")}</span>
             <span className="h-px flex-1 bg-border" />
           </div>
           <Button
@@ -104,7 +104,7 @@ export function LoginPage(): JSX.Element {
             onClick={startMicrosoftLogin}
           >
             <Mail className="mr-2 h-4 w-4" />
-            {t("microsoftSignIn")}
+            {t("portal.microsoftSignIn")}
           </Button>
           <p className="mt-3 text-center text-xs text-muted-foreground">
             {t("auth.microsoftAdminApproval")}

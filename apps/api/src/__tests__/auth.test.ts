@@ -356,6 +356,44 @@ describe("GET /auth/me", () => {
   });
 });
 
+describe("production API-key boundary", () => {
+  it("rejects the public demo key in production but still accepts server integration keys", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    app.get("/api/v1/test/auth-key-check", async (request) => ({
+      scope: request.apiKeyScope,
+      programId: request.programId,
+    }));
+
+    try {
+      const demoKeyResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/test/auth-key-check",
+        headers: { "x-api-key": "dev-key", "x-program-id": "prog_dev" },
+      });
+
+      expect(demoKeyResponse.statusCode).toBe(401);
+      expect(mockPrisma.apiKey.findUnique).not.toHaveBeenCalled();
+
+      const integrationKeyResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/test/auth-key-check",
+        headers: { "x-api-key": "test-key", "x-program-id": "prog_dev" },
+      });
+
+      expect(integrationKeyResponse.statusCode).toBe(200);
+      expect(JSON.parse(integrationKeyResponse.body)).toEqual({
+        scope: "SERVER",
+        programId: "prog_dev",
+      });
+      expect(mockPrisma.apiKey.update).toHaveBeenCalled();
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+});
+
 // ── POST /auth/logout ──────────────────────────────────────
 
 describe("POST /auth/logout", () => {

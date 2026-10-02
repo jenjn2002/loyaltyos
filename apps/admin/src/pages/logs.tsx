@@ -1,7 +1,8 @@
 import { ui } from "@/lib/ui-text";
-import { useQuery } from "@tanstack/react-query";
-import { History, Search, X } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { History, Search, ShieldCheck, X } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +53,27 @@ interface LogsFilterOptions {
   features: string[];
 }
 
+interface IntegrityResult {
+  checkedAt: string;
+  ok: boolean;
+  audit: { checked: number; legacyUnverifiable: number; invalidIds: string[]; ok: boolean };
+  ledger: {
+    checkedTransactions: number;
+    checkedHashes: number;
+    legacyUnhashed: number;
+    hashIssues: { transactionId: string; issue: string }[];
+    walletIssues: unknown[];
+    checkedWallets: number;
+    bankIssues: unknown[];
+    checkedBankTransactions: number;
+    checkedBankHashes: number;
+    legacyBankUnhashed: number;
+    bankHashIssues: { transactionId: string; issue: string }[];
+    checkedBanks: number;
+    ok: boolean;
+  };
+}
+
 const ACTIONS = [
   "ADJUST_POINTS",
   "REVERSE_TRANSACTION",
@@ -84,7 +106,34 @@ const ACTOR_TYPES: ActorType[] = ["ADMIN_USER", "API_KEY", "MEMBER", "SYSTEM"];
 const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
 function actionLabel(action: string): string {
-  return ui(action.toLowerCase().replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
+  const labels: Record<string, string> = {
+    ADJUST_POINTS: "Adjust points",
+    REVERSE_TRANSACTION: "Reverse transaction",
+    CREATE_COUPON: "Create coupon",
+    DELETE_COUPON: "Delete coupon",
+    UPDATE_CAMPAIGN: "Update campaign",
+    UPDATE_REWARD: "Update reward",
+    MERGE_MEMBERS: "Merge members",
+    MANUAL_TIER_CHANGE: "Manual tier change",
+    CONFIG_CHANGE: "Configuration change",
+    OTHER: "Other",
+    CREATE_NOTIFICATION_TEMPLATE: "Create notification template",
+    UPDATE_NOTIFICATION_TEMPLATE: "Update notification template",
+    DELETE_NOTIFICATION_TEMPLATE: "Delete notification template",
+    CREATE_WEBHOOK: "Create webhook",
+    UPDATE_WEBHOOK: "Update webhook",
+    DELETE_WEBHOOK: "Delete webhook",
+    SEND_TEST_NOTIFICATION: "Send test notification",
+    PREVIEW_NOTIFICATION_TEMPLATE: "Preview notification template",
+    CREDIT_GIVE: "Give recognition",
+    CREDIT_REDEEM: "Reward redemption",
+    CREDIT_EXCHANGE: "Credit exchange request",
+    CREDIT_ADJUSTMENT: "Wallet adjustment",
+    CREDIT_BULK: "Bulk credit import",
+    CREDIT_BANK: "Bank funding",
+    CREDIT_CLEARANCE: "Bank cycle closure",
+  };
+  return ui(labels[action] ?? action.toLowerCase().replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
 }
 
 function actorLabel(actor: AuditActor): string {
@@ -135,6 +184,7 @@ function RecordedData({ value }: { value: unknown }): JSX.Element {
 }
 
 export function LogsPage(): JSX.Element {
+  const { i18n } = useTranslation();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -164,6 +214,10 @@ export function LogsPage(): JSX.Element {
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [actorInput]);
+
+  const integrity = useMutation({
+    mutationFn: () => fetchApi<IntegrityResult>("/admin/logs/integrity"),
+  });
 
   const filterOptions = useQuery({
     queryKey: ["admin-log-filter-options"],
@@ -208,6 +262,11 @@ export function LogsPage(): JSX.Element {
 
   const data = invalidDateRange ? undefined : logs.data;
   const entries = data?.items ?? [];
+  const hasLegacyUnhashedRows = Boolean(integrity.data && (
+    integrity.data.audit.legacyUnverifiable > 0 ||
+    integrity.data.ledger.legacyUnhashed > 0 ||
+    integrity.data.ledger.legacyBankUnhashed > 0
+  ));
 
   return (
     <div className="space-y-6 pb-10">
@@ -217,6 +276,42 @@ export function LogsPage(): JSX.Element {
           {ui("Review actions performed in the system, who performed them, the affected feature and recorded data.")}
         </p>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />{ui("Audit and ledger integrity")}</CardTitle>
+            <CardDescription>{ui("Run a read-only check of audit hashes and wallet/bank balances against their transaction ledgers.")}</CardDescription>
+          </div>
+          <Button type="button" variant="outline" disabled={integrity.isPending} onClick={() => integrity.mutate()}>
+            <ShieldCheck className="mr-2 h-4 w-4" />{integrity.isPending ? ui("Checking…") : ui("Check integrity")}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {integrity.isError && <p role="alert" className="text-sm text-destructive">{integrity.error.message}</p>}
+          {integrity.data ? (
+            <div className="space-y-2 text-sm">
+              <p role="status" className={integrity.data.ok ? (hasLegacyUnhashedRows ? "font-medium text-amber-700" : "font-medium text-emerald-700") : "font-medium text-destructive"}>
+                {!integrity.data.ok
+                  ? ui("Integrity mismatches detected; review the counts below.")
+                  : hasLegacyUnhashedRows
+                    ? ui("No mismatches in hashed records; legacy records are not hash-verifiable.")
+                    : ui("No integrity mismatches detected.")}
+              </p>
+              <p className="text-muted-foreground">{ui("Checked at")} {new Date(integrity.data.checkedAt).toLocaleString()}</p>
+              <p>
+                {ui("Audit records")}: {integrity.data.audit.checked} {ui("hash-checked")}, {integrity.data.audit.invalidIds.length} {ui("mismatches")}, {integrity.data.audit.legacyUnverifiable} {ui("legacy records not hash-verifiable")}.
+              </p>
+              <p>
+                {ui("Wallet transactions")}: {integrity.data.ledger.checkedTransactions} {ui("checked")}, {integrity.data.ledger.checkedHashes} {ui("hash-checked")}, {integrity.data.ledger.hashIssues.length} {ui("hash mismatches")}, {integrity.data.ledger.checkedWallets} {ui("wallets reconciled")}, {integrity.data.ledger.walletIssues.length} {ui("wallet balance mismatches")}.
+              </p>
+              <p>
+                {ui("Bank transactions")}: {integrity.data.ledger.checkedBankTransactions} {ui("checked")}, {integrity.data.ledger.checkedBankHashes} {ui("hash-checked")}, {integrity.data.ledger.bankHashIssues.length} {ui("hash mismatches")}, {integrity.data.ledger.checkedBanks} {ui("banks")}, {integrity.data.ledger.bankIssues.length} {ui("balance mismatches")}, {integrity.data.ledger.legacyBankUnhashed} {ui("legacy records not hash-verifiable")}.
+              </p>
+            </div>
+          ) : !integrity.isError ? <p className="text-sm text-muted-foreground">{ui("Run the check to reconcile stored balances with the ledgers.")}</p> : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -299,7 +394,7 @@ export function LogsPage(): JSX.Element {
                   {entries.map((entry) => (
                     <Fragment key={entry.id}>
                       <TableRow key={entry.id} className="cursor-pointer" onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}>
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString(i18n.language)}</TableCell>
                         <TableCell className="min-w-48"><p className="font-medium">{actorLabel(entry.actor)}</p><p className="text-xs text-muted-foreground">{ui(entry.actorType)}</p></TableCell>
                         <TableCell className="whitespace-nowrap">{actionLabel(entry.action)}</TableCell>
                         <TableCell><code className="text-xs">{featureLabel(entry.entityType)}</code></TableCell>

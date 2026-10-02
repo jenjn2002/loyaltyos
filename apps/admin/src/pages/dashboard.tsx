@@ -1,9 +1,10 @@
 import { ui } from "@/lib/ui-text";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Gift, Percent, Plus, Settings2, Trash2, Users, WalletCards, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, Percent, Plus, Settings2, Trash2, Users, WalletCards, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { DashboardActions } from "@/components/dashboard-actions";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +50,7 @@ const WIDGET_OPTIONS: WidgetOption[] = [
   { metric: "totalPointsIssued", label: "Points issued", kind: "KPI" },
   { metric: "totalPointsRedeemed", label: "Points redeemed", kind: "KPI" },
   { metric: "pointExchanged", label: "Points exchanged", kind: "KPI" },
-  { metric: "currentPointBalance", label: "Current point balance", kind: "KPI" },
+  { metric: "currentPointBalance", label: "Primary point balance", kind: "KPI" },
   { metric: "recognitionVolume", label: "Recognition volume", kind: "KPI" },
   { metric: "giftCardsActive", label: "Active gift cards", kind: "KPI" },
   { metric: "giftCardsOutstanding", label: "Gift card balance", kind: "KPI" },
@@ -78,28 +79,42 @@ function readStoredWidgets(key: string): DashboardWidget[] {
 
 export function DashboardPage(): JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [customizing, setCustomizing] = useState(false);
   const [widgetMetric, setWidgetMetric] = useState<WidgetMetric>("activeMembers");
   const [widgetTitle, setWidgetTitle] = useState("");
-  const [customWidgets, setCustomWidgets] = useState<DashboardWidget[]>([]);
-  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
+  const migratedLegacyForAdmin = useRef<string | null>(null);
 
   const admin = useQuery({
     queryKey: ["admin-me-dashboard"],
-    queryFn: () => fetchApi<{ id: string }>("/admin/me"),
+    queryFn: () => fetchApi<{ id: string; capabilities: Record<string, boolean> }>("/admin/me"),
   });
-  const storageKey = admin.data?.id ? `loyaltyos:dashboard:${admin.data.id}` : null;
+  const adminId = admin.data?.id;
+  const layoutQueryKey = ["dashboard-layout", adminId ?? "pending"];
+  const dashboardLayout = useQuery({
+    queryKey: layoutQueryKey,
+    queryFn: () => fetchApi<{ widgets: DashboardWidget[] }>("/admin/dashboard-layout"),
+    enabled: Boolean(adminId),
+  });
+  const customWidgets = dashboardLayout.data?.widgets ?? [];
+  const saveDashboard = useMutation({
+    mutationFn: (widgets: DashboardWidget[]) =>
+      fetchApi<{ widgets: DashboardWidget[] }>("/admin/dashboard-layout", {
+        method: "PATCH",
+        body: JSON.stringify({ widgets }),
+      }),
+    onSuccess: (layout) => {
+      queryClient.setQueryData(layoutQueryKey, layout);
+    },
+  });
 
   useEffect(() => {
-    if (!storageKey || loadedStorageKey === storageKey) return;
-    setCustomWidgets(readStoredWidgets(storageKey));
-    setLoadedStorageKey(storageKey);
-  }, [loadedStorageKey, storageKey]);
-
-  useEffect(() => {
-    if (!storageKey || loadedStorageKey !== storageKey) return;
-    localStorage.setItem(storageKey, JSON.stringify(customWidgets));
-  }, [customWidgets, loadedStorageKey, storageKey]);
+    if (!adminId || dashboardLayout.isLoading || dashboardLayout.isError || migratedLegacyForAdmin.current === adminId) return;
+    migratedLegacyForAdmin.current = adminId;
+    if (customWidgets.length > 0) return;
+    const legacyWidgets = readStoredWidgets(`loyaltyos:dashboard:${adminId}`).slice(0, 30);
+    if (legacyWidgets.length > 0) saveDashboard.mutate(legacyWidgets);
+  }, [adminId, customWidgets, dashboardLayout.isError, dashboardLayout.isLoading, saveDashboard.mutate]);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -109,21 +124,23 @@ export function DashboardPage(): JSX.Element {
   const { data: gcMetrics } = useQuery({
     queryKey: ["giftcard-metrics"],
     queryFn: () => fetchApi<GiftCardMetrics>("/admin/giftcards/metrics"),
+    enabled: admin.data?.capabilities?.["giftcard.view"] === true && customWidgets.some((widget) => widget.metric === "giftCardsActive" || widget.metric === "giftCardsOutstanding"),
   });
 
   const addWidget = (): void => {
     const option = WIDGET_OPTIONS.find((item) => item.metric === widgetMetric);
-    if (!option) return;
+    if (!option || saveDashboard.isPending || customWidgets.length >= 30) return;
     const title = widgetTitle.trim() || ui(option.label);
-    setCustomWidgets((current) => [
-      ...current,
+    saveDashboard.mutate([
+      ...customWidgets,
       { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, metric: widgetMetric, title },
     ]);
     setWidgetTitle("");
   };
 
   const removeWidget = (id: string): void => {
-    setCustomWidgets((current) => current.filter((widget) => widget.id !== id));
+    if (saveDashboard.isPending) return;
+    saveDashboard.mutate(customWidgets.filter((widget) => widget.id !== id));
   };
 
   const scalarValue = (metric: WidgetMetric): number => {
@@ -255,7 +272,8 @@ export function DashboardPage(): JSX.Element {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+      <DashboardActions banks={data.pointBanks ?? []} />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -301,6 +319,7 @@ export function DashboardPage(): JSX.Element {
             <p className="text-2xl font-bold text-orange-600">
               {data.totalPointsRedeemed.toLocaleString()}
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">{ui("Points spent on rewards; excludes point-exchange requests.")}</p>
           </CardContent>
         </Card>
 
@@ -318,26 +337,10 @@ export function DashboardPage(): JSX.Element {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {ui("Active gift cards")}
-            </CardTitle>
-            <Gift className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {gcMetrics
-                ? `${gcMetrics.active.toLocaleString()} ${t("giftcards.cards").toLowerCase()}`
-                : "—"}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{ui("Current point balance")}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{ui("Primary point balance")}{data.currentPointBalanceType ? ` · ${data.currentPointBalanceType.name}` : ""}</CardTitle>
             <WalletCards className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent><p className="text-2xl font-bold">{(data.currentPointBalance ?? 0).toLocaleString()}</p></CardContent>
+          <CardContent><p className="text-2xl font-bold">{(data.currentPointBalance ?? 0).toLocaleString()}{data.currentPointBalanceType?.unitLabel ? ` ${data.currentPointBalanceType.unitLabel}` : ""}</p></CardContent>
         </Card>
       </div>
 
@@ -351,8 +354,10 @@ export function DashboardPage(): JSX.Element {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
-              <Bar dataKey="Issued" fill="hsl(142.1 76.2% 36.3%)" />
-              <Bar dataKey="Redeemed" fill="hsl(20.5 90.2% 48.2%)" />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="Issued" name={t("dashboard.pointsIssued")} fill="hsl(142.1 76.2% 36.3%)" />
+              <Bar dataKey="Redeemed" name={t("dashboard.pointsRedeemed")} fill="hsl(20.5 90.2% 48.2%)" />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -386,6 +391,7 @@ export function DashboardPage(): JSX.Element {
             <p className="text-2xl font-bold text-blue-600">
               {(data.pointExchanged ?? 0).toLocaleString()}
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">{ui("Points deducted for exchanges; separate from reward redemptions.")}</p>
           </CardContent>
         </Card>
         <Card>
@@ -406,22 +412,25 @@ export function DashboardPage(): JSX.Element {
         <Card>
           <CardHeader>
             <CardTitle>{ui("My dashboard")}</CardTitle>
-            <p className="text-sm text-muted-foreground">{ui("Add simple metric cards or charts. Your layout is saved for this admin in this browser.")}</p>
+            <p className="text-sm text-muted-foreground">{ui("Add simple metric cards or charts. Your layout is saved to your admin account and follows you across devices.")}</p>
           </CardHeader>
           <CardContent className="space-y-4">
+            {dashboardLayout.isLoading && <p role="status" className="text-sm text-muted-foreground">{ui("Loading your saved dashboard…")}</p>}
+            {saveDashboard.isPending && <p role="status" className="text-sm text-muted-foreground">{ui("Saving dashboard…")}</p>}
+            {saveDashboard.isError && <p role="alert" className="text-sm text-destructive">{ui("Dashboard could not be saved. Please try again.")}</p>}
             {customizing && (
               <div className="grid gap-3 rounded-md border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
                 <div>
                   <Label htmlFor="dashboard-widget-metric">{ui("Metric")}</Label>
-                  <select id="dashboard-widget-metric" className={`${selectClass} mt-1`} value={widgetMetric} onChange={(event) => { setWidgetMetric(event.target.value as WidgetMetric); }}>
+                  <select id="dashboard-widget-metric" className={`${selectClass} mt-1`} value={widgetMetric} disabled={saveDashboard.isPending || dashboardLayout.isLoading || customWidgets.length >= 30} onChange={(event) => { setWidgetMetric(event.target.value as WidgetMetric); }}>
                     {WIDGET_OPTIONS.map((option) => <option key={option.metric} value={option.metric}>{ui(option.label)} · {option.kind === "CHART" ? ui("Chart") : ui("Number")}</option>)}
                   </select>
                 </div>
                 <div>
                   <Label htmlFor="dashboard-widget-title">{ui("Title (optional)")}</Label>
-                  <Input id="dashboard-widget-title" className="mt-1" value={widgetTitle} onChange={(event) => { setWidgetTitle(event.target.value); }} placeholder={ui("Use the default title")} />
+                  <Input id="dashboard-widget-title" className="mt-1" value={widgetTitle} disabled={saveDashboard.isPending || dashboardLayout.isLoading || customWidgets.length >= 30} onChange={(event) => { setWidgetTitle(event.target.value); }} placeholder={ui("Use the default title")} />
                 </div>
-                <Button type="button" onClick={addWidget}><Plus className="mr-2 h-4 w-4" />{ui("Add widget")}</Button>
+                <Button type="button" onClick={addWidget} disabled={saveDashboard.isPending || dashboardLayout.isLoading || customWidgets.length >= 30}><Plus className="mr-2 h-4 w-4" />{ui("Add widget")}</Button>
               </div>
             )}
             {customWidgets.length > 0 ? (

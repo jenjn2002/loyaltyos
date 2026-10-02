@@ -17,6 +17,11 @@ const bulkBodySchema = z.object({
   sourceName: z.string().max(255).optional(),
 });
 
+const offboardingScheduleSchema = z.object({
+  lastWorkingDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.string().trim().min(1).max(500),
+});
+
 interface ImportRow {
   memberId?: string;
   email?: string | null;
@@ -802,6 +807,68 @@ export function adminCreditUsersRoutes(
     },
   );
 
+
+  app.post(
+    "/admin/members/:id/offboarding-schedule",
+    { preHandler: [requireCapability("member.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = offboardingScheduleSchema.parse(request.body);
+      const lastWorkingDay = new Date(`${body.lastWorkingDay}T00:00:00.000Z`);
+      if (
+        Number.isNaN(lastWorkingDay.getTime()) ||
+        lastWorkingDay.toISOString().slice(0, 10) !== body.lastWorkingDay
+      ) throw new LoyaltyError("OFFBOARDING_DATE_INVALID", 400);
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      if (lastWorkingDay < today) throw new LoyaltyError("OFFBOARDING_DATE_IN_PAST", 400);
+      const member = await prisma.member.findFirst({ where: { id, programId: request.programId } });
+      if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      if (member.status !== "ACTIVE" || member.deletedAt) throw new LoyaltyError("MEMBER_NOT_ACTIVE", 409);
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.member.update({
+          where: { id },
+          data: { lastWorkingDay, offboardingReason: body.reason },
+        });
+        await audit(
+          request.programId, request.actor, "CONFIG_CHANGE", "member", id,
+          { offboardingScheduled: true, lastWorkingDay: body.lastWorkingDay }, body.reason, tx,
+        );
+        return result;
+      });
+      return reply.send({ data: updated });
+    },
+  );
+
+  app.delete(
+    "/admin/members/:id/offboarding-schedule",
+    { preHandler: [requireCapability("member.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = z.object({ reason: z.string().trim().min(1).max(500) }).parse(request.body);
+      const member = await prisma.member.findFirst({ where: { id, programId: request.programId } });
+      if (!member) throw new LoyaltyError("MEMBER_NOT_FOUND", 404);
+      if (member.status !== "ACTIVE" || member.deletedAt) throw new LoyaltyError("OFFBOARDING_NOT_SCHEDULED", 409);
+      if (!member.lastWorkingDay) throw new LoyaltyError("OFFBOARDING_NOT_SCHEDULED", 409);
+      const scheduledDate = member.lastWorkingDay.toISOString().slice(0, 10);
+      const updated = await prisma.$transaction(async (tx) => {
+        const changed = await tx.member.updateMany({
+          where: { id, programId: request.programId, status: "ACTIVE", deletedAt: null, lastWorkingDay: member.lastWorkingDay },
+          data: { lastWorkingDay: null, offboardingReason: null },
+        });
+        if (changed.count !== 1) throw new LoyaltyError("OFFBOARDING_NOT_SCHEDULED", 409);
+        const result = await tx.member.findUniqueOrThrow({ where: { id } });
+        await audit(
+          request.programId, request.actor, "CONFIG_CHANGE", "member", id,
+          { offboardingScheduled: false, previousLastWorkingDay: scheduledDate }, body.reason, tx,
+        );
+        return result;
+      });
+      return reply.send({ data: updated });
+    },
+  );
+
+
   app.post(
     "/admin/members/:id/status",
     { preHandler: [requireCapability("member.manage")] },
@@ -848,7 +915,7 @@ export function adminCreditUsersRoutes(
         await prisma.$transaction(async (tx) => {
           await tx.member.update({
             where: { id },
-            data: { status: "ACTIVE", deactivatedAt: null, deletedAt: null },
+            data: { status: "ACTIVE", deactivatedAt: null, deletedAt: null, lastWorkingDay: null, offboardingReason: null },
           });
           await audit(
             request.programId,

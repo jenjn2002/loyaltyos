@@ -1,6 +1,6 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, CalendarDays, Check, ChevronRight, Gift, Loader2, Star } from "lucide-react";
+import { Award, BookOpen, CalendarDays, Check, ChevronRight, Gift, Loader2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -63,6 +63,20 @@ function contributionWeeks(todayKey: string): Date[][] {
   return weeks;
 }
 
+function checkInDisplayName(name: string): string {
+  const normalized = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ["daily check-in", "daily check in", "diem danh hang ngay"].includes(normalized)
+    ? ui("Daily check-in")
+    : name;
+}
+
 function CheckInCard({
   event,
   pending,
@@ -74,6 +88,9 @@ function CheckInCard({
   notice: string | null;
   onCheckIn: () => void;
 }): JSX.Element {
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
+  const displayName = checkInDisplayName(event.name);
   const checkedInDates = new Set(event.checkedInDates);
   const weeks = contributionWeeks(event.today);
   const today = new Date(`${event.today}T12:00:00`);
@@ -82,18 +99,18 @@ function CheckInCard({
   const monthLabels = weeks.flatMap((week, index) => {
     const firstOfMonth = week.find((day) => day.getDate() === 1);
     return firstOfMonth
-      ? [{ index, label: firstOfMonth.toLocaleDateString(undefined, { month: "short" }) }]
+      ? [{ index, label: firstOfMonth.toLocaleDateString(locale, { month: "short" }) }]
       : [];
   });
   const checkInCount = event.checkedInDates.length;
 
   return (
-    <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4 shadow-sm" aria-label={event.name}>
+    <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4 shadow-sm" aria-label={displayName}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-text)]">
             <CalendarDays className="h-5 w-5 text-[var(--color-primary)]" />
-            {event.name}
+            {displayName}
           </h2>
           <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
             {event.campaigns.length > 0
@@ -132,8 +149,8 @@ function CheckInCard({
               return (
                 <span
                   key={`${weekIndex}-${key}`}
-                  title={`${day.toLocaleDateString()}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
-                  aria-label={`${day.toLocaleDateString()}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
+                  title={`${day.toLocaleDateString(locale)}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
+                  aria-label={`${day.toLocaleDateString(locale)}${checkedIn ? ` · ${ui("Checked in")}` : ""}`}
                   className={`h-[11px] w-[11px] rounded-[3px] ${
                     !isInRange
                       ? "bg-transparent"
@@ -454,7 +471,7 @@ function CampaignClaims({
 }
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const authed = isAuthenticated();
   const queryClient = useQueryClient();
   const [checkInNotices, setCheckInNotices] = useState<Record<string, string>>({});
@@ -529,7 +546,12 @@ export default function Home() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6 px-4 py-6">
-      <h1 className="text-2xl font-bold">{t("home")}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{t("home")}</h1>
+        <Link to="/document" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface-secondary)]">
+          <BookOpen className="h-4 w-4" aria-hidden="true" /> {i18n.resolvedLanguage?.startsWith("en") ? "Guide" : "Hướng dẫn"}
+        </Link>
+      </div>
 
       {!authed ? (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-8 text-center">
@@ -545,8 +567,11 @@ export default function Home() {
       ) : (
         <>
           {(balance.isError || credits.isError || tier.isError || rewards.isError || badges.isError || claims.isError || checkIns.isError) && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {ui("Session expired or account data could not be loaded. Please sign in again from Profile.")}
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <p>{ui("Some sections could not be loaded. Your session may still be active.")}</p>
+              <ul className="mt-2 space-y-1">{[{ label: ui("Balances"), query: balance }, { label: ui("Credits"), query: credits }, { label: t("yourTier"), query: tier }, { label: t("rewards"), query: rewards }, { label: t("badges"), query: badges }, { label: ui("Campaign claims"), query: claims }, { label: ui("Check-in"), query: checkIns }].filter((section) => section.query.isError).map((section) => (
+                <li key={section.label} className="flex items-center justify-between gap-3"><span>{section.label}</span><button type="button" disabled={section.query.isFetching} onClick={() => void section.query.refetch()} className="min-h-10 underline">{ui("Try again")}</button></li>
+              ))}</ul>
             </div>
           )}
           {claims.data && <CampaignClaims claims={claims.data.items} total={claims.data.total} page={claimPage} totalPages={claims.data.totalPages} onPageChange={setClaimPage} />}

@@ -22,6 +22,7 @@ model Program {
   isActive                Boolean  @default(true)
   defaultLocale           String   @default("vi-VN")
   supportedLocales        String[] @default(["vi-VN", "en-US"])
+  documentationConfigured Boolean  @default(false)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -70,6 +71,7 @@ model Program {
   coalitionAccounts             CoalitionAccount[]
   coalitionConfig               CoalitionConfig?
   adminUsers                    AdminUser[]
+  adminDashboardPreferences     AdminDashboardPreference[]
   memberCredentials             MemberCredential[]
   memberExternalIdentities      MemberExternalIdentity[]
   microsoftAuthConfig           MicrosoftAuthConfig?
@@ -82,6 +84,7 @@ model Program {
   auditLogs                     AuditLog[]
   termsTemplates                TermsTemplate[]
   giftCardBatches               GiftCardBatch[]
+  documentationArticles        DocumentationArticle[]
 
   @@index([isActive])
 }
@@ -103,6 +106,8 @@ model Member {
   deletedAt     DateTime?
   status        MemberStatus @default(ACTIVE)
   deactivatedAt DateTime?
+  lastWorkingDay DateTime?    @db.Date
+  offboardingReason String?
   locale        String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
@@ -144,6 +149,7 @@ model Member {
   @@index([programId])
   @@index([email])
   @@index([deletedAt])
+  @@index([programId, status, lastWorkingDay])
 }
 
 /// Optional portal credentials. Existing members without a row remain valid
@@ -322,6 +328,7 @@ model CustomPointTransaction {
   pointTypeId            String
   action                 String
   amount                 Int
+  balanceBefore          Int?
   balanceAfter           Int
   source                 String    @default("manual")
   reason                 String?
@@ -337,6 +344,7 @@ model CustomPointTransaction {
   actorId                String?
   previousHash           String?
   recordHash             String?
+  hashVersion            Int       @default(1)
   reversedFromId         String?
   reversedById           String?
   idempotencyKey         String
@@ -458,6 +466,9 @@ model PointBankTransaction {
   actorId        String
   cycleId        String?
   idempotencyKey String
+  previousHash   String?
+  recordHash     String?
+  hashVersion    Int      @default(1)
   createdAt      DateTime @default(now())
 
   bank      PointBank           @relation(fields: [bankId], references: [id], onDelete: Restrict)
@@ -467,6 +478,7 @@ model PointBankTransaction {
 
   @@unique([programId, idempotencyKey])
   @@index([programId, pointTypeId, createdAt])
+  @@index([recordHash])
 }
 
 model PointBankCycle {
@@ -1772,9 +1784,59 @@ model AdminUser {
   approvalDecisions ApprovalDecision[]
   approvalNotificationReads AdminApprovalNotificationRead[]
   projects                  Project[]                       @relation("ProjectCreator")
+  dashboardPreferences      AdminDashboardPreference[]
 
   @@index([programId])
   @@index([email])
+}
+
+model AdminDashboardPreference {
+  id          String   @id @default(cuid())
+  programId   String
+  adminUserId String
+  widgets     Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  program   Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, adminUserId])
+  @@index([programId])
+}
+
+enum DocumentationAudience {
+  CUSTOMER
+  ADMIN
+}
+
+enum DocumentationArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+/// Program-scoped, bilingual user documentation. Article content is JSON so
+/// each language can evolve independently without requiring schema changes.
+model DocumentationArticle {
+  id                 String                       @id @default(cuid())
+  programId          String
+  audience           DocumentationAudience
+  slug               String
+  status             DocumentationArticleStatus  @default(DRAFT)
+  sortOrder          Int                          @default(0)
+  imageKey           String?
+  imageData          String?
+  content            Json                         @default("{}")
+  createdByAdminId   String?
+  updatedByAdminId   String?
+  publishedAt        DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, audience, slug])
+  @@index([programId, audience, status, sortOrder])
 }
 
 enum WorkflowApprovalMode {
@@ -2089,6 +2151,9 @@ model AuditLog {
   diff        Json?          @default("{}")
   reason      String?
   ipAddress   String?
+  previousHash String?
+  recordHash   String?
+  hashVersion  Int            @default(1)
   createdAt   DateTime       @default(now())
 
   program   Program    @relation(fields: [programId], references: [id], onDelete: Restrict)

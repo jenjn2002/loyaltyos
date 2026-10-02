@@ -35,7 +35,7 @@ import { fetchApi } from "@/lib/api-client";
 import type { PaginatedResponse, Segment, SegmentMember } from "@/types";
 
 export function SegmentsListPage(): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -120,7 +120,7 @@ export function SegmentsListPage(): JSX.Element {
                   <TableRow>
                     <TableHead>{t("common.name")}</TableHead>
                     <TableHead>{t("campaigns.type")}</TableHead>
-                    <TableHead>{ui("Members")}</TableHead>
+                    <TableHead>{ui("Membership")}</TableHead>
                     <TableHead>{t("common.status")}</TableHead>
                     <TableHead>{ui("Created")}</TableHead>
                     <TableHead>{ui("Created by")}</TableHead>
@@ -134,8 +134,8 @@ export function SegmentsListPage(): JSX.Element {
                       <TableCell>
                         <Badge variant="secondary">{s.type}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm">
-                        {s.type === "STATIC" ? s.memberIds.length : ui("Dynamic")}
+                      <TableCell className="text-sm" title={s.type === "DYNAMIC" ? ui("Open member list to see the current matching total.") : undefined}>
+                        {s.type === "STATIC" ? `${s.memberIds.length} ${ui("Selected members")}` : ui("Rule-based")}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -149,7 +149,7 @@ export function SegmentsListPage(): JSX.Element {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(s.createdAt).toLocaleDateString()}
+                        {new Date(s.createdAt).toLocaleDateString(i18n.language)}
                       </TableCell>
                       <TableCell className="text-sm">
                         {s.createdBy ? <><p className="font-medium">{s.createdBy.name}</p><p className="text-xs text-muted-foreground">{s.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
@@ -227,8 +227,8 @@ export function SegmentsListPage(): JSX.Element {
       >
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{ui("Segment members")}</DialogTitle>
-            <DialogDescription>{ui("Members currently included in this segment.")}</DialogDescription>
+            <DialogTitle>{data?.items.find((segment) => segment.id === memberSegmentId)?.name ?? ui("Segment members")}</DialogTitle>
+            <DialogDescription>{segmentMembers ? `${segmentMembers.total} ${ui("matching members in this segment")}.` : ui("Members currently included in this segment.")}</DialogDescription>
           </DialogHeader>
           {membersLoading ? (
             <div className="space-y-2">

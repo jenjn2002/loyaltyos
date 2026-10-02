@@ -2,6 +2,7 @@ import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   Accordion,
@@ -245,6 +246,14 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "Manage settings",
     description: "Configure and test Microsoft 365 sign-in for the program.",
   },
+  "documentation.view": {
+    label: "View documentation",
+    description: "Read customer and administrator help articles.",
+  },
+  "documentation.manage": {
+    label: "Manage documentation",
+    description: "Create, edit, publish, upload illustrations, and delete help articles.",
+  },
 };
 
 const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[] = [
@@ -318,10 +327,12 @@ const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[]
   { id: "badges", label: "Badges", capabilities: ["badge.view", "badge.manage"] },
   { id: "tiers", label: "Tiers", capabilities: ["tier.view", "tier.manage"] },
   { id: "logs", label: "Logs", capabilities: ["audit.view"] },
+  { id: "documentation", label: "Documentation", capabilities: ["documentation.view", "documentation.manage"] },
   { id: "roles", label: "Roles & permissions", capabilities: ["permission.manage"] },
 ];
 
 export function PermissionsPage(): JSX.Element {
+  const { i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, Record<string, boolean>>>({});
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
@@ -649,7 +660,7 @@ export function PermissionsPage(): JSX.Element {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {ui("Last login:")} {" "}
                       {account.lastLoginAt
-                        ? new Date(account.lastLoginAt).toLocaleString()
+                        ? new Date(account.lastLoginAt).toLocaleString(i18n.language)
                         : ui("Never")}
                     </p>
                     <p className="text-xs text-muted-foreground">{ui("Created by")}: {account.createdBy ? `${account.createdBy.name}${account.createdBy.email ? ` · ${account.createdBy.email}` : ""}` : ui("System / legacy")}</p>

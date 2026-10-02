@@ -1,3 +1,4 @@
+import { useCustomerCopy } from "../lib/customer-copy";
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
@@ -44,6 +45,7 @@ function NotificationBody({ body }: { body: string }) {
 }
 
 export default function Notifications() {
+  const copy = useCustomerCopy();
   const [page, setPage] = useState(1);
   const queryClient = useQueryClient();
   const notifications = useQuery({
@@ -69,7 +71,10 @@ export default function Notifications() {
   });
   const markAllRead = useMutation({
     mutationFn: () =>
-      fetchApi<{ markedRead: number }>("/members/me/notifications/read-all", { method: "POST" }),
+      fetchApi<{ markedRead: number }>("/members/me/notifications/read-all", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["notifications", "me"] });
       await queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
@@ -100,11 +105,16 @@ export default function Notifications() {
         <h1 className="mt-1 text-2xl font-bold">{ui("Notifications")}</h1>
         {unreadCount > 0 && <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{unreadCount} {ui("unread")}</p>}
       </header>
+      {(updateReadState.isError || markAllRead.isError) && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <p>{copy("Read status was not saved. Please try the action again.", "Chưa lưu được trạng thái đã đọc. Vui lòng thử lại thao tác.")}</p>
+        <button type="button" className="mt-1 min-h-10 underline" onClick={() => { updateReadState.reset(); markAllRead.reset(); }}>{copy("Dismiss", "Đóng")}</button>
+      </div>}
+
 
       {notifications.isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-xl bg-[var(--color-surface-secondary)]" />)}</div>
       ) : notifications.isError ? (
-        <p role="alert" className="rounded-xl bg-[var(--color-surface-secondary)] p-4 text-sm">{ui("Unable to load notifications.")}</p>
+        <div role="alert" className="rounded-xl bg-[var(--color-surface-secondary)] p-4 text-sm"><p>{ui("Unable to load notifications.")}</p><button type="button" disabled={notifications.isFetching} className="min-h-11 underline" onClick={() => void notifications.refetch()}>{copy("Try again", "Thử lại")}</button></div>
       ) : (
         <>
           <div className="space-y-3">

@@ -16,7 +16,7 @@ describe("WalletService bank cycle returns", () => {
   const tx = {
     pointTypeDefinition: { findFirst: vi.fn() },
     member: { findFirst: vi.fn() },
-    pointBankTransaction: { findUnique: vi.fn(), create: vi.fn() },
+    pointBankTransaction: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     pointBank: { upsert: vi.fn(), update: vi.fn() },
     pointBankCycle: { findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     customPointTransaction: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
@@ -32,6 +32,7 @@ describe("WalletService bank cycle returns", () => {
     tx.member.findFirst.mockResolvedValue({ id: "member-1", status: "ACTIVE", deletedAt: null });
     tx.pointBankTransaction.findUnique.mockResolvedValue(null);
     tx.pointBankTransaction.create.mockImplementation(({ data }) => data);
+    tx.pointBankTransaction.findFirst.mockResolvedValue(null);
     tx.pointBank.upsert.mockResolvedValue({ id: "bank-1" });
     tx.pointBank.update.mockResolvedValue({ balance: 500 });
     tx.pointBankCycle.findFirst.mockResolvedValue({ id: "cycle-1" });

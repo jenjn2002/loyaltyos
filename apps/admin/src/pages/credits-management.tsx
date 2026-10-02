@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchApi } from "@/lib/api-client";
+import i18n from "@/i18n";
 
 interface PointType {
   id: string;
@@ -315,6 +316,16 @@ function actorLabel(item: LedgerItem | BankTransaction): string {
   return `${item.actorType ?? "—"}: ${item.actorId}`;
 }
 
+function transactionSourceLabel(item: LedgerItem): string {
+  if (item.sourceLabel) return item.sourceLabel;
+  if (item.source?.startsWith("admin:")) {
+    const actor = item.actor;
+    const name = actor ? [actor.name, actor.email].filter(Boolean).join(" · ") : "";
+    return name ? `${ui("Admin adjustment")} · ${name}` : ui("Admin adjustment");
+  }
+  return item.source || "—";
+}
+
 function bankTransactionTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     ISSUANCE: "Bank funding",
@@ -327,6 +338,12 @@ function bankTransactionTypeLabel(type: string): string {
   };
   return ui(labels[type] ?? type);
 }
+function formatAdminDate(value: string, withTime = false): string {
+  const locale = i18n.language.startsWith("vi") ? "vi-VN" : "en-US";
+  const options: Intl.DateTimeFormatOptions = withTime ? { dateStyle: "short", timeStyle: "short" } : { dateStyle: "short" };
+  return new Intl.DateTimeFormat(locale, options).format(new Date(value));
+}
+
 
 export function CreditsManagementPage({
   section = "wallets",
@@ -1137,13 +1154,13 @@ export function CreditsManagementPage({
                       <td className="p-2 text-sm">{item.reason ?? "—"}</td>
                       <td className="p-2">{item.pointType.code}</td>
                       <td className="min-w-48 p-2 text-xs">
-                        {!isBankTransaction(item) && <p>{item.sourceLabel ?? item.source ?? "—"}</p>}
+                        {!isBankTransaction(item) && <p>{transactionSourceLabel(item)}</p>}
                         <details className="mt-1"><summary className="cursor-pointer text-muted-foreground">{ui("Transaction details")}</summary>
                           <dl className="mt-2 space-y-2 break-all">
                             <div><dt>{ui("Transaction ID")}</dt><dd>{item.id}</dd></div>
                             <div><dt>{ui("Actor ID")}</dt><dd>{item.actorId ?? "—"}</dd></div>
                             <div><dt>{ui("Reason")}</dt><dd>{item.reason ?? "—"}</dd></div>
-                            {isBankTransaction(item) ? <div><dt>{ui("Bank cycle")}</dt><dd>{item.cycle ? `${new Date(item.cycle.startsAt).toLocaleDateString()} – ${new Date(item.cycle.endsAt).toLocaleDateString()} · ${ui(item.cycle.status)}` : "—"}</dd></div> : <>
+                            {isBankTransaction(item) ? <div><dt>{ui("Bank cycle")}</dt><dd>{item.cycle ? `${formatAdminDate(item.cycle.startsAt)} – ${formatAdminDate(item.cycle.endsAt)} · ${ui(item.cycle.status)}` : "—"}</dd></div> : <>
                               <div><dt>{ui("Source")}</dt><dd>{item.source ?? "—"}</dd></div>
                               <div><dt>{ui("Exchange request ID")}</dt><dd>{item.exchangeRequestId ?? "—"}</dd></div>
                               <div><dt>{ui("Reversal of transaction")}</dt><dd>{item.reversedFromId ?? "—"}</dd></div>
@@ -1622,7 +1639,7 @@ export function CreditsManagementPage({
                         <div className="space-y-3 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <p className="font-medium">{cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleDateString()}–{new Date(cycle.endsAt).toLocaleDateString()}</p>
+                              <p className="font-medium">{cycle.pointType.name} · {formatAdminDate(cycle.startsAt)}–{formatAdminDate(cycle.endsAt)}</p>
                               <p className="text-xs text-muted-foreground">{ui(cycle.status)}</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -1670,7 +1687,7 @@ export function CreditsManagementPage({
                 </DialogTitle>
                 <DialogDescription>
                   {cycleDetailData
-                    ? `${new Date(cycleDetailData.startsAt).toLocaleDateString()}–${new Date(cycleDetailData.endsAt).toLocaleDateString()}`
+                    ? `${formatAdminDate(cycleDetailData.startsAt)}–${formatAdminDate(cycleDetailData.endsAt)}`
                     : ui("Cycle details and transactions.")}
                 </DialogDescription>
               </DialogHeader>
@@ -1704,10 +1721,10 @@ export function CreditsManagementPage({
 
                   <div className="grid gap-x-6 gap-y-3 rounded-md border p-4 text-sm sm:grid-cols-2">
                     <p><strong>{ui("Opened by")}:</strong> {cycleDetailData.createdBy ? `${cycleDetailData.createdBy.name}${cycleDetailData.createdBy.email ? ` · ${cycleDetailData.createdBy.email}` : ""}` : ui("System / legacy")}</p>
-                    <p><strong>{ui("Opened at")}:</strong> {new Date(cycleDetailData.createdAt).toLocaleString()}</p>
+                    <p><strong>{ui("Opened at")}:</strong> {formatAdminDate(cycleDetailData.createdAt, true)}</p>
                     {cycleDetailData.note && <p><strong>{ui("Opening note")}:</strong> {cycleDetailData.note}</p>}
                     {cycleDetailData.status === "CLEARED" && <p><strong>{ui("Closed by")}:</strong> {cycleDetailData.closedBy ? `${cycleDetailData.closedBy.name}${cycleDetailData.closedBy.email ? ` · ${cycleDetailData.closedBy.email}` : ""}` : ui("System / legacy")}</p>}
-                    {cycleDetailData.status === "CLEARED" && cycleDetailData.clearedAt && <p><strong>{ui("Closed at")}:</strong> {new Date(cycleDetailData.clearedAt).toLocaleString()}</p>}
+                    {cycleDetailData.status === "CLEARED" && cycleDetailData.clearedAt && <p><strong>{ui("Closed at")}:</strong> {formatAdminDate(cycleDetailData.clearedAt, true)}</p>}
                     {cycleDetailData.status === "CLEARED" && <p className="sm:col-span-2"><strong>{ui("Closing reason")}:</strong> {cycleDetailData.clearReason || ui("No closing reason recorded.")}</p>}
                   </div>
 
@@ -1721,7 +1738,7 @@ export function CreditsManagementPage({
                         {cycleDetailData.transactions.items.map((transaction) => (
                           <div key={transaction.id} className="grid gap-1 rounded-md border bg-background p-3 text-xs sm:grid-cols-[1fr_auto]">
                             <div className="min-w-0">
-                              <p className="font-medium">{bankTransactionTypeLabel(transaction.type)} · {new Date(transaction.createdAt).toLocaleString()}</p>
+                              <p className="font-medium">{bankTransactionTypeLabel(transaction.type)} · {formatAdminDate(transaction.createdAt, true)}</p>
                               <p className="mt-1 break-words text-muted-foreground">{ui("Reason:")} {transaction.reason || "—"}</p>
                               <p className="mt-1 text-muted-foreground">{ui("Actor:")} {transaction.actor?.name ?? transaction.actorId}{transaction.actor?.email ? ` · ${transaction.actor.email}` : ""}</p>
                             </div>

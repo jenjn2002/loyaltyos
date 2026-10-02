@@ -146,15 +146,16 @@ export default function Credits(): JSX.Element {
   const [destinationPointTypeId, setDestinationPointTypeId] = useState("");
   const [fundingSource, setFundingSource] = useState<"BALANCE" | "ALLOWANCE">("BALANCE");
   const [recipients, setRecipients] = useState<RecipientRow[]>([
-    { memberId: "", amount: "10", message: "" },
+    { memberId: "", amount: "", message: "" },
   ]);
   const [selectedMemberOptions, setSelectedMemberOptions] = useState<Record<string, DirectoryMember>>({});
   const [message, setMessage] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [exchangePointTypeId, setExchangePointTypeId] = useState("");
-  const [exchangeAmount, setExchangeAmount] = useState("1");
+  const [exchangeAmount, setExchangeAmount] = useState("");
   const [payoutType, setPayoutType] = useState<"CASH" | "NON_CASH">("NON_CASH");
   const [notice, setNotice] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<"balances" | "recognition" | "exchange" | "activity">("balances");
   const [exchangePage, setExchangePage] = useState(1);
   const [feedPage, setFeedPage] = useState(1);
   const [memberPage, setMemberPage] = useState(1);
@@ -264,7 +265,7 @@ export default function Credits(): JSX.Element {
     onSuccess: async () => {
       setNotice(ui("Recognition sent successfully."));
       setMessage("");
-      setRecipients([{ memberId: "", amount: "10", message: "" }]);
+      setRecipients([{ memberId: "", amount: "", message: "" }]);
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
     },
     onError: (error: Error) => {
@@ -284,6 +285,7 @@ export default function Credits(): JSX.Element {
         `${ui("Accounting voucher")} ${result.request.documentNumber} ${ui("was created and is pending approval.")}`,
       );
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
+      setExchangeAmount("");
     },
     onError: (error: Error) => {
       setNotice(error.message);
@@ -306,6 +308,31 @@ export default function Credits(): JSX.Element {
     !message.trim() &&
     recipients.some((row) => !row.message.trim()),
   );
+  const exchangeNumericAmount = Number(exchangeAmount);
+  const exchangeDisabledReason = !activeRate
+    ? ui("No active exchange rate is available for the selected point type and payout option.")
+    : !exchangeAmount || !Number.isFinite(exchangeNumericAmount) || exchangeNumericAmount <= 0
+      ? ui("Enter a positive point amount.")
+      : exchangeNumericAmount < activeRate.minPoints
+        ? `${ui("Minimum exchange amount:")} ${activeRate.minPoints.toLocaleString()} ${exchangeWallet?.unitLabel ?? "points"}`
+        : activeRate.maxPoints !== null && exchangeNumericAmount > activeRate.maxPoints
+          ? `${ui("Maximum exchange amount:")} ${activeRate.maxPoints.toLocaleString()} ${exchangeWallet?.unitLabel ?? "points"}`
+          : exchangeNumericAmount > (exchangeWallet?.balance ?? 0)
+            ? `${ui("Not enough points for this exchange. Short by")} ${(exchangeNumericAmount - (exchangeWallet?.balance ?? 0)).toLocaleString()} ${exchangeWallet?.unitLabel ?? "points"}.`
+            : "";
+  const giveDisabledReasons: string[] = [];
+  if (!sourcePointTypeId || !destinationPointTypeId) giveDisabledReasons.push(ui("No transfer destination is available."));
+  if (recipients.some((row) => !row.memberId)) giveDisabledReasons.push(ui("Select a colleague for each recipient."));
+  if (recipients.some((row) => !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0)) {
+    giveDisabledReasons.push(ui("Enter a positive amount for each recipient."));
+  }
+  if (sourceTotal > sourceAvailable) {
+  if (destination && recipients.some((row) => Number(row.amount) > 0 && Number(row.amount) % destination.sourceAmount !== 0)) {
+    giveDisabledReasons.push(ui("Amounts must follow the configured transfer increment."));
+  }
+    giveDisabledReasons.push(`${ui("Insufficient source points. Short by")} ${(sourceTotal - sourceAvailable).toLocaleString()} ${sourceWallet?.unitLabel ?? "points"}.`);
+  }
+  if (messageMissing) giveDisabledReasons.push(ui("A recognition message is required for this point type."));
 
   const secondaryQueries = [
     rates,
@@ -370,6 +397,19 @@ export default function Credits(): JSX.Element {
         </div>
       )}
 
+      <nav className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label={ui("Points page sections")}>
+        {([
+          ["balances", "Balances", wallets.data?.length],
+          ["recognition", "Give recognition", undefined],
+          ["exchange", "Exchange & requests", exchangeRequests.data?.total],
+          ["activity", "Activity", undefined],
+        ] as const).map(([key, label, count]) => (
+          <button key={key} type="button" aria-pressed={activeSection === key} onClick={() => setActiveSection(key)} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${activeSection === key ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white" : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)]"}`}>
+            {ui(label)}{count != null && count > 0 && <span className={`rounded-full px-1.5 py-0.5 text-xs ${activeSection === key ? "bg-white/20" : "bg-[var(--color-surface-secondary)]"}`}>{count}</span>}
+          </button>
+        ))}
+      </nav>
+      {activeSection === "balances" && (
       <details open className="rounded-2xl border border-[var(--color-border)] p-4">
         <summary className="cursor-pointer list-none text-lg font-semibold">{ui("Point balances")}</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2" aria-label={ui("Point balances")}>
@@ -401,9 +441,10 @@ export default function Credits(): JSX.Element {
           )}
         </div>
       </details>
+      )}
 
-      {giveWallets.length > 0 && (
-        <details className="rounded-2xl border border-[var(--color-border)] p-4">
+      {activeSection === "recognition" && giveWallets.length > 0 && (
+        <details open className="rounded-2xl border border-[var(--color-border)] p-4">
           <summary className="flex cursor-pointer list-none items-center gap-2">
             <Send className="h-5 w-5 text-[var(--color-primary)]" />
             <h2 className="text-lg font-semibold">{ui("Give recognition")}</h2>
@@ -529,6 +570,7 @@ export default function Credits(): JSX.Element {
                     min={destination?.sourceAmount ?? 1}
                     step={destination?.sourceAmount ?? 1}
                     value={recipient.amount}
+                    placeholder={String(destination?.sourceAmount ?? 1)}
                     onChange={(event) => {
                       setRecipients((rows) =>
                         rows.map((row, rowIndex) =>
@@ -550,6 +592,8 @@ export default function Credits(): JSX.Element {
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
+                <details className="col-span-3">
+                  <summary className="cursor-pointer list-none py-2 text-xs font-medium">{ui("Personal message (optional)")}</summary>
                 <label
                   className="col-span-3 text-xs font-medium"
                   data-help={ui("Optional recipient-specific message; it overrides the shared message for this person.")}
@@ -566,6 +610,7 @@ export default function Credits(): JSX.Element {
                     className={`mt-1 ${controlClass}`}
                   />
                 </label>
+                </details>
               </div>
               );
             })}
@@ -628,19 +673,13 @@ export default function Credits(): JSX.Element {
               </select>
             </label>
             <div className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm">
-              <p>
-                {ui("Available source:")} {" "}
-                <strong>
-                  {sourceAvailable.toLocaleString()} {sourceWallet?.unitLabel}
-                </strong>
-              </p>
-              <p>
-                {ui("Recipient total:")} {" "}
-                <strong>
-                  {destinationTotal.toLocaleString()} {destination?.unitLabel}
-                </strong>
-              </p>
+              <p>{ui("Available source:")} <strong>{sourceAvailable.toLocaleString()} {sourceWallet?.unitLabel}</strong></p>
+              <p>{ui("Points to spend:")} <strong>{sourceTotal.toLocaleString()} {sourceWallet?.unitLabel}</strong></p>
+              <p>{ui("Recipient total:")} <strong>{destinationTotal.toLocaleString()} {destination?.unitLabel}</strong></p>
             </div>
+            {giveDisabledReasons.length > 0 && (
+              <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{giveDisabledReasons.join(" ")}</p>
+            )}
             <button
               type="button"
               disabled={
@@ -650,7 +689,7 @@ export default function Credits(): JSX.Element {
                 sourceTotal <= 0 ||
                 sourceTotal > sourceAvailable ||
                 messageMissing ||
-                recipients.some((row) => !row.memberId || Number(row.amount) <= 0)
+                recipients.some((row) => !row.memberId || Number(row.amount) <= 0 || (destination ? Number(row.amount) % destination.sourceAmount !== 0 : false))
               }
               onClick={() => {
                 if (
@@ -668,8 +707,12 @@ export default function Credits(): JSX.Element {
         </details>
       )}
 
-      {exchangeTypes.length > 0 && (
-        <details className="rounded-2xl border border-[var(--color-border)] p-4">
+      {activeSection === "recognition" && giveWallets.length === 0 && (
+        <p role="status" className="rounded-xl border border-dashed p-5 text-sm text-[var(--color-text-secondary)]">{ui("Recognition giving is not enabled for any of your point wallets.")}</p>
+      )}
+
+      {activeSection === "exchange" && exchangeTypes.length > 0 && (
+        <details open className="rounded-2xl border border-[var(--color-border)] p-4">
           <summary className="flex cursor-pointer list-none items-center gap-2">
             <ArrowRightLeft className="h-5 w-5 text-[var(--color-primary)]" />
             <h2 className="text-lg font-semibold">{ui("Exchange points")}</h2>
@@ -718,6 +761,7 @@ export default function Credits(): JSX.Element {
                 min={activeRate?.minPoints ?? 1}
                 max={activeRate?.maxPoints ?? undefined}
                 value={exchangeAmount}
+                placeholder={String(activeRate?.minPoints ?? 1)}
                 onChange={(event) => {
                   setExchangeAmount(event.target.value);
                 }}
@@ -733,16 +777,17 @@ export default function Credits(): JSX.Element {
                 : ""}
             </p>
             <p className="text-xs text-[var(--color-text-secondary)]">
+              {ui("Available balance:")} {exchangeWallet?.balance.toLocaleString() ?? "0"} {exchangeWallet?.unitLabel}
+            </p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
               {ui("Submitting creates a stored accounting voucher in Pending status. Authorized staff review it, approve it and then record completion; no automatic cash payout is made.")}
             </p>
+            {exchangeDisabledReason && (
+              <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{exchangeDisabledReason}</p>
+            )}
             <button
               type="button"
-              disabled={
-                !activeRate ||
-                exchange.isPending ||
-                Number(exchangeAmount) <= 0 ||
-                Number(exchangeAmount) > (exchangeWallet?.balance ?? 0)
-              }
+              disabled={exchange.isPending || Boolean(exchangeDisabledReason)}
               onClick={() => {
                 exchange.mutate();
               }}
@@ -754,6 +799,10 @@ export default function Credits(): JSX.Element {
         </details>
       )}
 
+      {activeSection === "exchange" && exchangeTypes.length === 0 && (
+        <p role="status" className="rounded-xl border border-dashed p-5 text-sm text-[var(--color-text-secondary)]">{ui("No exchange rate is available for your account right now.")}</p>
+      )}
+      {activeSection === "exchange" && (
       <details className="rounded-2xl border border-[var(--color-border)] p-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -823,7 +872,9 @@ export default function Credits(): JSX.Element {
         </div>
       </details>
 
-      <details className="rounded-2xl border border-[var(--color-border)] p-4">
+      )}
+      {activeSection === "activity" && (
+      <details open className="rounded-2xl border border-[var(--color-border)] p-4">
         <summary className="flex cursor-pointer list-none items-center gap-2">
           <History className="h-5 w-5 text-[var(--color-primary)]" />
           <h2 className="text-lg font-semibold">{ui("Recognition feed")}</h2>
@@ -900,6 +951,7 @@ export default function Credits(): JSX.Element {
         </div>
       </details>
 
+      )}
       {notice && (
         <p role="status" className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm">
           {notice}

@@ -252,6 +252,78 @@ describe("NotificationsService.sendTrigger", () => {
     );
   });
 
+  it("mirrors in-app notices to email when no email template exists", async () => {
+    mockPrisma.member.findUnique.mockResolvedValue({
+      locale: "vi-VN",
+      program: { defaultLocale: "vi-VN" },
+    });
+    mockPrisma.notificationTemplate.findMany.mockResolvedValue([
+      templateRow({
+        id: "in-app-template",
+        channel: "IN_APP",
+        subject: "Points received",
+        bodyHtml: null,
+        bodyText: "You received {{amount}} points",
+        triggerEvent: "registration",
+      }),
+    ]);
+    mockPrisma.notification.create
+      .mockResolvedValueOnce(notificationRow({ id: "in-app-notice", channel: "IN_APP" }))
+      .mockResolvedValueOnce(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+    mockPrisma.notification.findFirst
+      .mockResolvedValueOnce(notificationRow({ id: "in-app-notice", channel: "IN_APP" }))
+      .mockResolvedValueOnce(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    const queued: string[] = [];
+    svc.setEnqueue(async (id) => { queued.push(id); });
+    const result = await svc.sendTrigger("prog-1", "registration", "mem-1", {
+      amount: 250,
+      member: { email: "member@example.com" },
+    });
+
+    expect(mockPrisma.notification.create).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.notification.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          channel: "EMAIL",
+          subject: "Points received",
+          body: "You received 250 points",
+          metadata: { email: "member@example.com" },
+        }),
+      }),
+    );
+    expect(queued).toEqual(["in-app-notice", "email-notice"]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("uses the configured email template without making a duplicate email", async () => {
+    mockPrisma.member.findUnique.mockResolvedValue({
+      locale: "vi-VN",
+      program: { defaultLocale: "vi-VN" },
+    });
+    mockPrisma.notificationTemplate.findMany.mockResolvedValue([
+      templateRow({ id: "in-app-template", channel: "IN_APP", triggerEvent: "registration" }),
+      templateRow({ id: "email-template", channel: "EMAIL", triggerEvent: "registration" }),
+    ]);
+    mockPrisma.notification.create
+      .mockResolvedValueOnce(notificationRow({ id: "in-app-notice", channel: "IN_APP" }))
+      .mockResolvedValueOnce(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+    mockPrisma.notification.findFirst
+      .mockResolvedValueOnce(notificationRow({ id: "in-app-notice", channel: "IN_APP" }))
+      .mockResolvedValueOnce(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    svc.setEnqueue(async () => {});
+    const result = await svc.sendTrigger("prog-1", "registration", "mem-1", {
+      member: { email: "member@example.com" },
+    });
+
+    expect(mockPrisma.notification.create).toHaveBeenCalledTimes(2);
+    expect(result).toHaveLength(2);
+  });
+
   it("returns empty when no templates match", async () => {
     mockPrisma.member.findUnique.mockResolvedValue({
       locale: "vi-VN",

@@ -6,6 +6,7 @@ Multi-channel notification engine for LoyaltyOS. Create templates, send notifica
 
 - **Template management** — create reusable notification templates with Handlebars variable interpolation
 - **Multi-channel** — EMAIL, SMS, PUSH, IN_APP, WEBHOOK
+- **In-app email copy** — an IN_APP trigger also sends to the member's email unless a dedicated EMAIL template exists for the same trigger and locale.
 - **Trigger-based sending** — match templates by event type and auto-send
 - **Provider abstraction** — pluggable providers per channel (SMTP, Webhook, Noop, Log)
 - **Handlebars rendering** — `{{var}}`, `{{nested.path}}`, `{{#if}}`, `{{#each}}`, `{{#unless}}`, `{{eq}}`, `{{neq}}`

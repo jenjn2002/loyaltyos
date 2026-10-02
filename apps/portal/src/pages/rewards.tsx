@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
 import { fetchApi } from "../lib/api-client";
+import { useCustomerCopy } from "../lib/customer-copy";
 import type { MemberRewardRedemption, PaginatedResponse, Reward } from "../types";
 
 function useWishlist() {
@@ -37,6 +38,7 @@ const WISHLIST_PAGE_SIZE = 24;
 
 export default function Rewards() {
   const { t } = useTranslation();
+  const copy = useCustomerCopy();
   const wishlist = useWishlist();
   const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
@@ -55,7 +57,7 @@ export default function Rewards() {
     };
   }, []);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["rewards", "catalog", category, page, wishlistOnly, wishlistOnly ? wishlistIds : []],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -160,6 +162,11 @@ export default function Rewards() {
             />
           ))}
         </div>
+      ) : isError ? (
+        <div role="alert" className="rounded-xl border border-[var(--color-border)] p-4 text-sm">
+          <p>{copy("Unable to load rewards.", "Chưa tải được danh sách phần thưởng.")}</p>
+          <button type="button" disabled={isFetching} onClick={() => void refetch()} className="min-h-11 underline">{copy("Try again", "Thử lại")}</button>
+        </div>
       ) : rewards.length === 0 ? (
         <div className="py-12 text-center text-[var(--color-text-secondary)]">
           <Gift className="mx-auto h-12 w-12" aria-hidden="true" />
@@ -230,6 +237,11 @@ export default function Rewards() {
           <button type="button" disabled={page >= (wishlistOnly ? Math.ceil(wishlistIds.length / WISHLIST_PAGE_SIZE) : data.totalPages)} onClick={() => setPage((value) => value + 1)} className="text-[var(--color-primary)] underline disabled:opacity-40">{t("next")}</button>
         </div>
       )}
+      {redemptions.isError && <div role="alert" className="rounded-xl border border-[var(--color-border)] p-4 text-sm">
+        <p>{copy("Unable to load your redeemed rewards.", "Chưa tải được lịch sử phần thưởng đã đổi.")}</p>
+        <button type="button" disabled={redemptions.isFetching} onClick={() => void redemptions.refetch()} className="min-h-11 underline">{copy("Try again", "Thử lại")}</button>
+      </div>}
+
 
       {redemptions.data && (
         <details className="rounded-2xl border border-[var(--color-border)] p-4">
@@ -250,7 +262,10 @@ export default function Rewards() {
                     </p>
                   </div>
                   <span className="shrink-0 rounded-full border px-2 py-1 text-xs font-semibold">
-                    {redemption.fulfillmentStatus}
+                    {({ PENDING: copy("Awaiting fulfillment", "Chờ trao thưởng"), PROCESSING: copy("Processing", "Đang xử lý"),
+                      FULFILLED: copy("Fulfilled", "Đã trao thưởng"), COMPLETED: copy("Completed", "Hoàn tất"),
+                      CANCELLED: copy("Cancelled", "Đã hủy"), FAILED: copy("Needs attention", "Cần xử lý")
+                    } as Record<string, string>)[redemption.fulfillmentStatus] ?? redemption.fulfillmentStatus.toLowerCase().replaceAll("_", " ")}
                   </span>
                 </div>
               ))

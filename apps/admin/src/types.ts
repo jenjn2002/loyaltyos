@@ -32,6 +32,8 @@ export interface Member {
   status?: "ACTIVE" | "INACTIVE";
   deactivatedAt?: string | null;
   deletedAt?: string | null;
+  lastWorkingDay?: string | null;
+  offboardingReason?: string | null;
   username?: string | null;
   credentialsConfigured?: boolean;
   passwordChangedAt?: string | null;
@@ -51,6 +53,7 @@ export interface DashboardStats {
   pointRedeemed?: number;
   pointExchanged?: number;
   currentPointBalance?: number;
+  currentPointBalanceType?: { id: string; name: string; unitLabel: string } | null;
   recognitionCount?: number;
   recognitionVolume?: number;
   pointTypeMetrics?: {

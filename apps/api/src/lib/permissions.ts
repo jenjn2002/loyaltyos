@@ -55,6 +55,8 @@ export const ADMIN_CAPABILITIES = [
   "permission.manage",
   "settings.view",
   "settings.manage",
+  "documentation.view",
+  "documentation.manage",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -172,6 +174,8 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   )
     return "permission.manage";
   if (url.startsWith("/api/v1/admin/settings")) return write ? "settings.manage" : "settings.view";
+  if (url.startsWith("/api/v1/admin/documentation"))
+    return write ? "documentation.manage" : "documentation.view";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";
   if (url.startsWith("/api/v1/admin/issuance-rules"))

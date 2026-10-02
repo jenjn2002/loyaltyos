@@ -6,6 +6,7 @@ import AppLayout from "./components/layout/app-layout";
 import { bootstrapSession, isAuthenticated } from "./lib/auth";
 import Badges from "./pages/badges";
 import Credits from "./pages/credits";
+import CustomerDocumentPage from "./pages/document";
 import Home from "./pages/home";
 import Notifications from "./pages/notifications";
 import Profile from "./pages/profile";
@@ -59,6 +60,7 @@ export default function App() {
       <Routes>
         <Route path="/verify" element={<Verify />} />
         <Route element={<AppLayout />}>
+          <Route path="/document" element={<CustomerDocumentPage />} />
           <Route path="/" element={<Home />} />
           <Route
             path="/transactions"

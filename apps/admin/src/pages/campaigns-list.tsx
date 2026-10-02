@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 import type { Campaign, CampaignIssuanceStatus, PaginatedResponse } from "@/types";
 
 export function CampaignsListPage(): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -187,13 +187,13 @@ export function CampaignsListPage(): JSX.Element {
                         {c.issuance?.pendingClaims ? <p className="text-xs text-amber-700">{String(c.issuance.pendingClaims)} {ui("pending claims")}</p> : null}
                       </TableCell>
                       <TableCell>
-                        {c.maxBudget != null ? `${c.maxBudget.toLocaleString()} pts` : "Unlimited"}
+                        {c.maxBudget != null ? `${c.maxBudget.toLocaleString()} pts` : ui("Unlimited")}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {c.startsAt ? new Date(c.startsAt).toLocaleDateString() : "—"}
+                        {c.startsAt ? new Date(c.startsAt).toLocaleDateString(i18n.language) : "—"}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {c.endsAt ? new Date(c.endsAt).toLocaleDateString() : "—"}
+                        {c.endsAt ? new Date(c.endsAt).toLocaleDateString(i18n.language) : "—"}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -356,7 +356,7 @@ export function CampaignsListPage(): JSX.Element {
                           <Badge variant={variant.isCurrent ? "default" : "outline"}>
                             {variant.isCurrent
                               ? `${ui("Current")} · v${String(variant.version)}`
-                              : `${ui("Previous version")} · v${String(variant.version)} · ${new Date(variant.createdAt).toLocaleDateString()}`}
+                              : `${ui("Previous version")} · v${String(variant.version)} · ${new Date(variant.createdAt).toLocaleDateString(i18n.language)}`}
                           </Badge>
                         </div>
                         <p className="text-muted-foreground">{variant.members} {ui("participations")} · {variant.pointsAwarded.toLocaleString()} {ui("points awarded")}</p>
@@ -408,7 +408,7 @@ export function CampaignsListPage(): JSX.Element {
                               <TableCell>{item.recordType === "CLAIM" ? ui("Claim pending") : ui("Issued")}</TableCell>
                               <TableCell className="font-mono text-xs">{event}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">
-                                {new Date(item.createdAt).toLocaleString()}
+                                {new Date(item.createdAt).toLocaleString(i18n.language)}
                               </TableCell>
                             </TableRow>
                           );

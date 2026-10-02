@@ -32,11 +32,14 @@ const pageSchema = z.object({
 
 function bankCycleAllocationWhere(
   cycleId: string,
+  from?: Date | null,
   through?: Date | null,
 ): Prisma.PointBankTransactionWhereInput {
   return {
     cycleId,
-    ...(through ? { createdAt: { lte: through } } : {}),
+    ...(from || through
+      ? { createdAt: { ...(from ? { gte: from } : {}), ...(through ? { lte: through } : {}) } }
+      : {}),
     OR: [
       { amount: { lt: 0 } },
       { type: { in: [...BANK_CYCLE_RETURN_TYPES] }, amount: { gt: 0 } },
@@ -970,7 +973,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
                   {
                     OR: cycles.map((cycle) => ({
                       cycleId: cycle.id,
-                      ...(cycle.clearedAt ? { createdAt: { lte: cycle.clearedAt } } : {}),
+                      createdAt: {
+                        gte: cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt,
+                        lte: cycle.clearedAt ?? new Date(),
+                      },
                     })),
                   },
                 ],
@@ -1014,17 +1020,18 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         include: { pointType: { select: { id: true, code: true, name: true, unitLabel: true } } },
       });
       if (!cycle) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
-      const transactionCutoff = cycle.clearedAt ?? cycle.endsAt;
+      const transactionCutoff = cycle.clearedAt ?? new Date();
+      const transactionStart = cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt;
       const transactionWhere: Prisma.PointBankTransactionWhereInput = {
         programId: request.programId,
         pointTypeId: cycle.pointTypeId,
         AND: [
           {
             OR: [
-              { cycleId: cycle.id, createdAt: { lte: transactionCutoff } },
+              { cycleId: cycle.id, createdAt: { gte: transactionStart, lte: transactionCutoff } },
               {
                 cycleId: null,
-                createdAt: { gte: cycle.startsAt, lte: transactionCutoff },
+                createdAt: { gte: transactionStart, lte: transactionCutoff },
               },
             ],
           },
@@ -1046,7 +1053,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           where: {
             programId: request.programId,
             pointTypeId: cycle.pointTypeId,
-            ...bankCycleAllocationWhere(cycle.id, cycle.clearedAt),
+            ...bankCycleAllocationWhere(cycle.id, transactionStart, transactionCutoff),
           },
           _sum: { amount: true },
         }),
@@ -1178,7 +1185,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         const [currentBank, allocations] = await Promise.all([
           tx.pointBank.findUniqueOrThrow({ where: { id: bank.id } }),
           tx.pointBankTransaction.aggregate({
-            where: bankCycleAllocationWhere(cycle.id),
+            where: bankCycleAllocationWhere(
+              cycle.id,
+              cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt,
+            ),
             _sum: { amount: true },
           }),
         ]);

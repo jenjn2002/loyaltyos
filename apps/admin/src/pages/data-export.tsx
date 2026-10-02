@@ -21,6 +21,35 @@ interface ExportDataset {
   description: string;
   fields: ExportField[];
 }
+const DATASET_LABELS: Record<string, string> = {
+  point_transactions: "Point wallet transactions (configured point types)",
+  credit_transactions: "P-credit / R-credit wallet transactions",
+  point_exchange_requests: "Point-type exchange requests",
+  credit_exchange_requests: "P-credit / R-credit payout requests",
+  bank_cycles: "Point-type bank cycles",
+  credit_bank_cycles: "P-credit / R-credit bank cycles",
+  bank_transactions: "Point-type bank transactions",
+  credit_bank_transactions: "P-credit / R-credit bank transactions",
+};
+
+const DATASET_GROUPS: Array<{ label: string; keys: string[] }> = [
+  { label: "Members and profile data", keys: ["members", "member_fields"] },
+  { label: "Points, wallets and banks", keys: [
+    "point_transactions", "credit_transactions", "point_exchange_requests", "credit_exchange_requests",
+    "point_types", "point_transfer_rules", "point_issuance_rules", "bank_cycles", "bank_transactions",
+    "credit_bank_cycles", "credit_bank_transactions",
+  ] },
+  { label: "Campaigns, events and audience", keys: [
+    "campaigns", "campaign_issuance", "events", "check_ins", "segments", "tiers", "member_tiers", "badges", "member_badges",
+  ] },
+  { label: "Rewards and recognition", keys: [
+    "coupons", "coupon_redemptions", "recognition_categories", "rewards", "reward_redemptions",
+  ] },
+  { label: "Approvals, operations and notifications", keys: [
+    "approval_requests", "workflows", "logs", "notification_templates", "notifications",
+  ] },
+  { label: "Other connected features", keys: ["gift_card_batches", "coalition_transactions"] },
+];
 
 interface ExportCatalog {
   datasets: ExportDataset[];
@@ -120,9 +149,13 @@ export function DataExportPage(): JSX.Element {
                 value={datasetKey}
                 onChange={(event) => setDatasetKey(event.target.value)}
               >
-                {datasets.map((item) => <option key={item.key} value={item.key}>{ui(item.label)}</option>)}
+                {DATASET_GROUPS.map((group) => {
+                  const items = group.keys.map((key) => datasets.find((item) => item.key === key)).filter((item): item is ExportDataset => Boolean(item));
+                  return items.length ? <optgroup key={group.label} label={ui(group.label)}>{items.map((item) => <option key={item.key} value={item.key}>{ui(DATASET_LABELS[item.key] ?? item.label)}</option>)}</optgroup> : null;
+                })}
               </select>
               <p className="text-sm text-muted-foreground">{ui(dataset.description)}</p>
+              <p className="text-xs text-muted-foreground">{ui("Related exports are grouped. Point-type exports use configured custom point types; P/R exports use the P-credit and R-credit wallets.")}</p>
             </div>
 
             <div className="space-y-3">

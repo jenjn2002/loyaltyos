@@ -1,3 +1,23 @@
+/* Native details remain keyboard accessible; the arrow makes disclosure visible. */
+details > summary::after {
+  content: "";
+  display: inline-block;
+  float: right;
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: auto;
+  margin-right: 0.25rem;
+  align-self: center;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 150ms;
+}
+details[open] > summary::after { transform: rotate(225deg); }
+details > summary { min-height: 2.75rem; align-content: center; }
+details > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,6 +47,27 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+}
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden !important; }
+  .documentation-print-area,
+  .documentation-print-area * { visibility: visible !important; }
+  .documentation-print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+  .documentation-print-area .no-print { display: none !important; }
+  .documentation-print-area article { break-inside: auto; box-shadow: none !important; }
+  .documentation-print-area h1,
+  .documentation-print-area h2,
+  .documentation-print-area h3 { break-after: avoid-page; }
+  .documentation-print-area figure,
+  .documentation-print-area img { max-height: 170mm; break-inside: avoid-page; }
 }
 
 @layer components {

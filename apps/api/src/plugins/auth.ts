@@ -34,6 +34,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     // Skip auth for public routes (magic link, admin login, etc.)
     if (
       request.url.startsWith("/api/v1/auth/") ||
+      (request.method === "GET" && request.url.startsWith("/api/v1/public/documentation")) ||
       request.url.startsWith("/api/v1/admin/auth/microsoft") ||
       request.url.startsWith("/api/v1/admin/login") ||
       request.url.startsWith("/api/v1/admin/logout") ||
@@ -110,6 +111,12 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       throw Object.assign(new Error("Missing X-API-Key header or valid session"), {
         statusCode: 401,
       });
+    }
+
+    // The demo seed key is public by design and must never authenticate a
+    // production request, even if an old database still contains that row.
+    if (process.env.NODE_ENV === "production" && apiKey === "dev-key") {
+      throw Object.assign(new Error("Invalid API key"), { statusCode: 401 });
     }
 
     const key = await prisma.apiKey.findUnique({

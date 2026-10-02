@@ -2,6 +2,7 @@ import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bell,
+  BookOpen,
   Download,
   Globe,
   LogOut,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 
 import { MemberLoginForm } from "../components/member-login-form";
 import { fetchApi, patchApi, postApi } from "../lib/api-client";
@@ -155,7 +157,12 @@ export default function Profile() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6 px-4 py-6">
-      <h1 className="text-2xl font-bold">{t("profile")}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{t("profile")}</h1>
+        <Link to="/document" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface-secondary)]">
+          <BookOpen className="h-4 w-4" aria-hidden="true" /> {i18n.resolvedLanguage?.startsWith("en") ? "Guide" : "Hướng dẫn"}
+        </Link>
+      </div>
 
       {!authed ? (
         <div className="space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">

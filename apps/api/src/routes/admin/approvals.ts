@@ -7,6 +7,7 @@ import {
   listApprovalRequests,
 } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
+import { withApprovalDisplay } from "../../lib/approval-display.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { requireCapability } from "../../lib/permissions.js";
 import { pointExchangeApprovalHook } from "../../lib/workflow-integrations.js";
@@ -33,7 +34,7 @@ export function adminApprovalsRoutes(
     { preHandler: [requireCapability("approval.inbox")] },
     async (request, reply) => {
       return reply.send({
-        data: await listApprovalRequests(request.programId, { inboxForAdminId: adminId(request) }),
+        data: await withApprovalDisplay(request.programId, await listApprovalRequests(request.programId, { inboxForAdminId: adminId(request) })),
       });
     },
   );
@@ -72,7 +73,7 @@ export function adminApprovalsRoutes(
     async (request, reply) => {
       const query = pageQuery.parse(request.query);
       return reply.send({
-        data: await listApprovalRequests(request.programId, { status: query.status, resolvedOnly: query.status === undefined }),
+        data: await withApprovalDisplay(request.programId, await listApprovalRequests(request.programId, { status: query.status, resolvedOnly: query.status === undefined })),
       });
     },
   );
@@ -82,7 +83,8 @@ export function adminApprovalsRoutes(
     { preHandler: [requireCapability("approval.view")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
-      return reply.send({ data: await getApprovalRequest(request.programId, id) });
+      const [data] = await withApprovalDisplay(request.programId, [await getApprovalRequest(request.programId, id)]);
+      return reply.send({ data });
     },
   );
 

@@ -19,6 +19,7 @@ import { CouponBulkGeneratePage } from "@/pages/coupon-bulk-generate";
 import { CouponsListPage } from "@/pages/coupons-list";
 import { CreditsManagementPage } from "@/pages/credits-management";
 import { DataExportPage } from "@/pages/data-export";
+import { AdminDocumentPage } from "@/pages/document";
 import { DashboardPage } from "@/pages/dashboard";
 import { EventDefinitionsPage } from "@/pages/event-definitions";
 import { BatchDetailPage } from "@/pages/giftcards/batch-detail";
@@ -83,6 +84,7 @@ export function App(): JSX.Element {
           }
         >
           <Route index element={<DashboardPage />} />
+          <Route path="/document" element={<AdminDocumentPage />} />
           <Route path="/members" element={<MembersListPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/exports" element={<DataExportPage />} />

@@ -19,12 +19,14 @@ import { errorHandler } from "./lib/error-handler.js";
 import { authPlugin } from "./plugins/auth.js";
 import { adminApprovalsRoutes } from "./routes/admin/approvals.js";
 import { adminAuthRoutes } from "./routes/admin/auth.js";
+import { adminDashboardRoutes } from "./routes/admin/dashboard.js";
 import { adminBadgesRoutes } from "./routes/admin/badges.js";
 import { adminCampaignsRoutes } from "./routes/admin/campaigns.js";
 import { adminCoalitionRoutes } from "./routes/admin/coalition.js";
 import { adminCouponsRoutes } from "./routes/admin/coupons.js";
 import { adminCreditUsersRoutes } from "./routes/admin/credit-users.js";
 import { adminEventDefinitionsRoutes } from "./routes/admin/event-definitions.js";
+import { adminDocumentationRoutes, publicDocumentationRoutes } from "./routes/documentation.js";
 import { adminExportsRoutes } from "./routes/admin/exports.js";
 import { adminGiftCardsRoutes } from "./routes/admin/giftcards.js";
 import { adminIssuanceRoutes } from "./routes/admin/issuance.js";
@@ -179,6 +181,9 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   // Public routes (before auth plugin)
   await app.register(authRoutes, { prefix: "/api/v1" });
 
+  // Public documentation contains only published customer-facing articles.
+  await app.register(publicDocumentationRoutes, { prefix: "/api/v1" });
+
   // Custom plugins
   await app.register(authPlugin);
 
@@ -186,6 +191,8 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   // Login/logout are explicitly allow-listed by the auth plugin; /admin/me and
   // permission endpoints now receive the authenticated request context.
   await app.register(adminAuthRoutes, { prefix: "/api/v1" });
+  await app.register(adminDashboardRoutes, { prefix: "/api/v1" });
+  await app.register(adminDocumentationRoutes, { prefix: "/api/v1" });
   await app.register(healthRoutes, { prefix: "/" });
   await app.register(membersRoutes, { prefix: "/api/v1" });
   await app.register(campaignClaimsRoutes, { prefix: "/api/v1" });

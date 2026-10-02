@@ -9,9 +9,10 @@ import {
   Save,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import i18n from "@/i18n";
 import { useForm } from "react-hook-form";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
@@ -53,14 +54,14 @@ const wizardSchema = z.object({
   // The current campaign engine issues fixed Bonus Points. Keep this as an
   // internal compatibility field while policy is defined by the trigger event.
   type: z.literal("BONUS_POINTS"),
-  name: z.string().min(1, "Name is required"),
+  name: z.string().trim().min(1, "Name is required"),
   description: z.string().optional(),
   segmentId: z.string().optional(),
   eventType: z.string().max(80).optional(),
   issuancePolicy: z.enum(["STANDING", "APPROVAL_REQUIRED"]),
   issuanceMode: z.enum(["AUTO", "CLAIM"]),
   justification: z.string().max(2000).optional(),
-  maxUsesPerMember: z.coerce.number().int().min(0).optional(),
+  maxUsesPerMember: z.union([z.literal(""), z.coerce.number().int().min(0)]).optional().transform((value) => value === "" ? undefined : value),
   multiplier: z.coerce.number().min(0).optional(),
   maxBudget: z
     .union([z.literal(""), z.coerce.number().int().min(0)])
@@ -84,7 +85,18 @@ function numericValue(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-const STEPS = ["Policy", "Audience", "Rules", "Channels", "Dates", "Review"];
+const STEPS = ["Occasion", "Recipients", "Reward", "Schedule", "Review"];
+const STEP_FIELDS: Record<string, { step: number; id: string }> = {
+  name: { step: 0, id: "name" }, eventType: { step: 0, id: "event-type" },
+  issuancePolicy: { step: 0, id: "event-type" }, justification: { step: 0, id: "campaign-reason" },
+  segmentId: { step: 1, id: "target-segment" }, maxUsesPerMember: { step: 1, id: "maxUses" },
+  pointTypeId: { step: 2, id: "campaign-point-type" }, multiplier: { step: 2, id: "multiplier" },
+  maxBudget: { step: 2, id: "budget" }, variants: { step: 2, id: "variant-name-0" },
+  startsAt: { step: 3, id: "startsAt" }, endsAt: { step: 3, id: "endsAt" },
+};
+function campaignText(english: string, vietnamese: string): string {
+  return i18n.language.startsWith("vi") ? vietnamese : english;
+}
 
 export function CampaignBuilderPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -94,6 +106,9 @@ export function CampaignBuilderPage(): JSX.Element {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedCampaignId = useRef<string | null>(null);
+  const savedCampaignIdRef = useRef<string | undefined>(id);
+  const [policyNotice, setPolicyNotice] = useState(false);
 
   const form = useForm<WizardData>({
     resolver: zodResolver(wizardSchema),
@@ -119,10 +134,16 @@ export function CampaignBuilderPage(): JSX.Element {
     queryFn: () => fetchApi<PaginatedResponse<Segment>>("/admin/segments?pageSize=100"),
   });
 
-  const { data: eventDefinitions } = useQuery({
+  const { data: eventDefinitions, refetch: refreshEvents } = useQuery({
     queryKey: ["event-definitions", "campaign-builder"],
     queryFn: () => fetchApi<{ key: string; name: string; isActive: boolean; automation: { mode: string; dateField?: string; leapDayPolicy?: string } }[]>("/admin/event-definitions"),
   });
+
+  useEffect(() => {
+    const onFocus = () => { void refreshEvents(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshEvents]);
 
   const { data: pointTypes } = useQuery({
     queryKey: ["point-types", "campaign-builder"],
@@ -165,7 +186,8 @@ export function CampaignBuilderPage(): JSX.Element {
   const selectedDefinition = eventDefinitions?.find((event) => event.key === selectedEventType);
 
   useEffect(() => {
-    if (existingCampaign) {
+    if (existingCampaign && loadedCampaignId.current !== existingCampaign.id) {
+      loadedCampaignId.current = existingCampaign.id;
       form.reset({
         pointTypeId: existingCampaign.pointTypeId ?? "",
         type: "BONUS_POINTS",
@@ -177,7 +199,7 @@ export function CampaignBuilderPage(): JSX.Element {
         issuanceMode: existingCampaign.issuanceMode ?? "AUTO",
         justification: existingCampaign.justification ?? "",
         multiplier: existingCampaign.multiplier,
-        maxBudget: existingCampaign.maxBudget && existingCampaign.maxBudget > 0 ? existingCampaign.maxBudget : undefined,
+        maxBudget: existingCampaign.maxBudget ?? undefined,
         maxUsesPerMember: existingCampaign.maxUsesPerMember ?? undefined,
         isStackable: existingCampaign.isStackable,
         abTesting: existingCampaign.abTesting,
@@ -207,6 +229,74 @@ export function CampaignBuilderPage(): JSX.Element {
     : ui("Standing campaign");
   const selectedMode = selectedDefinition?.automation.mode;
   const standingPolicyAllowed = !selectedDefinition || selectedDefinition.key.toLowerCase() === "purchase" || ["MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(selectedMode ?? "");
+
+  // Event refresh may strengthen the policy, never silently remove approval.
+  useEffect(() => {
+    if (!standingPolicyAllowed && selectedPolicy === "STANDING") {
+      form.setValue("issuancePolicy", "APPROVAL_REQUIRED", { shouldDirty: true });
+      setPolicyNotice(true);
+    }
+  }, [standingPolicyAllowed, selectedPolicy, form]);
+
+  const validateThrough = (lastStep: number, draft = false): boolean => {
+    const values = form.getValues();
+    const parsed = wizardSchema.safeParse({ ...values, variants: values.abTesting ? values.variants : undefined });
+    const problems: { field: string; message: string }[] = [];
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const field = String(issue.path[0]);
+        const messages: Record<string, string> = {
+          name: campaignText("Enter a campaign name.", "Nhập tên chiến dịch."),
+          pointTypeId: campaignText("Choose the point type to award.", "Chọn loại điểm thưởng."),
+          maxBudget: campaignText("Budget must be a non-negative whole number, or left empty for unlimited.", "Ngân sách phải là số nguyên không âm; để trống nếu không giới hạn."),
+          maxUsesPerMember: campaignText("The per-member limit must be a non-negative whole number, or left empty for unlimited.", "Giới hạn mỗi thành viên phải là số nguyên không âm; để trống nếu không giới hạn."),
+          multiplier: campaignText("Enter a valid non-negative reward amount.", "Nhập số điểm thưởng không âm hợp lệ."),
+          justification: campaignText("Justification must not exceed 2,000 characters.", "Lý do không được vượt quá 2.000 ký tự."),
+          variants: campaignText("Check variant names and traffic percentages (0–100%).", "Kiểm tra tên biến thể và tỷ lệ phân bổ (0–100%)."),
+        };
+        problems.push({ field, message: messages[field] ?? campaignText("Check this field before continuing.", "Kiểm tra trường này trước khi tiếp tục.") });
+      }
+    }
+    if (!draft && !isEdit && !selectedEventType) problems.push({ field: "eventType", message: campaignText("Choose the occasion that triggers this campaign.", "Chọn sự kiện kích hoạt chiến dịch.") });
+    if (selectedEventType && eventDefinitions && !selectedDefinition?.isActive && (!isEdit || selectedEventType !== existingCampaign?.eventType)) problems.push({ field: "eventType", message: campaignText("Choose an active event.", "Chọn một sự kiện đang hoạt động.") });
+    if (!draft && values.issuancePolicy === "APPROVAL_REQUIRED" && !values.justification?.trim()) problems.push({ field: "justification", message: campaignText("Explain why this campaign is needed before submitting for approval.", "Nhập lý do cần chiến dịch trước khi gửi phê duyệt.") });
+    const award = numericValue(values.multiplier);
+    if (!isPurchaseTrigger && (!Number.isSafeInteger(award) || !award || award <= 0)) problems.push({ field: "multiplier", message: campaignText("Points to award must be a positive whole number.", "Số điểm thưởng phải là số nguyên dương.") });
+    if (values.abTesting) {
+      const entries = values.variants ?? [];
+      if (entries.length < 2 || Math.abs(entries.reduce((sum, entry) => sum + (numericValue(entry.trafficPct) ?? 0), 0) - 100) > 0.01) problems.push({ field: "variants", message: campaignText("Use at least two variants with traffic totaling 100%.", "Cần ít nhất hai biến thể với tổng tỷ lệ phân bổ bằng 100%.") });
+      if (entries.some((entry) => entry.config?.multiplier !== undefined && (!Number.isSafeInteger(numericValue(entry.config.multiplier)) || (numericValue(entry.config.multiplier) ?? 0) <= 0))) problems.push({ field: "variants", message: campaignText("Each variant award must be a positive whole number.", "Điểm thưởng của mỗi biến thể phải là số nguyên dương.") });
+    }
+    if (values.scheduleMode === "SPECIFIC_DATE") {
+      if (!draft && !values.startsAt) problems.push({ field: "startsAt", message: ui("A specific start date is required.") });
+      if (values.startsAt && !Number.isFinite(Date.parse(values.startsAt))) problems.push({ field: "startsAt", message: campaignText("Enter a valid start date.", "Nhập ngày bắt đầu hợp lệ.") });
+      if (values.endsAt && !Number.isFinite(Date.parse(values.endsAt))) problems.push({ field: "endsAt", message: campaignText("Enter a valid end date.", "Nhập ngày kết thúc hợp lệ.") });
+      if (values.startsAt && values.endsAt && Date.parse(values.endsAt) <= Date.parse(values.startsAt)) problems.push({ field: "endsAt", message: campaignText("End date must be later than start date.", "Ngày kết thúc phải sau ngày bắt đầu.") });
+    }
+    const first = problems.filter((problem) => (STEP_FIELDS[problem.field]?.step ?? 0) <= lastStep).sort((a, b) => (STEP_FIELDS[a.field]?.step ?? 0) - (STEP_FIELDS[b.field]?.step ?? 0))[0];
+    if (first) {
+      const location = STEP_FIELDS[first.field] ?? { step: 0, id: "name" };
+      form.setError(first.field as keyof WizardData, { type: "manual", message: first.message });
+      setError(first.message);
+      setStep(location.step);
+      window.requestAnimationFrame(() => {
+        const field = document.getElementById(location.id);
+        const details = field?.closest("details");
+        if (details) details.open = true;
+        field?.focus();
+        field?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+      return false;
+    }
+    form.clearErrors();
+    setError(null);
+    return true;
+  };
+
+  const fieldError = (field: keyof WizardData) => {
+    const message = form.formState.errors[field]?.message;
+    return typeof message === "string" ? <p role="alert" className="text-sm text-destructive">{message}</p> : null;
+  };
 
   const handleEstimate = async () => {
     const values = form.getValues();
@@ -254,33 +344,14 @@ export function CampaignBuilderPage(): JSX.Element {
       });
       setEstimate(res);
     } catch {
-      setError("Failed to estimate impact");
+      setError(ui("Failed to estimate impact"));
     } finally {
       setEstimating(false);
     }
   };
 
   const handleSave = async (mode: "DRAFT" | "SUBMIT") => {
-    const valid = await form.trigger();
-    if (!valid) return;
-
-    const currentValues = form.getValues();
-    if (currentValues.scheduleMode === "SPECIFIC_DATE" && !currentValues.startsAt) {
-      setError(ui("A specific start date is required."));
-      return;
-    }
-    if (currentValues.abTesting) {
-      const currentVariants = currentValues.variants ?? [];
-      const total = currentVariants.reduce((sum, variant) => sum + (numericValue(variant.trafficPct) ?? 0), 0);
-      if (currentVariants.length < 2) {
-        setError(ui("A/B testing requires at least two variants."));
-        return;
-      }
-      if (Math.abs(total - 100) > 0.01) {
-        setError(ui("Traffic split must total 100%."));
-        return;
-      }
-    }
+    if (!validateThrough(STEPS.length - 1, mode === "DRAFT")) return;
 
     setSaving(true);
     setError(null);
@@ -297,7 +368,7 @@ export function CampaignBuilderPage(): JSX.Element {
         issuanceMode: values.issuanceMode,
         saveAsDraft: mode === "DRAFT",
         justification: values.justification?.trim() || null,
-        name: values.name,
+        name: values.name.trim(),
         description: values.description,
         type: values.type,
         multiplier,
@@ -311,9 +382,9 @@ export function CampaignBuilderPage(): JSX.Element {
         endsAt: values.scheduleMode === "SPECIFIC_DATE" && values.endsAt !== "" ? values.endsAt : null,
       };
 
-      let savedCampaignId = id;
-      if (isEdit) {
-        await fetchApi<Campaign>(`/admin/campaigns/${String(id)}`, {
+      let savedCampaignId = savedCampaignIdRef.current;
+      if (savedCampaignId) {
+        await fetchApi<Campaign>(`/admin/campaigns/${savedCampaignId}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
         });
@@ -323,6 +394,7 @@ export function CampaignBuilderPage(): JSX.Element {
           body: JSON.stringify(payload),
         });
         savedCampaignId = created.id;
+        savedCampaignIdRef.current = created.id;
       }
       if (mode === "SUBMIT" && values.issuancePolicy === "APPROVAL_REQUIRED" && savedCampaignId) {
         await fetchApi(`/admin/campaigns/${savedCampaignId}/propose`, {
@@ -333,14 +405,14 @@ export function CampaignBuilderPage(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["campaigns"] });
       navigate("/campaigns");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save campaign");
+      setError(err instanceof Error ? ui(err.message) : ui("Failed to save campaign"));
     } finally {
       setSaving(false);
     }
   };
 
   const next = () => {
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    if (validateThrough(step)) setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
   const prev = () => {
     setStep((s) => Math.max(s - 1, 0));
@@ -357,20 +429,24 @@ export function CampaignBuilderPage(): JSX.Element {
           }}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />{ui("Back")}</Button>
-        <h1 className="text-3xl font-bold">{isEdit ? "Edit Campaign" : "New Campaign"}</h1>
+        <h1 className="text-3xl font-bold">{ui(isEdit ? "Edit Campaign" : "New Campaign")}</h1>
       </div>
 
+      {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"><p className="font-medium">{campaignText("Please check the campaign details", "Vui lòng kiểm tra thông tin chiến dịch")}</p><p className="mt-1">{error}</p></div>}
+
       {/* Step indicators */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1" aria-label={ui("Campaign")}>
         {STEPS.map((label, i) => (
           <button
             key={label}
             type="button"
+            aria-current={i === step ? "step" : undefined}
+            disabled={saving}
             onClick={() => {
-              setStep(i);
+              if (i <= step || validateThrough(i - 1)) setStep(i);
             }}
             className={cn(
-              "flex-1 rounded-md px-3 py-2 text-center text-sm font-medium transition-colors",
+              "flex-1 whitespace-nowrap rounded-md px-3 py-2 text-center text-sm font-medium transition-colors",
               i === step
                 ? "bg-primary text-primary-foreground"
                 : i < step
@@ -379,78 +455,19 @@ export function CampaignBuilderPage(): JSX.Element {
             )}
           >
             {i < step ? <Check className="mr-1 inline h-3 w-3" /> : null}
-            {label}
+            {i + 1}. {campaignText(label, ["Sự kiện", "Đối tượng", "Điểm thưởng", "Lịch chạy", "Kiểm tra"][i] ?? label)}
           </button>
         ))}
       </div>
 
-      {/* Step 1: Policy */}
+      {/* Step 1: Occasion and approval policy */}
       {step === 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              {ui("Campaign policy")}
-            </CardTitle>
-            <CardDescription>{ui("Choose how this campaign is allowed to issue points. External and one-time events always require approval.")}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <button
-              type="button"
-              disabled={!standingPolicyAllowed}
-              aria-pressed={selectedPolicy === "STANDING"}
-              onClick={() => form.setValue("issuancePolicy", "STANDING", { shouldDirty: true })}
-              className={cn("rounded-lg border p-4 text-left transition-colors", selectedPolicy === "STANDING" && "border-primary bg-accent", !standingPolicyAllowed && "cursor-not-allowed opacity-50")}
-            >
-              <h3 className="font-medium">{ui("Standing campaign")}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {ui("Use predefined standing occasions such as onboarding, work anniversaries and fixed company dates. These campaigns can run automatically after activation.")}
-              </p>
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedPolicy === "APPROVAL_REQUIRED"}
-              onClick={() => form.setValue("issuancePolicy", "APPROVAL_REQUIRED", { shouldDirty: true })}
-              className={cn("rounded-lg border p-4 text-left transition-colors", selectedPolicy === "APPROVAL_REQUIRED" && "border-primary bg-accent")}
-            >
-              <h3 className="font-medium">{ui("Approval required")}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {ui("For campaigns outside standing occasions, select an approval-required event, add a justification and submit the campaign for approval.")}
-              </p>
-            </button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Step 2: Audience */}
-      {step === 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{ui("Audience")}</CardTitle>
-            <CardDescription>{ui("Select the target segment and per-member limits.")}</CardDescription>
+            <CardTitle>{campaignText("Occasion", "Sự kiện")}</CardTitle>
+            <CardDescription>{campaignText("Name the campaign and choose what should trigger the reward.", "Đặt tên chiến dịch và chọn sự kiện kích hoạt điểm thưởng.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>{ui("Target Segment")}</Label>
-              <Select
-                value={form.watch("segmentId") ?? "all"}
-                onValueChange={(v) => {
-                  form.setValue("segmentId", v === "all" ? undefined : v);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={ui("All members")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{ui("All Members")}</SelectItem>
-                  {segmentsData?.items.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} ({s.type === "STATIC" ? s.memberIds.length : "dynamic"})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-2">
               <Label htmlFor="name">{ui("Campaign Name")}</Label>
               <Input id="name" {...form.register("name")} placeholder={ui("e.g. Welcome Bonus")} />
@@ -466,9 +483,9 @@ export function CampaignBuilderPage(): JSX.Element {
                   const nextEventType = value === ANY_EVENT_VALUE ? "" : value;
                   const nextDefinition = eventDefinitions?.find((event) => event.key === nextEventType);
                   const nextMode = nextDefinition?.automation.mode;
-                  const nextPolicy = !nextDefinition || nextDefinition.key.toLowerCase() === "purchase" || ["MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(nextMode ?? "")
-                    ? "STANDING"
-                    : "APPROVAL_REQUIRED";
+                  const requiresApproval = Boolean(nextDefinition && nextDefinition.key.toLowerCase() !== "purchase" && !["MEMBER_CHECK_IN", "ONBOARDING", "MEMBER_DATE_ANNUAL", "ANNIVERSARY", "ANNUAL_DATE"].includes(nextMode ?? ""));
+                  const nextPolicy = requiresApproval ? "APPROVAL_REQUIRED" : form.getValues("issuancePolicy");
+                  setPolicyNotice(requiresApproval);
                   form.setValue("eventType", value === ANY_EVENT_VALUE ? "" : value, {
                     shouldDirty: true,
                     shouldValidate: true,
@@ -477,10 +494,10 @@ export function CampaignBuilderPage(): JSX.Element {
                 }}
               >
                 <SelectTrigger id="event-type">
-                  <SelectValue placeholder={ui("Any member event")} />
+                  <SelectValue placeholder={campaignText("Choose an event", "Chọn sự kiện")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ANY_EVENT_VALUE}>{ui("Any member event")}</SelectItem>
+                  <SelectItem value={ANY_EVENT_VALUE}>{isEdit && !existingCampaign?.eventType ? campaignText("Legacy purchase campaign", "Chiến dịch mua hàng cũ") : campaignText("Choose an event", "Chọn sự kiện")}</SelectItem>
                   {eventOptions.map((event) => (
                     <SelectItem key={event.key} value={event.key}>
                       <span className="flex items-center justify-between gap-3">
@@ -491,6 +508,7 @@ export function CampaignBuilderPage(): JSX.Element {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldError("eventType")}
               <p className="text-sm text-muted-foreground">
                 {ui("Choose an event to issue points automatically when it occurs. Leave empty only for legacy purchase campaigns.")}
               </p>
@@ -508,10 +526,10 @@ export function CampaignBuilderPage(): JSX.Element {
               </div>}
               <p className="text-sm text-muted-foreground">
                 {ui("Need another event? Create it in")} {" "}
-                <Button type="button" variant="link" className="h-auto p-0 align-baseline" onClick={() => navigate("/event-definitions")}>
-                  {ui("Event definitions")}
-                </Button>
-                {" "}{ui("first, then return to this campaign.")}
+                <Link to="/event-definitions" target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline underline-offset-4">
+                  {campaignText("Event definitions (opens a new tab)", "Định nghĩa sự kiện (mở tab mới)")}
+                </Link>
+                {" "}{campaignText("Your inputs stay here. Return to this tab to refresh the event list.", "Thông tin đang nhập được giữ tại đây. Quay lại tab này để cập nhật danh sách sự kiện.")}
               </p>
             </div>
             <div className="space-y-2">
@@ -521,6 +539,71 @@ export function CampaignBuilderPage(): JSX.Element {
                 {...form.register("description")}
                 placeholder={ui("Describe what this campaign does...")}
               />
+            </div>
+
+            <section className="space-y-3 rounded-lg border p-4">
+              <h3 className="flex items-center gap-2 font-medium"><ShieldCheck className="h-4 w-4" />{ui("Campaign policy")}</h3>
+              <p className="text-sm text-muted-foreground">{campaignText("The selected event determines whether approval is mandatory. Standing occasions can also be submitted for approval if needed.", "Sự kiện đã chọn quyết định chiến dịch có bắt buộc phê duyệt hay không. Bạn cũng có thể yêu cầu phê duyệt cho sự kiện định kỳ.")}</p>
+              {policyNotice && <p role="status" className="text-sm">{campaignText("Approval is required for this event. Your reward amount and other settings have not changed.", "Sự kiện này bắt buộc phê duyệt. Số điểm thưởng và các thiết lập khác được giữ nguyên.")}</p>}
+              <div className="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              disabled={!standingPolicyAllowed}
+              aria-pressed={selectedPolicy === "STANDING"}
+              onClick={() => { form.setValue("issuancePolicy", "STANDING", { shouldDirty: true }); setPolicyNotice(false); }}
+              className={cn("rounded-lg border p-4 text-left transition-colors", selectedPolicy === "STANDING" && "border-primary bg-accent", !standingPolicyAllowed && "cursor-not-allowed opacity-50")}
+            >
+              <h3 className="font-medium">{ui("Standing campaign")}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {ui("Use predefined standing occasions such as onboarding, work anniversaries and fixed company dates. These campaigns can run automatically after activation.")}
+              </p>
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedPolicy === "APPROVAL_REQUIRED"}
+              onClick={() => { form.setValue("issuancePolicy", "APPROVAL_REQUIRED", { shouldDirty: true }); setPolicyNotice(false); }}
+              className={cn("rounded-lg border p-4 text-left transition-colors", selectedPolicy === "APPROVAL_REQUIRED" && "border-primary bg-accent")}
+            >
+              <h3 className="font-medium">{ui("Approval required")}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {ui("For campaigns outside standing occasions, select an approval-required event, add a justification and submit the campaign for approval.")}
+              </p>
+            </button>
+              </div>
+            </section>
+            {selectedPolicy === "APPROVAL_REQUIRED" && <div className="space-y-2"><Label htmlFor="campaign-reason">{ui("Justification")}</Label><Textarea id="campaign-reason" {...form.register("justification")} />{fieldError("justification")}<p className="text-sm text-muted-foreground">{campaignText("Required when submitting for approval; optional when saving a draft. Changes after approval require a new proposal.", "Bắt buộc khi gửi phê duyệt; tùy chọn khi lưu nháp. Thay đổi sau phê duyệt cần gửi lại đề xuất.")}</p></div>}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 2: Recipients and point delivery */}
+      {step === 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{campaignText("Recipients", "Đối tượng nhận điểm")}</CardTitle>
+            <CardDescription>{campaignText("Choose who can receive points and how they receive them.", "Chọn người nhận điểm và cách họ nhận điểm.")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>{ui("Target Segment")}</Label>
+              <Select
+                value={form.watch("segmentId") ?? "all"}
+                onValueChange={(v) => {
+                  form.setValue("segmentId", v === "all" ? undefined : v);
+                }}
+              >
+                <SelectTrigger id="target-segment">
+                  <SelectValue placeholder={ui("All members")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{ui("All Members")}</SelectItem>
+                  {segmentsData?.items.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} ({s.type === "STATIC" ? s.memberIds.length : ui("Dynamic")})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>{ui("Point delivery")}</Label>
@@ -546,7 +629,6 @@ export function CampaignBuilderPage(): JSX.Element {
                 </button>
               </div>
             </div>
-            {selectedPolicy === "APPROVAL_REQUIRED" && <div className="space-y-2"><Label htmlFor="campaign-reason">{ui("Justification")}</Label><Textarea id="campaign-reason" {...form.register("justification")} /><p className="text-sm text-muted-foreground">{ui("Save the campaign, then submit it for approval. Changes after approval require a new proposal.")}</p></div>}
             <div className="space-y-2">
               <Label htmlFor="maxUses">{ui("Max Uses Per Member")}</Label>
               <Input
@@ -555,6 +637,7 @@ export function CampaignBuilderPage(): JSX.Element {
                 {...form.register("maxUsesPerMember")}
                 placeholder={ui("Unlimited")}
               />
+              {fieldError("maxUsesPerMember")}
             </div>
           </CardContent>
         </Card>
@@ -564,8 +647,8 @@ export function CampaignBuilderPage(): JSX.Element {
       {step === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>{ui("Campaign Rules")}</CardTitle>
-            <CardDescription>{ui("Configure the point multiplier, budget, and stacking behavior.")}</CardDescription>
+            <CardTitle>{campaignText("Reward", "Điểm thưởng")}</CardTitle>
+            <CardDescription>{campaignText("Choose the point type, award amount and total campaign budget.", "Chọn loại điểm, số điểm thưởng và tổng ngân sách chiến dịch.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -599,6 +682,7 @@ export function CampaignBuilderPage(): JSX.Element {
                 {isPurchaseTrigger ? ui("Point Multiplier") : ui("Points to award")}
               </Label>
               <Input id="multiplier" type="number" step={isPurchaseTrigger ? "0.1" : "1"} min="0" {...form.register("multiplier")} />
+              {fieldError("multiplier")}
               <p className="text-sm text-muted-foreground">
                 {isPurchaseTrigger
                   ? ui("Earned points are multiplied by this value (1x = no change)")
@@ -613,7 +697,11 @@ export function CampaignBuilderPage(): JSX.Element {
                 {...form.register("maxBudget")}
                 placeholder={ui("No limit")}
               />
+              {fieldError("maxBudget")}
             </div>
+            <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer font-medium">{campaignText("Advanced: stacking, A/B testing and channels", "Nâng cao: cộng dồn, thử nghiệm A/B và kênh")}</summary>
+              <div className="mt-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <Label>{ui("Stackable")}</Label>
@@ -643,6 +731,7 @@ export function CampaignBuilderPage(): JSX.Element {
             </div>
             {form.watch("abTesting") && (
               <div className="space-y-3 rounded-lg border p-4">
+                {fieldError("variants")}
                 <div>
                   <Label>{ui("Variants")}</Label>
                   <p className="text-sm text-muted-foreground">
@@ -725,18 +814,9 @@ export function CampaignBuilderPage(): JSX.Element {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Step 4: Channels */}
-      {step === 3 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{ui("Channels")}</CardTitle>
-            <CardDescription>{ui("Select which channels this campaign applies to.")}</CardDescription>
-          </CardHeader>
-          <CardContent>
+                <div className="space-y-2">
+                  <h3 className="font-medium">{ui("Channels")}</h3>
+                  <p className="text-sm text-muted-foreground">{campaignText("Optional channel selection for integrations. This does not configure notification delivery.", "Lựa chọn kênh tùy chọn cho tích hợp. Đây không phải thiết lập gửi thông báo.")}</p>
             <div className="space-y-3">
               {CHANNELS.map((ch) => (
                 <div key={ch} className="flex items-center gap-3">
@@ -759,12 +839,15 @@ export function CampaignBuilderPage(): JSX.Element {
                 </div>
               ))}
             </div>
+                </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
       )}
 
       {/* Step 5: Dates */}
-      {step === 4 && (
+      {step === 3 && (
         <Card>
           <CardHeader>
             <CardTitle>{ui("Schedule")}</CardTitle>
@@ -804,10 +887,12 @@ export function CampaignBuilderPage(): JSX.Element {
                 <div className="space-y-2">
                   <Label htmlFor="startsAt">{ui("Start Date")}</Label>
                   <Input id="startsAt" type="datetime-local" {...form.register("startsAt")} />
+                  {fieldError("startsAt")}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="endsAt">{ui("End Date")} {ui(" (optional)")}</Label>
                   <Input id="endsAt" type="datetime-local" {...form.register("endsAt")} />
+                  {fieldError("endsAt")}
                 </div>
               </div>
             )}
@@ -816,7 +901,7 @@ export function CampaignBuilderPage(): JSX.Element {
       )}
 
       {/* Step 6: Review */}
-      {step === 5 && (
+      {step === 4 && (
         <div className="space-y-4">
           <Card>
             <CardHeader>
@@ -835,7 +920,23 @@ export function CampaignBuilderPage(): JSX.Element {
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">{ui("Trigger event")}</dt>
-                  <dd className="font-medium">{form.watch("eventType") || ui("Any event")}</dd>
+                  <dd className="font-medium">{selectedDefinition?.name ?? (form.watch("eventType") || ui("Any event"))}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{ui("Target Segment")}</dt>
+                  <dd className="text-right font-medium">{segmentsData?.items.find((segment) => segment.id === form.watch("segmentId"))?.name ?? (form.watch("segmentId") ? campaignText("Selected segment", "Nhóm đã chọn") : ui("All members"))}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{ui("Award point type")}</dt>
+                  <dd className="text-right font-medium">{pointTypes?.find((pointType) => pointType.id === form.watch("pointTypeId"))?.name ?? "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{ui("Point delivery")}</dt>
+                  <dd className="text-right font-medium">{ui(form.watch("issuanceMode") === "CLAIM" ? "Member claim" : "Automatic issue")}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{ui("Max Uses Per Member")}</dt>
+                  <dd className="text-right font-medium">{numericValue(form.watch("maxUsesPerMember")) ?? ui("Unlimited")}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">{ui(isPurchaseTrigger ? "Multiplier" : "Points to award")}</dt>
@@ -846,7 +947,7 @@ export function CampaignBuilderPage(): JSX.Element {
                   <dd className="font-medium">
                     {numericValue(form.watch("maxBudget")) !== undefined
                       ? `${(numericValue(form.watch("maxBudget")) ?? 0).toLocaleString()} pts`
-                      : "Unlimited"}
+                      : ui("Unlimited")}
                   </dd>
                 </div>
                 <div className="flex justify-between">
@@ -859,18 +960,18 @@ export function CampaignBuilderPage(): JSX.Element {
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">{ui("Stackable")}</dt>
-                  <dd className="font-medium">{form.watch("isStackable") ? "Yes" : "No"}</dd>
+                  <dd className="font-medium">{form.watch("isStackable") ? ui("Yes") : ui("No")}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">{ui("A/B Testing")}</dt>
-                  <dd className="font-medium">{form.watch("abTesting") ? "Yes" : "No"}</dd>
+                  <dd className="font-medium">{form.watch("abTesting") ? ui("Yes") : ui("No")}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">{ui("Channels")}</dt>
                   <dd className="font-medium">
                     {(form.watch("channels") ?? []).length > 0
                       ? (form.watch("channels") ?? []).join(", ")
-                      : "All"}
+                      : ui("All")}
                   </dd>
                 </div>
               </dl>
@@ -933,8 +1034,6 @@ export function CampaignBuilderPage(): JSX.Element {
             </CardContent>
           </Card>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
-
           <div className="grid gap-3 md:grid-cols-2">
             <Button
               variant="outline"
@@ -958,14 +1057,16 @@ export function CampaignBuilderPage(): JSX.Element {
         </div>
       )}
 
+      <p className="text-sm text-muted-foreground">{campaignText("Drafts need a name and a valid point type. Any reward amounts, dates and A/B settings already entered must also be valid. You can add the approval justification later.", "Bản nháp cần tên và loại điểm hợp lệ. Số điểm thưởng, ngày và thiết lập A/B đã nhập cũng phải hợp lệ. Bạn có thể bổ sung lý do phê duyệt sau.")}</p>
+
       {/* Navigation */}
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={prev} disabled={step === 0}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Button variant="outline" onClick={prev} disabled={step === 0 || saving}>
           <ArrowLeft className="mr-2 h-4 w-4" />{ui("Back")}</Button>
-        {step < STEPS.length - 1 && (
-          <Button onClick={next}>{ui("Next")}<ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        )}
+        {step < STEPS.length - 1 && <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={saving} onClick={() => { void handleSave("DRAFT"); }}><Save className="mr-2 h-4 w-4" />{ui("Save as draft")}</Button>
+          <Button disabled={saving} onClick={next}>{campaignText("Continue", "Tiếp tục")}<ArrowRight className="ml-2 h-4 w-4" /></Button>
+        </div>}
       </div>
     </div>
   );

@@ -8,6 +8,10 @@ const prisma = new PrismaClient({
 });
 
 async function main(): Promise<void> {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Refusing to seed development demo data in production.");
+  }
+
   console.log("Seeding LoyaltyOS demo data...\n");
 
   const existingProgram = await prisma.program.findUnique({ where: { id: "prog_dev" } });

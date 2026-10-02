@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ui } from "../lib/ui-text";
 import { Award, Lock } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,10 +8,10 @@ import { fetchApi } from "../lib/api-client";
 import type { BadgeProgress } from "../types";
 
 export default function Badges() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [filter, setFilter] = useState<"all" | "unlocked" | "locked">("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["badges"],
     queryFn: () => fetchApi<BadgeProgress[]>("/members/me/badges"),
   });
@@ -28,9 +29,7 @@ export default function Badges() {
     <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
       <div>
         <h1 className="text-2xl font-bold">{t("badges")}</h1>
-        <p className="text-sm text-[var(--color-text-secondary)]">
-          {unlockedCount} / {badges.length} {t("unlocked").toLowerCase()}
-        </p>
+        {badges.length > 0 && <p className="text-sm text-[var(--color-text-secondary)]">{unlockedCount} / {badges.length} {t("unlocked").toLowerCase()}</p>}
       </div>
 
       <div className="flex gap-2" role="group" aria-label={t("filterAll")}>
@@ -66,10 +65,17 @@ export default function Badges() {
             />
           ))}
         </div>
+      ) : isError ? (
+        <p role="alert" className="py-12 text-center text-[var(--color-text-secondary)]">{t("common.error")}</p>
+      ) : badges.length === 0 ? (
+        <div className="py-12 text-center text-[var(--color-text-secondary)]">
+          <Award className="mx-auto h-12 w-12" aria-hidden="true" />
+          <p className="mt-2">{ui("No badges are currently available. Your program administrator may not have configured any yet.")}</p>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[var(--color-text-secondary)]">
           <Award className="mx-auto h-12 w-12" aria-hidden="true" />
-          <p className="mt-2">{t("noBadges")}</p>
+          <p className="mt-2">{filter === "unlocked" ? ui("No badges unlocked yet. Check the requirements on the locked badges to see what to do next.") : ui("No badges match this filter.")}</p>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-3">
@@ -96,7 +102,7 @@ export default function Badges() {
               <p className="text-xs font-semibold leading-tight">{bp.badge.name}</p>
               {bp.unlocked && bp.unlockedAt && (
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                  {new Date(bp.unlockedAt).toLocaleDateString()}
+                  {new Date(bp.unlockedAt).toLocaleDateString(i18n.language)}
                 </p>
               )}
               {!bp.unlocked && bp.targetValue > 0 && (

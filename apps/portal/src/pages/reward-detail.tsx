@@ -7,9 +7,11 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { fetchApi, postApi } from "../lib/api-client";
 import type { RedeemResult, RewardDetail as RewardDetailType } from "../types";
+import { useCustomerCopy } from "../lib/customer-copy";
 
 export default function RewardDetail() {
   const { t } = useTranslation();
+  const copy = useCustomerCopy();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -17,7 +19,7 @@ export default function RewardDetail() {
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [pointTypeId, setPointTypeId] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["reward", id ?? ""],
     queryFn: () => fetchApi<RewardDetailType>(`/rewards/${id ?? ""}`),
   });
@@ -53,6 +55,13 @@ export default function RewardDetail() {
       </div>
     );
   }
+  if (isError) {
+    return <div role="alert" className="mx-auto max-w-lg space-y-3 px-4 py-6">
+      <p>{copy("Unable to load this reward. Please try again.", "Chưa tải được phần thưởng. Vui lòng thử lại.")}</p>
+      <button type="button" disabled={isFetching} onClick={() => void refetch()} className="min-h-11 underline">{copy("Try again", "Thử lại")}</button>
+    </div>;
+  }
+
 
   if (!data) {
     return (
@@ -67,6 +76,15 @@ export default function RewardDetail() {
     data.eligible !== false &&
     (data.stock === null || data.stock > 0) &&
     Boolean(selectedPrice?.eligible);
+  const missingPoints = selectedPrice && typeof selectedPrice.availableBalance === "number"
+    ? Math.max(0, selectedPrice.amount - selectedPrice.availableBalance) : null;
+  const unavailableReason = data.stock !== null && data.stock <= 0
+    ? copy("This reward is out of stock. Please choose another reward.", "Phần thưởng đã hết. Vui lòng chọn phần thưởng khác.")
+    : !selectedPrice
+      ? copy("No payment wallet is selected or available for this reward.", "Chưa chọn hoặc chưa có ví điểm phù hợp để đổi phần thưởng này.")
+      : missingPoints !== null && missingPoints > 0
+        ? copy("You need " + missingPoints.toLocaleString() + " more " + selectedPrice.pointType.unitLabel + " to redeem this reward.", "Bạn còn thiếu " + missingPoints.toLocaleString() + " " + selectedPrice.pointType.unitLabel + " để đổi phần thưởng này.")
+        : data.reason || copy("This reward is not currently available for your account or selected wallet. Contact your administrator to check the requirements.", "Hiện tài khoản hoặc ví đã chọn chưa thể đổi phần thưởng này. Hãy liên hệ quản trị viên để kiểm tra điều kiện.");
 
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-6">
@@ -110,6 +128,7 @@ export default function RewardDetail() {
           value={pointTypeId}
           onChange={(event) => {
             setPointTypeId(event.target.value);
+            setShowConfirm(false);
           }}
           className="mt-1 block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
         >
@@ -120,7 +139,7 @@ export default function RewardDetail() {
           ))}
         </select>
         <span className="mt-1 block text-xs text-[var(--color-text-secondary)]">
-          Available: {(selectedPrice?.availableBalance ?? 0).toLocaleString()}{" "}
+          {copy("Available:", "Có thể dùng:")} {(selectedPrice?.availableBalance ?? 0).toLocaleString()}{" "}
           {selectedPrice?.pointType.unitLabel ?? ""}
         </span>
       </label>
@@ -131,10 +150,10 @@ export default function RewardDetail() {
         </p>
       )}
 
-      {data.reason && (
+      {!canRedeem && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <p>{data.reason}</p>
+          <p id="reward-unavailable-reason">{unavailableReason}</p>
         </div>
       )}
 
@@ -162,10 +181,11 @@ export default function RewardDetail() {
             setShowConfirm(true);
           }}
           disabled={!canRedeem}
+          aria-describedby={!canRedeem ? "reward-unavailable-reason" : undefined}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-primary)] px-6 py-3.5 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
         >
           <ShoppingCart className="h-5 w-5" />
-          {canRedeem ? t("redeem") : t("locked")}
+          {canRedeem ? t("redeem") : copy("Cannot redeem yet", "Chưa thể đổi thưởng")}
         </button>
       ) : (
         <div className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
@@ -184,7 +204,7 @@ export default function RewardDetail() {
                 redeemMutation.mutate();
                 setShowConfirm(false);
               }}
-              disabled={redeemMutation.isPending}
+              disabled={redeemMutation.isPending || !canRedeem}
               className="flex-1 rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               {redeemMutation.isPending ? "..." : t("confirm")}

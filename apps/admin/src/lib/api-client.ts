@@ -1,5 +1,4 @@
 const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
-const API_KEY: string = (import.meta.env.VITE_API_KEY as string | undefined) ?? "dev-key";
 const PROGRAM_ID: string = (import.meta.env.VITE_PROGRAM_ID as string | undefined) ?? "prog_dev";
 export function configuredProgramId(): string {
   return PROGRAM_ID;
@@ -139,16 +138,10 @@ export async function fetchApi<T>(path: string, options?: RequestOptions): Promi
   const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
   if (options?.body !== undefined && !hasContentType) headers["Content-Type"] = "application/json";
 
-  // In admin credential mode, rely on cookies, not API key
-  if (!adminCredentialMode) {
-    headers["X-API-Key"] = API_KEY;
-    headers["X-Program-Id"] = PROGRAM_ID;
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
-    credentials: adminCredentialMode ? "include" : "omit",
+    credentials: "include",
   });
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -173,16 +166,12 @@ export async function fetchApiCsv(
   body: unknown,
 ): Promise<{ blob: Blob; rowCount: number }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (!adminCredentialMode) {
-    headers["X-API-Key"] = API_KEY;
-    headers["X-Program-Id"] = PROGRAM_ID;
-  }
 
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    credentials: adminCredentialMode ? "include" : "omit",
+    credentials: "include",
   });
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";

@@ -72,6 +72,7 @@ export function MemberDetailPage(): JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [statusReason, setStatusReason] = useState("");
+  const [offboardingDate, setOffboardingDate] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [credentialUsername, setCredentialUsername] = useState("");
@@ -109,6 +110,10 @@ export function MemberDetailPage(): JSX.Element {
   useEffect(() => {
     if (member) setCredentialUsername(member.username ?? "");
   }, [member]);
+
+  useEffect(() => {
+    setOffboardingDate(member?.lastWorkingDay?.slice(0, 10) ?? "");
+  }, [member?.lastWorkingDay]);
 
   useEffect(() => {
     if (!member || profileEditing) return;
@@ -283,6 +288,57 @@ export function MemberDetailPage(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["member-balance", memberId] });
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Status update failed");
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  const saveOffboardingSchedule = async (): Promise<void> => {
+    if (!offboardingDate) {
+      setStatusMessage(ui("Choose the member's last working day."));
+      return;
+    }
+    if (!statusReason.trim()) {
+      setStatusMessage(ui("A reason is required."));
+      return;
+    }
+    setStatusUpdating(true);
+    setStatusMessage(null);
+    try {
+      await fetchApi(`/admin/members/${memberId}/offboarding-schedule`, {
+        method: "POST",
+        body: JSON.stringify({ lastWorkingDay: offboardingDate, reason: statusReason }),
+      });
+      setStatusReason("");
+      setStatusMessage(`${ui("Offboarding scheduled for")} ${offboardingDate}.`);
+      void queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : ui("Could not schedule offboarding."));
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  const cancelOffboardingSchedule = async (): Promise<void> => {
+    if (!member?.lastWorkingDay) return;
+    if (!statusReason.trim()) {
+      setStatusMessage(ui("Enter a reason for cancelling the schedule."));
+      return;
+    }
+    if (!window.confirm(ui("Cancel this member's scheduled offboarding?"))) return;
+    setStatusUpdating(true);
+    setStatusMessage(null);
+    try {
+      await fetchApi(`/admin/members/${memberId}/offboarding-schedule`, {
+        method: "DELETE",
+        body: JSON.stringify({ reason: statusReason }),
+      });
+      setStatusReason("");
+      setOffboardingDate("");
+      setStatusMessage(ui("Scheduled offboarding cancelled."));
+      void queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : ui("Could not cancel offboarding."));
     } finally {
       setStatusUpdating(false);
     }
@@ -652,6 +708,39 @@ export function MemberDetailPage(): JSX.Element {
                 placeholder={ui("Reason is required")}
               />
             </div>
+            {member?.status === "ACTIVE" && (
+              <div className="min-w-52">
+                <Label htmlFor="offboarding-date">{ui("Last working day")}</Label>
+                <Input
+                  id="offboarding-date"
+                  className="mt-1"
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={offboardingDate}
+                  onChange={(event) => setOffboardingDate(event.target.value)}
+                  disabled={statusUpdating}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {ui("This date uses UTC. The member remains active through that date; the next daily run deactivates the account and returns bank-enabled point balances.")}
+                </p>
+              </div>
+            )}
+            {member?.status === "ACTIVE" && (
+              <Button variant="outline" disabled={statusUpdating} onClick={() => void saveOffboardingSchedule()}>
+                {member.lastWorkingDay ? ui("Update schedule") : ui("Schedule offboarding")}
+              </Button>
+            )}
+            {member?.lastWorkingDay && (
+              <p className="w-full text-xs text-muted-foreground">
+                {ui("Scheduled offboarding")}: {new Date(member.lastWorkingDay).toLocaleDateString(undefined, { timeZone: "UTC" })}
+                {member.offboardingReason ? ` · ${member.offboardingReason}` : ""}
+              </p>
+            )}
+            {member?.lastWorkingDay && (
+              <Button variant="ghost" disabled={statusUpdating} onClick={() => void cancelOffboardingSchedule()}>
+                {ui("Cancel schedule")}
+              </Button>
+            )}
             {member?.status === "INACTIVE" ? (
               <Button disabled={statusUpdating} onClick={() => void updateMemberStatus("ACTIVE")}>{ui("Reactivate")}</Button>
             ) : (

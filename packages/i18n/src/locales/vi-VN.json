@@ -56,7 +56,7 @@
     "title": "Trang tổng quan",
     "activeMembers": "Thành viên đang hoạt động",
     "pointsIssued": "Điểm đã cấp",
-    "pointsRedeemed": "Điểm đã đổi",
+    "pointsRedeemed": "Điểm đã đổi thưởng",
     "redemptionRatio": "Tỷ lệ quy đổi",
     "pointsOverview": "Tổng quan về điểm",
     "failedToLoad": "Không tải được dữ liệu trang tổng quan",
@@ -142,8 +142,8 @@
     }
   },
   "segments": {
-    "title": "Phân đoạn",
-    "createSegment": "Tạo phân đoạn"
+    "title": "Nhóm thành viên",
+    "createSegment": "Tạo nhóm thành viên"
   },
   "coupons": {
     "title": "Phiếu giảm giá",
@@ -226,15 +226,15 @@
     "members": "Thành viên",
     "campaigns": "Chiến dịch",
     "coupons": "Phiếu giảm giá",
-    "segments": "Phân đoạn",
+    "segments": "Nhóm thành viên",
     "badges": "Huy hiệu",
-    "tiers": "Bậc",
+    "tiers": "Hạng thành viên",
     "rewards": "Phần thưởng",
     "coalition": "Liên minh",
     "giftcards": "Thẻ quà tặng",
     "settings": "Cài đặt",
     "rolesPermissions": "Vai trò & Quyền",
-    "workflows": "Quy trình làm việc",
+    "workflows": "Quy trình phê duyệt",
     "approvalInbox": "Hộp thư phê duyệt",
     "signOut": "Đăng xuất",
     "pageNotFound": "Không tìm thấy trang",

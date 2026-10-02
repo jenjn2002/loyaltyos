@@ -4,6 +4,7 @@ import {
   Award,
   BarChart3,
   Bell,
+  BookOpen,
   ChevronDown,
   Download,
   Gift,
@@ -344,6 +345,16 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
       </nav>
       <div className="border-t p-4 space-y-3">
         {authenticated && <EnvironmentSwitch />}
+        <NavLink
+          to="/document"
+          className={({ isActive }) => cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            isActive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <BookOpen className="h-4 w-4 shrink-0" />
+          <span>{ui("Documentation")}</span>
+        </NavLink>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">{t("settings.language")}</label>
           <Select value={i18n.language} onValueChange={handleLocaleChange}>

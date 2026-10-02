@@ -99,6 +99,57 @@ export class NotificationsService {
     return this.repo.createNotification(parsed);
   }
 
+  async createAndSendNotification(
+    input: NotificationCreateInput,
+    emailCopy = false,
+  ): Promise<NotificationRow[]> {
+    let payload = input;
+    if ((emailCopy || input.channel === "EMAIL") && !input.metadata?.email) {
+      const email = await this.repo.findMemberEmail(input.memberId);
+      if (email) {
+        payload = { ...input, metadata: { ...input.metadata, email } };
+      }
+    }
+
+    const notice = await this.createNotification(payload);
+    const notices = [notice];
+    try {
+      await this.send(notice.id);
+    } catch {
+      // Persisted notice remains available for retry.
+    }
+
+    const recipient = payload.metadata?.email;
+    if (
+      !emailCopy ||
+      input.channel !== "IN_APP" ||
+      typeof recipient !== "string" ||
+      !recipient
+    ) {
+      return notices;
+    }
+
+    try {
+      const emailNotice = await this.createNotification({
+        ...payload,
+        channel: "EMAIL",
+      });
+      notices.push(emailNotice);
+      try {
+        await this.send(emailNotice.id);
+      } catch {
+        // Persisted notice remains available for retry.
+      }
+    } catch (error) {
+      console.error("[Notifications] Failed to create email copy", {
+        memberId: input.memberId,
+        error,
+      });
+    }
+
+    return notices;
+  }
+
   async sendTrigger(
     programId: string,
     triggerEvent: string,
@@ -134,6 +185,7 @@ export class NotificationsService {
     const metadata: Record<string, unknown> = {};
     if (member?.email) metadata.email = member.email;
     if (member?.phone) metadata.phone = member.phone;
+    const hasEmailTemplate = templates.some((template) => template.channel === "EMAIL");
 
     // Pass locale to template context for formatting helpers
     const renderContext = { ...context, _locale: resolvedLocale };
@@ -148,23 +200,20 @@ export class NotificationsService {
           : undefined;
       const subject = template.subject ? render(template.subject, renderContext) : undefined;
 
-      const notification = await this.repo.createNotification({
+      const notificationInput = {
         templateId: template.id,
         memberId,
         channel: template.channel,
         subject,
         body,
         metadata,
-      });
-
-      // Attempt to send immediately
-      try {
-        await this.send(notification.id);
-        notifications.push(notification);
-      } catch {
-        // Leave as PENDING for retry
-        notifications.push(notification);
-      }
+      };
+      notifications.push(
+        ...(await this.createAndSendNotification(
+          notificationInput,
+          template.channel === "IN_APP" && !hasEmailTemplate,
+        )),
+      );
     }
 
     return notifications;

@@ -3,7 +3,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import { verifyAuditLogIntegrity } from "../../lib/audit.js";
 import { requireCapability } from "../../lib/permissions.js";
+import { walletService } from "../../lib/wallets.js";
 
 const auditActions = [
   "ADJUST_POINTS",
@@ -60,6 +62,26 @@ interface ActorDetails {
 }
 
 export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
+  app.get(
+    "/admin/logs/integrity",
+    { preHandler: [requireCapability("audit.view")] },
+    async (request, reply) => {
+      const [auditIntegrity, ledgerIntegrity] = await Promise.all([
+        verifyAuditLogIntegrity(request.programId),
+        walletService.verifyIntegrity(request.programId),
+      ]);
+      const auditOk = auditIntegrity.invalidIds.length === 0;
+      return reply.send({
+        data: {
+          checkedAt: new Date().toISOString(),
+          ok: auditOk && ledgerIntegrity.ok,
+          audit: { ...auditIntegrity, ok: auditOk },
+          ledger: ledgerIntegrity,
+        },
+      });
+    },
+  );
+
   app.get(
     "/admin/logs/filters",
     { preHandler: [requireCapability("audit.view")] },

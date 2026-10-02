@@ -6,6 +6,7 @@ import { prisma } from "../../db.js";
 import { createApprovalRequestWithClient } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
+import { notificationsService } from "../../lib/notifications-setup.js";
 import { assertCapability, requireCapability, type AdminCapability } from "../../lib/permissions.js";
 import { walletService } from "../../lib/wallets.js";
 
@@ -366,7 +367,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const project = await ownedProject(request.programId, adminId, id);
     if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
     const ids = [...new Set(body.memberIds)];
-    const members = await prisma.member.findMany({ where: { id: { in: ids }, programId: request.programId, deletedAt: null, status: "ACTIVE" }, select: { id: true } });
+    const members = await prisma.member.findMany({ where: { id: { in: ids }, programId: request.programId, deletedAt: null, status: "ACTIVE" }, select: { id: true, email: true } });
     if (members.length !== ids.length) throw new LoyaltyError("PROJECT_MEMBER_NOT_FOUND", 404);
     let invited = 0;
     const invitedMemberIds: string[] = [];
@@ -378,7 +379,18 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       if (existingMembership?.status === "ACCEPTED" || existingMembership?.status === "INVITED") continue;
       const invitation = await prisma.projectMember.upsert({ where: { projectId_memberId: { projectId: id, memberId: member.id } }, create: { projectId: id, memberId: member.id, invitedByAdminId: adminId }, update: { status: "INVITED", invitedByAdminId: adminId, invitedAt: new Date(), respondedAt: null } });
       const prior = await prisma.notification.findFirst({ where: { memberId: member.id, metadata: { path: ["projectInvitationId"], equals: invitation.id }, status: { not: "READ" } }, select: { id: true } });
-      if (!prior) await prisma.notification.create({ data: { memberId: member.id, channel: "IN_APP", subject: "Project invitation", body: `You are invited to join ${project.name}. Please review and respond in Projects.`, metadata: { projectInvitationId: invitation.id, projectId: id } } });
+      if (!prior) {
+        await notificationsService.createAndSendNotification(
+          {
+            memberId: member.id,
+            channel: "IN_APP",
+            subject: "Project invitation",
+            body: `You are invited to join ${project.name}. Please review and respond in Projects.`,
+            metadata: { email: member.email, projectInvitationId: invitation.id, projectId: id },
+          },
+          true,
+        );
+      }
       invited += 1;
       invitedMemberIds.push(member.id);
     }

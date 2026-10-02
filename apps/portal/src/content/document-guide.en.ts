@@ -1,0 +1,137 @@
+import type { CustomerGuideTopic } from "./document-guide";
+
+type EnglishTopic = Pick<CustomerGuideTopic, "title" | "area" | "purpose" | "steps" | "result" | "notes">;
+
+export const customerGuideEnglish: Record<CustomerGuideTopic["id"], EnglishTopic> = {
+  "home-balance": {
+    title: "Home, balances, and member tier",
+    area: "Getting started",
+    purpose: "See each point balance, tier progress, points waiting to be claimed, and activities currently available to you.",
+    steps: [
+      "Sign in with the member account provided to you, then open Home.",
+      "Review each wallet separately. Point types and units depend on your program configuration.",
+      "If points are waiting for you, open the item to check its campaign, amount, and claim deadline before claiming.",
+      "Review your current tier and the requirements for the next tier. Multiple point requirements are shown separately.",
+    ],
+    result: "Home is your overview. Use More → Transactions for full history, and Points or Rewards for point actions.",
+    notes: ["Pending points are not yet part of your spendable balance.", "Points with an expiry policy may show days remaining; the actual policy is configured for each point type."],
+  },
+  "claim-points": {
+    title: "Claim points from a campaign",
+    area: "Points and wallets",
+    purpose: "A campaign can credit points automatically or ask you to claim the reward before it is added to your wallet.",
+    steps: [
+      "On Home, open the Points waiting for you card, or use the top-right bell / More → Notifications to find the campaign.",
+      "Check the campaign name, point type, amount, and claim deadline.",
+      "Select Claim to confirm. You do not need to claim a reward that was already issued automatically.",
+      "Open Points to confirm the balance, or More → Transactions to confirm the new transaction.",
+    ],
+    result: "A successful claim credits the configured wallet and removes the reward from the pending-claim list.",
+    notes: ["Claim is available only while the reward is valid and pending.", "If the screen is still processing, do not submit repeatedly; refresh first to check the status."],
+  },
+  checkin: {
+    title: "Daily check-in rewards",
+    area: "Points and wallets",
+    purpose: "When a check-in campaign is enabled, record your activity for the day and review it in the activity calendar.",
+    steps: [
+      "Open Home and look for the Check-in card. It appears only when a check-in program is available to you.",
+      "Review the eligible point type and reward, then select Check in today.",
+      "The calendar highlights successful check-in days and shows your activity over the displayed history period.",
+      "If the campaign uses claim mode, open your pending rewards and claim the points separately.",
+    ],
+    result: "Each event can be recorded once per local event date. The campaign determines whether points are issued automatically or must be claimed.",
+    notes: ["If the card is not shown, there is no check-in campaign currently available to your account.", "The check-in action cannot be used to record a past date."],
+  },
+  transactions: {
+    title: "Transaction history",
+    area: "Points and wallets",
+    purpose: "Review points earned, spent, transferred, exchanged, adjusted, expired, or reversed. Sources are shown with readable names where available.",
+    steps: [
+      "Open More in the bottom navigation, then select Transactions.",
+      "Choose a filter such as Earn, Redeem, Adjustment, Received by me, Given by me, Exchange, Expiry, or Reversal.",
+      "Expand a row to review its campaign, reward, actor, note, date, amount, and resulting balance.",
+      "Refresh the list after an action to see its latest status.",
+    ],
+    result: "History is read-only. If a transaction looks unfamiliar, share its date, point type, and transaction details with your program administrator.",
+    notes: ["Filters only change which rows are shown; they do not change your balance.", "An exchange request may deduct points when submitted. Check Notifications or the exchange history for its status."],
+  },
+  credits: {
+    title: "Points: recognition and exchanges",
+    area: "Points and wallets",
+    purpose: "Depending on program settings, Points lets you recognize a colleague or request an exchange using a configured rate.",
+    steps: [
+      "Open Points. Only actions enabled for your account and point types are displayed.",
+      "For Give Recognition, choose the source wallet, owned balance or allowance if available, an allowed destination type, and recipient.",
+      "Enter the amount and any required message or category. Review the conversion, limits, and recipient amount.",
+      "Confirm only after checking the recipient and details. Review the result to see whether the transaction completed or is pending.",
+      "For Exchange, choose the point type and payout option, review the estimate, and submit. Track the request in More → Notifications or Points → Exchange & requests.",
+    ],
+    result: "Transfers follow the configured destination matrix, conversion rate, cycle allowance, and recipient limits. Exchange requests may require admin review.",
+    notes: ["An exchange voucher is an internal accounting record; it does not promise an automatic cash payment.", "Rejected or cancelled exchange requests are refunded through the system workflow.", "Do not include sensitive information in recognition messages."],
+  },
+  notifications: {
+    title: "Notifications and read status",
+    area: "Account",
+    purpose: "Follow campaign claims, exchange requests, project updates, and other account-related outcomes.",
+    steps: [
+      "Select the top-right bell or open More → Notifications. The red badge shows how many notifications are unread.",
+      "Open a notification to read it and follow its link to the related page, if available.",
+      "Use Mark as read or Mark as unread on an individual notification.",
+      "Use Mark all as read to clear all unread notifications at once.",
+    ],
+    result: "The unread count decreases as notifications are marked read. You can mark an item unread again from its card.",
+    notes: ["Read notifications remain in the list; only their read status and unread count change.", "Email or SMS delivery depends on the program's configured notification channels."],
+  },
+  projects: {
+    title: "Group projects and tasks",
+    area: "Account",
+    purpose: "Review project invitations, join a project, and update your assigned tasks. Project budgets and point allocations are restricted administrative information.",
+    steps: [
+      "Open Projects and review the invitations, active projects, and history tabs.",
+      "Open an invitation, review the information shared with you, then Accept or Decline.",
+      "For an accepted project, open your assigned tasks and update them from TODO to IN_PROGRESS to DONE as you work.",
+      "Follow the project status. Once the PM completes the project, it is marked Complete and member actions are disabled.",
+    ],
+    result: "The PM confirms project completion after the work is finished. Any point award follows a separate approval process.",
+    notes: ["Members cannot see the project budget, escrow, or individual point allocations.", "If an invitation has expired or is unavailable, ask the PM to invite you again."],
+  },
+  rewards: {
+    title: "Redeem Rewards",
+    area: "Spend points",
+    purpose: "Browse available rewards and check the wallet and points required to redeem each one.",
+    steps: [
+      "Open Rewards and choose an item to review its description, price, stock, and eligibility.",
+      "Check the required wallet, your balance, tier restrictions, and availability.",
+      "Select Redeem, verify the wallet and cost, then confirm the request.",
+      "Track the result in Rewarded or redemption history; open the detail to check fulfillment status.",
+    ],
+    result: "A successful redemption deducts the confirmed points and appears in your history. Fulfillment may be handled separately.",
+    notes: ["Wishlist items are saved in the current browser.", "Inactive, out-of-stock, or ineligible rewards cannot be redeemed.", "A pending fulfillment status does not mean the reward has already been delivered."],
+  },
+  badges: {
+    title: "Badges and achievements",
+    area: "Spend points",
+    purpose: "See achievements you have unlocked and goals that are not yet complete.",
+    steps: [
+      "Open More → Badges and choose All, Unlocked, or Locked.",
+      "Open a badge to read its description and visible conditions.",
+      "Complete the qualifying activity. Automatically configured badges update when their conditions are met.",
+    ],
+    result: "Unlocked badges are recorded in your achievements. Some badges may be granted manually by an administrator.",
+    notes: ["Progress may update after the related event has been processed.", "A badge does not imply a point reward unless the program explicitly says so."],
+  },
+  profile: {
+    title: "Profile and personal preferences",
+    area: "Account",
+    purpose: "Manage editable profile details, your photo, language, theme, notification preferences, and a copy of your personal data.",
+    steps: [
+      "Open More → Profile and review your email, phone, department, and displayed custom fields.",
+      "Select Edit to update permitted details. Choose an image file if you want to change your profile photo.",
+      "Select Save to keep changes, or Cancel to discard them.",
+      "Choose a language, Light/Dark/Auto theme, and notification preferences if available.",
+      "Use Export my data to request a copy of your personal data.",
+    ],
+    result: "Saved changes are stored on your member profile and appear after the latest profile data is loaded.",
+    notes: ["Your organization may manage the sign-in email, so it may not be editable here.", "Only upload an image you are authorized to use; it is processed before being saved.", "Notification preferences do not remove in-app notifications."],
+  },
+};

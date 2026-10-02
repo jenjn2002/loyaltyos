@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockPrisma = vi.hoisted(() => ({
-  auditLog: {
-    create: vi.fn(),
-  },
-}));
+const mockPrisma = vi.hoisted(() => {
+  const client: any = {
+    $queryRaw: vi.fn().mockResolvedValue([{ locked: "" }]),
+    $transaction: vi.fn(),
+    auditLog: {
+      create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+  };
+  client.$transaction.mockImplementation((operation: (tx: typeof client) => Promise<void>) => operation(client));
+  return client;
+});
 
 vi.mock("../db.js", () => ({
   prisma: mockPrisma,
