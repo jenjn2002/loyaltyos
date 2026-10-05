@@ -4,9 +4,16 @@ import { notificationsService } from "../lib/notifications-setup.js";
 import { createWorker } from "../lib/queue.js";
 import { walletService } from "../lib/wallets.js";
 
+export function resolveExpiryReminderLocale(
+  memberLocale: string | null | undefined,
+  programDefaultLocale: string | null | undefined,
+): string {
+  return memberLocale ?? programDefaultLocale ?? "vi-VN";
+}
+
 export function startCreditExpiryWorker(): void {
   createWorker("credits.expire", async () => {
-    const programs = await prisma.program.findMany({ select: { id: true } });
+    const programs = await prisma.program.findMany({ select: { id: true, defaultLocale: true } });
     for (const program of programs) {
       await walletService.expire(program.id);
       const notices = await walletService.expiringNotices(program.id);
@@ -16,7 +23,7 @@ export function startCreditExpiryWorker(): void {
           pointType: notice.pointType,
           expiresAt: notice.expiresAt.toISOString(),
           days: notice.days,
-          _locale: notice.member.locale ?? "en-US",
+          _locale: resolveExpiryReminderLocale(notice.member.locale, program.defaultLocale),
           member: notice.member,
         });
         await walletService.markExpiryNoticeSent(notice.lotId, notice.days);

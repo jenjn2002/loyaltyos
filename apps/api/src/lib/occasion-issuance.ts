@@ -118,8 +118,11 @@ export async function issueOccasion(
   const claim = result && "status" in result && result.status === "PENDING" && "pointsAwarded" in result && !result.alreadyIssued
     ? result
     : null;
+  const directGrant = result && "pointsAwarded" in result && !("status" in result) && !result.alreadyIssued
+    ? result
+    : null;
   if (claim) {
-    void (async () => {
+    await (async () => {
       try {
         const [campaignDetails, member] = await Promise.all([
           prisma.campaign.findUnique({
@@ -150,6 +153,42 @@ export async function issueOccasion(
         });
       } catch (error) {
         console.error("[Notifications] Failed to notify campaign claim", { campaignId, memberId, error });
+      }
+    })();
+  }
+  if (directGrant) {
+    await (async () => {
+      try {
+        const [campaignDetails, member] = await Promise.all([
+          prisma.campaign.findUnique({
+            where: { id: campaignId },
+            select: {
+              programId: true,
+              name: true,
+              pointType: { select: { id: true, code: true, name: true, unitLabel: true } },
+            },
+          }),
+          prisma.member.findUnique({
+            where: { id: memberId },
+            select: {
+              email: true,
+              phone: true,
+              locale: true,
+              program: { select: { defaultLocale: true } },
+            },
+          }),
+        ]);
+        if (!campaignDetails || !member) return;
+        await notificationsService.sendTrigger(campaignDetails.programId, "campaign.points.issued", memberId, {
+          amount: directGrant.pointsAwarded,
+          campaign: { name: campaignDetails.name },
+          pointType: campaignDetails.pointType,
+          eventType,
+          member,
+          _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
+        });
+      } catch (error) {
+        console.error("[Notifications] Failed to notify campaign points issued", { campaignId, memberId, error });
       }
     })();
   }

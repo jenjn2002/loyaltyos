@@ -51,6 +51,9 @@ export default function Notifications() {
   const notifications = useQuery({
     queryKey: ["notifications", "me", page],
     queryFn: () => fetchApi<NotificationPage>(`/members/me/notifications?page=${String(page)}&pageSize=10`),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
   const unreadSummary = useQuery({
     queryKey: ["notifications", "unread-count"],

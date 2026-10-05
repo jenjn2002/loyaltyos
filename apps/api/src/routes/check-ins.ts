@@ -282,6 +282,7 @@ export function checkInRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     if (tierResult?.changed && tierResult.direction === "upgrade") {
       await notificationsService.sendTrigger(request.programId, "tier.changed", member.id, {
         member: notificationMember,
+        tier: tierResult.currentTier ? { name: tierResult.currentTier.name } : undefined,
         previousTier: tierResult.previousTier?.name,
         currentTier: tierResult.currentTier?.name,
         direction: "upgrade",
@@ -297,14 +298,16 @@ export function checkInRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         _locale: locale,
       }).catch((error: unknown) => request.log.warn({ error, eventId: event.id }, "Check-in badge notification failed"));
     }
-    await notificationsService.sendTrigger(request.programId, "check_in", member.id, {
-      member: notificationMember,
-      eventKey,
-      checkInDate,
-      points: pointsAwarded,
-      rewards,
-      _locale: locale,
-    }).catch((error: unknown) => request.log.warn({ error, eventId: event.id }, "Check-in notification failed"));
+    if (pointsAwarded > 0) {
+      await notificationsService.sendTrigger(request.programId, "check_in", member.id, {
+        member: notificationMember,
+        eventKey,
+        checkInDate,
+        points: pointsAwarded,
+        rewards,
+        _locale: locale,
+      }).catch((error: unknown) => request.log.warn({ error, eventId: event.id }, "Check-in notification failed"));
+    }
     await prisma.event.update({
       where: { id: event.id },
       data: { processed: true, processedAt: new Date(), error: null },

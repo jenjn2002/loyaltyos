@@ -219,6 +219,8 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
     return write ? "coalition.manage" : "coalition.view";
   if (url.startsWith("/api/v1/admin/notification-templates/") && url.endsWith("/preview"))
     return "notification.view";
+  if (url.endsWith("/admin/notifications/activity/read-state"))
+    return "notification.view";
   if (url.startsWith("/api/v1/admin/notification") || url.startsWith("/api/v1/admin/webhooks"))
     return write ? "notification.manage" : "notification.view";
   if (url.startsWith("/api/v1/admin/programs"))

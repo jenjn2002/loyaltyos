@@ -18,6 +18,7 @@ import {
   normalizeMicrosoftTenantId,
 } from "../lib/microsoft-auth.js";
 import { notificationsService } from "../lib/notifications-setup.js";
+import { notifyCreditAdjustment } from "../lib/member-notifications.js";
 import { issueOnboardingForMember } from "../lib/occasion-issuance.js";
 import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { walletService } from "../lib/wallets.js";
@@ -808,6 +809,7 @@ export function membersRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         beforeBalance: result.balanceAfter - result.amount,
         afterBalance: result.balanceAfter,
       }, body.reason);
+      await notifyCreditAdjustment(request.programId, id, body.pointTypeId, result.amount, body.reason);
       return reply.status(201).send({ data: result });
     },
   );

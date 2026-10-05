@@ -70,7 +70,7 @@ function notificationRow(overrides = {}) {
     sentAt: null,
     readAt: null,
     error: null,
-    metadata: {},
+    metadata: { email: "member@example.com" },
     createdAt: new Date(),
     ...overrides,
   };
@@ -275,6 +275,10 @@ describe("NotificationsService.sendTrigger", () => {
       .mockResolvedValueOnce(notificationRow({ id: "email-notice", channel: "EMAIL" }));
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
     const queued: string[] = [];
     svc.setEnqueue(async (id) => { queued.push(id); });
     const result = await svc.sendTrigger("prog-1", "registration", "mem-1", {
@@ -379,6 +383,10 @@ describe("NotificationsService.send", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
     const result = await svc.send("notif-1");
 
     expect(result.status).toBe("SENT");
@@ -416,6 +424,10 @@ describe("NotificationsService.send", () => {
     mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ status: "PENDING" }));
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
     let enqueuedId: string | null = null;
     svc.setEnqueue((id) => {
       enqueuedId = id;
@@ -425,6 +437,106 @@ describe("NotificationsService.send", () => {
     const result = await svc.send("notif-1");
     expect(enqueuedId).toBe("notif-1");
     expect(result.status).toBe("PENDING"); // not yet delivered
+  });
+
+  it("marks a queue enqueue failure FAILED and allows a later send to requeue it", async () => {
+    mockPrisma.notification.findFirst
+      .mockResolvedValueOnce(notificationRow())
+      .mockResolvedValueOnce(notificationRow({ status: "FAILED", error: "redis unavailable" }));
+    mockPrisma.notification.update
+      .mockResolvedValueOnce(notificationRow({ status: "FAILED", error: "NOTIFICATION_ENQUEUE_FAILED: redis unavailable" }))
+      .mockResolvedValueOnce(notificationRow({ status: "PENDING", error: null }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
+    svc.setEnqueue(async () => { throw new Error("redis unavailable"); });
+
+    await expect(svc.send("notif-1")).rejects.toThrow("redis unavailable");
+    expect(mockPrisma.notification.update).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { id: "notif-1" },
+      data: expect.objectContaining({ status: "FAILED", error: expect.stringContaining("NOTIFICATION_ENQUEUE_FAILED") }),
+    }));
+
+    let requeued = false;
+    svc.setEnqueue(async () => { requeued = true; });
+    const retried = await svc.send("notif-1");
+
+    expect(requeued).toBe(true);
+    expect(retried.status).toBe("PENDING");
+    expect(mockPrisma.notification.update).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { id: "notif-1" },
+      data: expect.objectContaining({ status: "PENDING", error: null, sentAt: null }),
+    }));
+  });
+
+  it("returns the persisted FAILED status after notification queueing fails", async () => {
+    mockPrisma.notification.create.mockResolvedValue(notificationRow());
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow());
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({
+      status: "FAILED",
+      error: "NOTIFICATION_ENQUEUE_FAILED: redis unavailable",
+    }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
+    svc.setEnqueue(async () => { throw new Error("redis unavailable"); });
+
+    const [result] = await svc.createAndSendNotification({
+      memberId: "mem-1",
+      channel: "EMAIL",
+      metadata: { email: "member@example.com" },
+      subject: "Test",
+      body: "Test body",
+    });
+
+    expect(result?.status).toBe("FAILED");
+    expect(result?.error).toContain("NOTIFICATION_ENQUEUE_FAILED");
+  });
+
+  it("does not send or enqueue an email without a recipient", async () => {
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ metadata: {} }));
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({
+      status: "FAILED",
+      error: "NO_EMAIL_RECIPIENT: Member has no email address; delivery was not attempted.",
+    }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    const send = vi.fn(async () => ({ success: true }));
+    const enqueue = vi.fn(async () => {});
+    svc.setProvider("EMAIL", { channel: "EMAIL", send });
+    svc.setEnqueue(enqueue);
+
+    const result = await svc.send("notif-1");
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error).toContain("NO_EMAIL_RECIPIENT");
+    expect(send).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("does not report an unconfigured external channel as sent", async () => {
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ channel: "PUSH", metadata: {} }));
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({
+      channel: "PUSH",
+      status: "FAILED",
+      error: "No provider registered for channel: PUSH",
+    }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    const enqueue = vi.fn(async () => {});
+    svc.setEnqueue(enqueue);
+
+    const result = await svc.send("notif-1");
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error).toContain("No provider registered for channel: PUSH");
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });
 
@@ -436,9 +548,30 @@ describe("NotificationsService.deliver", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
     const result = await svc.deliver("notif-1");
 
     expect(result.status).toBe("SENT");
+  });
+
+  it("removes a delivered one-time magic link from stored notification content", async () => {
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ body: "https://example.test/login?token=secret" }));
+    mockPrisma.notificationTemplate.findFirst.mockResolvedValue(templateRow({ triggerEvent: "auth.magic_link" }));
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({ status: "SENT", body: null, sentAt: new Date() }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", {
+      channel: "EMAIL",
+      async send() { return { success: true }; },
+    });
+    await svc.deliver("notif-1");
+
+    expect(mockPrisma.notification.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "SENT", body: null }),
+    }));
   });
 
   it("marks FAILED on provider error", async () => {
@@ -456,19 +589,24 @@ describe("NotificationsService.deliver", () => {
       },
     });
 
-    const result = await svc.deliver("notif-1");
-    expect(result.status).toBe("FAILED");
+    await expect(svc.deliver("notif-1")).rejects.toThrow("send failed");
+    expect(mockPrisma.notification.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "notif-1" },
+      data: expect.objectContaining({ status: "FAILED", error: "send failed" }),
+    }));
   });
 
-  it("throws ProviderNotFoundError for unregistered channel", async () => {
-    // Create a notification with a channel that has no provider
+  it("marks an unconfigured channel FAILED instead of treating it as sent", async () => {
     const svc = new NotificationsService(mockPrisma as never);
-    // Remove the default NoopProvider for IN_APP
-    svc.setProvider("IN_APP", undefined as never);
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ channel: "SMS" }));
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({ channel: "SMS", status: "FAILED", error: "No provider registered for channel: SMS" }));
 
-    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ channel: "IN_APP" }));
+    const result = await svc.deliver("notif-1");
 
-    await expect(svc.deliver("notif-1")).rejects.toThrow("No provider registered");
+    expect(result.status).toBe("FAILED");
+    expect(mockPrisma.notification.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "FAILED", error: "No provider registered for channel: SMS" }),
+    }));
   });
 
   it("throws NotificationNotFoundError", async () => {

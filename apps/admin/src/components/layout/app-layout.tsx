@@ -25,7 +25,18 @@ function AdminLayoutContent(): JSX.Element {
   const [open, setOpen] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const location = useLocation();
-  const { requests, unreadRequests, unreadCount, markRead, markUnread, markAllRead } = useAdminNotifications();
+  const {
+    requests,
+    unreadRequests,
+    activities,
+    unreadActivities,
+    unreadCount,
+    markRead,
+    markUnread,
+    markActivityRead,
+    markActivityUnread,
+    markAllRead,
+  } = useAdminNotifications();
 
   useEffect(() => {
     setNavigationOpen(false);
@@ -76,7 +87,7 @@ function AdminLayoutContent(): JSX.Element {
                 )}
               </div>
               <div className="mt-2 max-h-80 space-y-2 overflow-y-auto">
-                {requests.length === 0 && <p className="p-3 text-sm text-muted-foreground">{ui("No approval notifications.")}</p>}
+                {requests.length === 0 && activities.length === 0 && <p className="p-3 text-sm text-muted-foreground">{ui("No notifications.")}</p>}
                 {requests.map((request) => {
                   const unread = unreadRequests.some((item) => item.id === request.id);
                   return (
@@ -91,7 +102,7 @@ function AdminLayoutContent(): JSX.Element {
                         }}
                       >
                         <p className="font-medium">{request.workflow.name}</p>
-                        <p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}</p>
+                        <p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}{request.status !== "PENDING" ? ` · ${ui(request.status)}` : ""}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{new Date(request.requestedAt).toLocaleString()}</p>
                       </button>
                       <div className="mt-2 flex justify-end">
@@ -99,6 +110,36 @@ function AdminLayoutContent(): JSX.Element {
                           type="button"
                           className="text-xs text-primary underline"
                           onClick={() => (unread ? markRead(request.id) : markUnread(request.id))}
+                        >
+                          {unread ? ui("Mark as read") : ui("Mark as unread")}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {activities.map((notification) => {
+                  const unread = unreadActivities.some((item) => item.id === notification.id);
+                  return (
+                    <div key={notification.id} className={"rounded-md border p-3 text-left " + (unread ? "border-red-300 bg-red-50/50" : "")}>
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => {
+                          markActivityRead(notification.id);
+                          setOpen(false);
+                          const target = notification.actionUrl;
+                          navigate(target && target.startsWith("/") && !target.startsWith("//") ? target : "/projects");
+                        }}
+                      >
+                        <p className="font-medium">{notification.title}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{notification.body}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{new Date(notification.createdAt).toLocaleString()}</p>
+                      </button>
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          className="text-xs text-primary underline"
+                          onClick={() => (unread ? markActivityRead(notification.id) : markActivityUnread(notification.id))}
                         >
                           {unread ? ui("Mark as read") : ui("Mark as unread")}
                         </button>

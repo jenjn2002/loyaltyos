@@ -27,18 +27,27 @@ interface PaginatedResult<T> {
   totalPages: number;
 }
 
+export interface NotificationDeliveryFailure {
+  notificationId: string;
+  error: string;
+  failureStage: "DELIVERY" | "PRIMARY_DELIVERY";
+  attemptNumber?: number;
+  fallbackChannel?: NotificationChannel;
+}
+
 export class NotificationsService {
   private repo: ReturnType<typeof createRepository>;
   private providers: Map<NotificationChannel, NotificationProvider>;
   private enqueueFn: ((notificationId: string) => Promise<void>) | null = null;
+  private deliveryFailureObserver: ((failure: NotificationDeliveryFailure) => Promise<void>) | null = null;
 
   constructor(prisma: PrismaClient) {
     this.repo = createRepository(prisma);
     this.providers = new Map();
-    // Default: noop for all channels
-    for (const ch of ["EMAIL", "SMS", "PUSH", "IN_APP", "WEBHOOK"] as const) {
-      this.providers.set(ch, new NoopProvider(ch));
-    }
+    // In-app notices are persisted locally, so a no-op delivery provider is
+    // valid. External channels must be explicitly configured; treating them
+    // as no-op would report undelivered email/SMS/push as SENT.
+    this.providers.set("IN_APP", new NoopProvider("IN_APP"));
   }
 
   setProvider(channel: NotificationChannel, provider: NotificationProvider): void {
@@ -48,6 +57,22 @@ export class NotificationsService {
   /** Set a function that enqueues notifications for async delivery. When set, `send()` enqueues instead of sending directly. */
   setEnqueue(fn: (notificationId: string) => Promise<void>): void {
     this.enqueueFn = fn;
+  }
+
+  /** Observe a primary-channel failure when a fallback channel successfully delivers the notice. */
+  setDeliveryFailureObserver(
+    observer: (failure: NotificationDeliveryFailure) => Promise<void>,
+  ): void {
+    this.deliveryFailureObserver = observer;
+  }
+
+  private async observeDeliveryFailure(failure: NotificationDeliveryFailure): Promise<void> {
+    if (!this.deliveryFailureObserver) return;
+    try {
+      await this.deliveryFailureObserver(failure);
+    } catch (error) {
+      console.error("[Notifications] Could not record fallback delivery failure:", error);
+    }
   }
 
   // ── Templates ──────────────────────────────────────────
@@ -99,6 +124,12 @@ export class NotificationsService {
     return this.repo.createNotification(parsed);
   }
 
+  async getNotification(id: string): Promise<NotificationRow> {
+    const notification = await this.repo.findNotificationById(id);
+    if (!notification) throw new NotificationNotFoundError(id);
+    return notification;
+  }
+
   async createAndSendNotification(
     input: NotificationCreateInput,
     emailCopy = false,
@@ -114,9 +145,9 @@ export class NotificationsService {
     const notice = await this.createNotification(payload);
     const notices = [notice];
     try {
-      await this.send(notice.id);
-    } catch {
-      // Persisted notice remains available for retry.
+      notices[0] = await this.send(notice.id);
+    } catch (error) {
+      notices[0] = await this.persistSendFailure(notice.id, error);
     }
 
     const recipient = payload.metadata?.email;
@@ -136,9 +167,9 @@ export class NotificationsService {
       });
       notices.push(emailNotice);
       try {
-        await this.send(emailNotice.id);
-      } catch {
-        // Persisted notice remains available for retry.
+        notices[notices.length - 1] = await this.send(emailNotice.id);
+      } catch (error) {
+        notices[notices.length - 1] = await this.persistSendFailure(emailNotice.id, error);
       }
     } catch (error) {
       console.error("[Notifications] Failed to create email copy", {
@@ -148,6 +179,14 @@ export class NotificationsService {
     }
 
     return notices;
+  }
+
+  private async persistSendFailure(id: string, error: unknown): Promise<NotificationRow> {
+    const persisted = await this.repo.findNotificationById(id);
+    if (persisted?.status === "FAILED") return persisted;
+    return this.repo.updateNotificationStatus(id, "FAILED", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   async sendTrigger(
@@ -185,6 +224,12 @@ export class NotificationsService {
     const metadata: Record<string, unknown> = {};
     if (member?.email) metadata.email = member.email;
     if (member?.phone) metadata.phone = member.phone;
+    if (typeof context.projectInvitationId === "string") metadata.projectInvitationId = context.projectInvitationId;
+    const projectContext = context.project;
+    if (projectContext && typeof projectContext === "object" && !Array.isArray(projectContext)) {
+      const projectId = (projectContext as Record<string, unknown>).id;
+      if (typeof projectId === "string") metadata.projectId = projectId;
+    }
     const hasEmailTemplate = templates.some((template) => template.channel === "EMAIL");
 
     // Pass locale to template context for formatting helpers
@@ -232,9 +277,34 @@ export class NotificationsService {
       });
     }
 
+    if (notification.channel === "EMAIL" && !this.emailRecipient(notification)) {
+      const failed = await this.repo.updateNotificationStatus(id, "FAILED", {
+        error: "NO_EMAIL_RECIPIENT: Member has no email address; delivery was not attempted.",
+      });
+      await this.observeDeliveryFailure({ notificationId: id, failureStage: "DELIVERY", error: failed.error ?? "No email recipient" });
+      return failed;
+    }
+
+    if (!this.providers.get(notification.channel)) {
+      const error = new ProviderNotFoundError(notification.channel);
+      const failed = await this.repo.updateNotificationStatus(id, "FAILED", { error: error.message });
+      await this.observeDeliveryFailure({ notificationId: id, failureStage: "DELIVERY", error: error.message });
+      return failed;
+    }
+
     // If an async queue is configured, enqueue and return immediately
     if (this.enqueueFn) {
-      await this.enqueueFn(id);
+      try {
+        await this.enqueueFn(id);
+      } catch (error) {
+        await this.repo.updateNotificationStatus(id, "FAILED", {
+          error: `NOTIFICATION_ENQUEUE_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        throw error;
+      }
+      if (notification.status === "FAILED") {
+        return this.repo.updateNotificationStatus(id, "PENDING", { error: null, sentAt: null });
+      }
       return notification;
     }
 
@@ -271,15 +341,38 @@ export class NotificationsService {
     const notification = await this.repo.findNotificationById(id);
     if (!notification) throw new NotificationNotFoundError(id);
 
+    if (notification.channel === "EMAIL" && !this.emailRecipient(notification)) {
+      const failed = await this.repo.updateNotificationStatus(id, "FAILED", {
+        error: "NO_EMAIL_RECIPIENT: Member has no email address; delivery was not attempted.",
+      });
+      await this.observeDeliveryFailure({ notificationId: id, failureStage: "DELIVERY", error: failed.error ?? "No email recipient" });
+      return failed;
+    }
+
     // Try primary channel
     const provider = this.providers.get(notification.channel);
-    if (!provider) throw new ProviderNotFoundError(notification.channel);
+    if (!provider) {
+      const error = new ProviderNotFoundError(notification.channel);
+      const failed = await this.repo.updateNotificationStatus(id, "FAILED", { error: error.message });
+      await this.observeDeliveryFailure({ notificationId: id, failureStage: "DELIVERY", error: error.message });
+      return failed;
+    }
 
-    const result = await provider.send(notification);
+    let result: Awaited<ReturnType<NotificationProvider["send"]>>;
+    try {
+      result = await provider.send(notification);
+    } catch (error) {
+      result = { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
 
     if (result.success) {
+      const isMagicLink = notification.channel === "EMAIL" && notification.templateId
+        ? (await this.repo.findTemplateById(notification.templateId))?.triggerEvent === "auth.magic_link"
+        : false;
       return this.repo.updateNotificationStatus(id, "SENT", {
         sentAt: new Date(),
+        error: null,
+        ...(isMagicLink ? { body: null } : {}),
       });
     }
 
@@ -288,26 +381,75 @@ export class NotificationsService {
     if (fallbackChannel && fallbackChannel !== notification.channel) {
       const fallbackProvider = this.providers.get(fallbackChannel);
       if (fallbackProvider) {
-        const fallbackResult = await fallbackProvider.send({
-          ...notification,
-          channel: fallbackChannel,
-        });
+        let fallbackResult: Awaited<ReturnType<NotificationProvider["send"]>>;
+        try {
+          fallbackResult = await fallbackProvider.send({
+            ...notification,
+            channel: fallbackChannel,
+          });
+        } catch (error) {
+          fallbackResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
 
         if (fallbackResult.success) {
+          if (fallbackChannel === "IN_APP") {
+            const metadata =
+              notification.metadata &&
+              typeof notification.metadata === "object" &&
+              !Array.isArray(notification.metadata)
+                ? notification.metadata
+                : {};
+            const fallbackNotice = await this.createNotification({
+              templateId: notification.templateId ?? undefined,
+              memberId: notification.memberId,
+              channel: "IN_APP",
+              subject: notification.subject ?? undefined,
+              body: notification.body ?? undefined,
+              metadata: { ...metadata, fallbackFromNotificationId: id },
+            });
+            const deliveredFallback = await this.repo.updateNotificationStatus(fallbackNotice.id, "SENT", {
+              sentAt: new Date(),
+              error: null,
+            });
+            await this.repo.updateNotificationStatus(id, "FAILED", {
+              error: `Primary (${notification.channel}) failed: ${result.error ?? "unknown"}. Delivered through IN_APP fallback.`,
+            });
+            await this.observeDeliveryFailure({
+              notificationId: id,
+              error: result.error ?? "Primary notification provider failed",
+              failureStage: "PRIMARY_DELIVERY",
+              fallbackChannel,
+            });
+            return deliveredFallback;
+          }
+          await this.observeDeliveryFailure({
+            notificationId: id,
+            error: result.error ?? "Primary notification provider failed",
+            failureStage: "PRIMARY_DELIVERY",
+            fallbackChannel,
+          });
           return this.repo.updateNotificationStatus(id, "SENT", {
             sentAt: new Date(),
+            error: null,
           });
         }
 
-        return this.repo.updateNotificationStatus(id, "FAILED", {
-          error: `Primary and fallback both failed. Primary: ${result.error ?? "unknown"}. Fallback (${fallbackChannel}): ${fallbackResult.error ?? "unknown"}`,
-        });
+        const message = `Primary and fallback both failed. Primary: ${result.error ?? "unknown"}. Fallback (${fallbackChannel}): ${fallbackResult.error ?? "unknown"}`;
+        await this.repo.updateNotificationStatus(id, "FAILED", { error: message });
+        throw new Error(message);
       }
     }
 
-    return this.repo.updateNotificationStatus(id, "FAILED", {
-      error: result.error ?? "Unknown error",
-    });
+    const message = result.error ?? "Unknown error";
+    await this.repo.updateNotificationStatus(id, "FAILED", { error: message });
+    throw new Error(message);
+  }
+
+  private emailRecipient(notification: NotificationRow): string | null {
+    const metadata = notification.metadata;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+    const email = (metadata as Record<string, unknown>).email;
+    return typeof email === "string" && email.trim() ? email.trim() : null;
   }
 
   /** Get the fallback channel from the notification's template, if any. */
@@ -316,7 +458,20 @@ export class NotificationsService {
   ): Promise<NotificationChannel | null> {
     if (!notification.templateId) return null;
     const template = await this.repo.findTemplateById(notification.templateId);
-    return (template?.fallbackChannel as NotificationChannel | null) ?? null;
+    const fallbackChannel = (template?.fallbackChannel as NotificationChannel | null) ?? null;
+    if (
+      notification.channel === "EMAIL" &&
+      fallbackChannel === "IN_APP" &&
+      template?.triggerEvent
+    ) {
+      const siblingTemplates = await this.repo.findTemplatesByTrigger(
+        template.programId,
+        template.triggerEvent,
+        template.locale,
+      );
+      if (siblingTemplates.some((sibling) => sibling.channel === "IN_APP")) return null;
+    }
+    return fallbackChannel;
   }
 
   /** Get member notification preferences for all channels. */

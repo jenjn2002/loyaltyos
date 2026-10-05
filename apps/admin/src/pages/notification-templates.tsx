@@ -132,6 +132,28 @@ const TRIGGERS: TriggerOption[] = [
     ],
   },
   {
+    key: "credit.admin_issued",
+    label: "Admin-issued points",
+    description: "Sent when an administrator issues points to a member.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      ...POINT_TYPE,
+      { path: "amount", description: "Points issued to the member." },
+      { path: "reason", description: "Administrator's reason for issuing points." },
+    ],
+  },
+  {
+    key: "credit.adjusted",
+    label: "Points balance adjusted",
+    description: "Sent when an administrator manually adds or removes a member's points.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      ...POINT_TYPE,
+      { path: "amount", description: "Signed balance change; a negative value means points were removed." },
+      { path: "reason", description: "Reason recorded for the adjustment." },
+    ],
+  },
+  {
     key: "credit.expiring",
     label: "Points expiring",
     description: "Sent by the expiry reminder job.",
@@ -179,14 +201,43 @@ const TRIGGERS: TriggerOption[] = [
     ],
   },
   {
+    key: "credit.exchange.completed",
+    label: "Exchange completed",
+    description: "Sent when an administrator completes a point exchange request.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      ...POINT_TYPE,
+      { path: "amount", description: "Amount included in the exchange request." },
+      { path: "documentNumber", description: "Exchange request reference number." },
+      { path: "completionReference", description: "Completion reference, when provided." },
+      { path: "completionNote", description: "Completion note, when provided." },
+      { path: "status", description: "Final request status (COMPLETED)." },
+    ],
+  },
+  {
+    key: "credit.exchange.cancelled",
+    label: "Exchange cancelled",
+    description: "Sent when an exchange request is cancelled and the points are returned.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      ...POINT_TYPE,
+      { path: "amount", description: "Amount returned from the cancelled exchange request." },
+      { path: "documentNumber", description: "Exchange request reference number." },
+      { path: "cancellationReason", description: "Reason recorded for the cancellation." },
+      { path: "status", description: "Final request status (CANCELLED)." },
+    ],
+  },
+  {
     key: "credit.redeemed",
     label: "Reward redeemed",
     description: "Sent after a member redeems a reward.",
     variables: [
       ...MEMBER_IDENTITY,
       { path: "rewardId", description: "ID of the redeemed reward." },
+      { path: "reward.name", description: "Display name of the redeemed reward." },
       { path: "amount", description: "Points spent on the redemption." },
       { path: "pointTypeId", description: "ID of the point type used." },
+      ...POINT_TYPE,
     ],
   },
   {
@@ -197,6 +248,23 @@ const TRIGGERS: TriggerOption[] = [
       ...MEMBER_IDENTITY,
       { path: "redemptionId", description: "ID of the reward redemption." },
       { path: "status", description: "New fulfillment status." },
+      { path: "statusLabel", description: "Localized fulfillment status shown to the member." },
+      { path: "reward.name", description: "Display name of the fulfilled or cancelled reward." },
+      ...POINT_TYPE,
+      { path: "pointsSpent", description: "Points spent on this redemption." },
+      { path: "reason", description: "Reason entered by the administrator, if provided." },
+    ],
+  },
+  {
+    key: "reward.redemption.rejected",
+    label: "Reward redemption rejected",
+    description: "Sent when an approval workflow rejects a member's reward redemption and refunds its points.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      { path: "reward.name", description: "Display name of the rejected reward redemption." },
+      ...POINT_TYPE,
+      { path: "pointsSpent", description: "Points refunded to the member." },
+      { path: "reason", description: "Reason entered by the approver, if provided." },
     ],
   },
   {
@@ -212,11 +280,47 @@ const TRIGGERS: TriggerOption[] = [
     ],
   },
   {
+    key: "campaign.points.issued",
+    label: "Campaign points issued",
+    description: "Sent when campaign points are issued directly or claimed by a member.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      { path: "campaign.name", description: "Name of the campaign that awarded the points." },
+      ...POINT_TYPE,
+      { path: "amount", description: "Points awarded by the campaign." },
+      { path: "eventType", description: "Campaign event key, when supplied." },
+    ],
+  },
+  {
+    key: "project.points.issued",
+    label: "Project points issued",
+    description: "Sent when approved project points are distributed to a member.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      { path: "project.name", description: "Name of the project that awarded the points." },
+      ...POINT_TYPE,
+      { path: "amount", description: "Points allocated to the member from the project." },
+    ],
+  },
+  {
+    key: "project.task.assigned",
+    label: "Project task assigned",
+    description: "Sent when a task is assigned or reassigned to a member.",
+    variables: [
+      ...MEMBER_IDENTITY,
+      { path: "project.id", description: "Project ID." },
+      { path: "project.name", description: "Project name." },
+      { path: "task.title", description: "Title of the assigned task." },
+      { path: "task.dueAt", description: "Task due date in ISO format, or an em dash when no date is set." },
+    ],
+  },
+  {
     key: "tier.changed",
     label: "Tier upgraded",
     description: "Sent when an event raises a member's tier.",
     variables: [
       ...MEMBER_WITH_TIER,
+      { path: "tier.name", description: "New tier name (also available as currentTier)." },
       { path: "previousTier", description: "Tier held before the change." },
       { path: "currentTier", description: "New tier after the change." },
       { path: "direction", description: "Change direction, for example upgrade." },
@@ -277,7 +381,7 @@ function emptyDraft(): TemplateDraft {
     customTrigger: "",
     channel: "IN_APP",
     localized: Object.fromEntries(LOCALES.map(({ code }) => [code, emptyLocalizedDraft(true)])),
-    transactional: true,
+    transactional: false,
     fallbackChannel: "",
   };
 }
@@ -294,6 +398,9 @@ function sampleVariables(): string {
     },
     program: { name: "LoyaltyOS" },
     campaign: { name: "Welcome Onboard" },
+    reward: { id: "reward-001", name: "Chill day" },
+    project: { id: "project-001", name: "Recognition" },
+    task: { title: "Prepare launch plan", dueAt: "2026-10-10T09:00:00.000Z" },
     pointType: { id: "point-type-001", code: "P-CREDIT", name: "P-credit", unitLabel: "điểm" },
     amount: 1000,
     sourceAmount: 1000,
@@ -304,12 +411,21 @@ function sampleVariables(): string {
     days: 7,
     expiresAt: "2026-10-01T00:00:00.000Z",
     status: "APPROVED",
+    statusLabel: "hoàn tất",
+    reason: "Great contribution to the team.",
+    pointsSpent: 1000,
+    documentNumber: "EX-2026-001",
+    completionReference: "PAY-2026-001",
+    completionNote: "Completed successfully.",
+    cancellationReason: "Cancelled by administrator.",
+    eventType: "registration",
     message: "Cảm ơn bạn đã hỗ trợ!",
     magicLinkUrl: "https://example.com/sign-in",
     badgeId: "badge-001",
     badgeName: "First recognition",
     previousTier: "Silver",
     currentTier: "Gold",
+    tier: { name: "Gold" },
     redemptionId: "redemption-001",
   }, null, 2);
 }
@@ -357,11 +473,18 @@ export function NotificationTemplatesPage(): JSX.Element {
 
   const triggerOptions = useMemo(() => {
     const known = new Map(TRIGGERS.map((trigger) => [trigger.key, trigger.label]));
+    const humanize = (key: string): string => key
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toLocaleUpperCase());
     for (const trigger of availableTriggers.data ?? []) {
-      if (!known.has(trigger)) known.set(trigger, trigger);
+      if (!known.has(trigger)) known.set(trigger, humanize(trigger));
+    }
+    for (const template of templates.data?.items ?? []) {
+      const trigger = template.triggerEvent;
+      if (trigger && !known.has(trigger)) known.set(trigger, humanize(trigger));
     }
     return [...known].map(([key, label]) => ({ key, label }));
-  }, [availableTriggers.data]);
+  }, [availableTriggers.data, templates.data]);
 
   const templateGroups = useMemo(() => {
     const groups = new Map<string, TemplateGroup>();
@@ -475,7 +598,7 @@ export function NotificationTemplatesPage(): JSX.Element {
 
   function editGroup(group: TemplateGroup): void {
     const first = group.templates[0]!;
-    const known = TRIGGERS.some((trigger) => trigger.key === first.triggerEvent);
+    const known = triggerOptions.some((trigger) => trigger.key === first.triggerEvent);
     const localized = Object.fromEntries(LOCALES.map(({ code }) => {
       const template = getTemplateByLocale(group, code);
       return [code, template
@@ -554,7 +677,7 @@ export function NotificationTemplatesPage(): JSX.Element {
               <div>
                 <Label htmlFor="template-trigger">{ui("Notification type")}</Label>
                 <select id="template-trigger" className={selectClass} value={draft.triggerChoice} onChange={(event) => setDraft({ ...draft, triggerChoice: event.target.value, customTrigger: event.target.value === CUSTOM_TRIGGER ? draft.customTrigger : "" })}>
-                  {TRIGGERS.map((trigger) => <option key={trigger.key} value={trigger.key}>{ui(trigger.label)} · {trigger.key}</option>)}
+                  {triggerOptions.map((trigger) => <option key={trigger.key} value={trigger.key}>{ui(trigger.label)} · {trigger.key}</option>)}
                   <option value={CUSTOM_TRIGGER}>{ui("Custom trigger key")}</option>
                 </select>
                 {triggerDescription && <p className="mt-1 text-xs text-muted-foreground">{ui(triggerDescription)}</p>}
@@ -638,7 +761,7 @@ export function NotificationTemplatesPage(): JSX.Element {
                 <tbody>
                   {visibleGroups.map((group) => {
                     const template = group.templates[0]!;
-                    const trigger = TRIGGERS.find((item) => item.key === template.triggerEvent);
+                    const trigger = triggerOptions.find((item) => item.key === template.triggerEvent);
                     const creators = [...new Set(group.templates.map((item) => item.createdBy?.name).filter((name): name is string => Boolean(name)))];
                     return <tr key={group.key} className="border-b align-top last:border-0">
                       <td className="p-2"><p className="font-medium">{ui(trigger?.label ?? template.triggerEvent ?? "No trigger")}</p><code className="text-xs text-muted-foreground">{template.triggerEvent || "—"}</code></td>

@@ -9,11 +9,19 @@ const mockPrisma = vi.hoisted(() => ({
   campaignApplication: { count: vi.fn(), aggregate: vi.fn() },
   campaignClaim: { count: vi.fn(), aggregate: vi.fn() },
 }));
+const mockTierService = vi.hoisted(() => ({ evaluateMember: vi.fn() }));
+const mockBadgeService = vi.hoisted(() => ({ evaluateOnEvent: vi.fn() }));
+const mockNotifications = vi.hoisted(() => ({ sendTrigger: vi.fn() }));
 
 vi.mock("../db.js", () => ({ prisma: mockPrisma }));
 vi.mock("../lib/audit.js", () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../lib/occasion-issuance.js", () => ({ issueOccasion: vi.fn() }));
-vi.mock("../lib/notifications-setup.js", () => ({ notificationsService: { sendTrigger: vi.fn() } }));
+vi.mock("../lib/notifications-setup.js", () => ({ notificationsService: mockNotifications }));
+vi.mock("@loyaltyos/badges", () => ({
+  BadgesService: vi.fn().mockImplementation(() => mockBadgeService),
+  TiersService: vi.fn().mockImplementation(() => mockTierService),
+}));
+vi.mock("@loyaltyos/segments", () => ({ SegmentsService: vi.fn().mockImplementation(() => ({ evaluate: vi.fn() })) }));
 
 import { checkInRoutes } from "../routes/check-ins.js";
 import { issueOccasion } from "../lib/occasion-issuance.js";
@@ -46,7 +54,19 @@ beforeEach(async () => {
   mockPrisma.eventDefinition.findMany.mockResolvedValue([definition]);
   mockPrisma.eventDefinition.findUnique.mockResolvedValue(definition);
   mockPrisma.event.findMany.mockResolvedValue([]);
-  mockPrisma.member.findFirst.mockResolvedValue({ id: "member-1", status: "ACTIVE", deletedAt: null });
+  mockPrisma.event.findUnique.mockResolvedValue(undefined);
+  vi.mocked(issueOccasion).mockResolvedValue(undefined);
+  mockPrisma.member.findFirst.mockResolvedValue({
+    id: "member-1",
+    email: "member@example.test",
+    phone: null,
+    firstName: "Member",
+    lastName: "One",
+    locale: null,
+    program: { defaultLocale: "en-US" },
+    status: "ACTIVE",
+    deletedAt: null,
+  });
   mockPrisma.campaign.findFirst.mockResolvedValue({ id: "campaign-1" });
   mockPrisma.campaign.findMany.mockResolvedValue([
     {
@@ -62,6 +82,11 @@ beforeEach(async () => {
       pointType: { id: "point-1", code: "P", name: "P-credit", unitLabel: "points" },
     },
   ]);
+  mockPrisma.event.upsert.mockResolvedValue({ id: "check-in-event-1" });
+  mockPrisma.event.update.mockResolvedValue({ id: "check-in-event-1", processed: true });
+  mockTierService.evaluateMember.mockResolvedValue({ changed: false, currentTier: null });
+  mockBadgeService.evaluateOnEvent.mockResolvedValue({ unlocked: [] });
+  mockNotifications.sendTrigger.mockResolvedValue([]);
   await app.ready();
 });
 
@@ -95,5 +120,36 @@ describe("member check-in routes", () => {
       rewards: [],
     });
     expect(issueOccasion).not.toHaveBeenCalled();
+  });
+
+  it("does not claim that a claim-mode check-in awarded zero points", async () => {
+    mockPrisma.campaign.findMany.mockResolvedValue([
+      {
+        id: "campaign-1",
+        name: "Daily check-in reward",
+        segmentId: null,
+        pointTypeId: "point-1",
+        conditions: {},
+        multiplier: 100,
+        maxUsesPerMember: null,
+        maxBudget: null,
+        issuanceMode: "CLAIM",
+        pointType: { id: "point-1", code: "P", name: "P-credit", unitLabel: "points" },
+      },
+    ]);
+    vi.mocked(issueOccasion).mockResolvedValue({ pointsAwarded: 100, status: "PENDING" } as never);
+
+    const response = await app.inject({ method: "POST", url: "/members/me/check-ins/daily-check-in" });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(mockNotifications.sendTrigger).not.toHaveBeenCalledWith(
+      "program-1",
+      "check_in",
+      "member-1",
+      expect.anything(),
+    );
+    expect(response.json().data.rewards).toEqual([
+      expect.objectContaining({ claimPending: true, points: 100 }),
+    ]);
   });
 });

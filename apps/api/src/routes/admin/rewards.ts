@@ -446,6 +446,8 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
               program: { select: { defaultLocale: true } },
             },
           },
+          reward: { select: { id: true, name: true } },
+          pointType: { select: { id: true, code: true, name: true, unitLabel: true } },
         },
       });
       if (!current) throw new LoyaltyError("REWARD_REDEMPTION_NOT_FOUND", 404);
@@ -481,17 +483,26 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         { previousStatus: current.fulfillmentStatus, status: body.status },
         body.reason,
       );
-      void notificationsService.sendTrigger(
+      const isVietnamese = (current.member.locale ?? current.member.program.defaultLocale ?? "vi-VN").startsWith("vi");
+      const statusLabel = body.status === "FULFILLED"
+        ? (isVietnamese ? "hoàn tất" : "fulfilled")
+        : (isVietnamese ? "đã hủy" : "cancelled");
+      await notificationsService.sendTrigger(
         request.programId,
         "reward.fulfillment_changed",
         current.memberId,
         {
           member: current.member,
+          reward: current.reward,
+          pointType: current.pointType,
+          pointsSpent: current.pointsSpent,
           redemptionId: id,
           status: body.status,
+          statusLabel,
+          reason: body.reason,
           _locale: current.member.locale,
         },
-      );
+      ).catch((error: unknown) => request.log.warn({ err: error, redemptionId: id }, "Failed to notify reward fulfillment"));
       return reply.send({ data: updated });
     },
   );

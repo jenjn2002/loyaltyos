@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { CustomPointTransaction } from "@prisma/client";
 
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { hashMemberPassword, validateMemberUsername } from "../../lib/member-auth.js";
+import { notifyCreditAdjustment } from "../../lib/member-notifications.js";
 import { issueOnboardingForMember } from "../../lib/occasion-issuance.js";
 import { assertCapability, requireCapability } from "../../lib/permissions.js";
 import { walletService } from "../../lib/wallets.js";
@@ -47,6 +49,25 @@ function normalizedKey(key: string): string {
 function canonicalImportKey(key: string): string {
   const normalized = normalizedKey(key);
   return normalized === "external_id" ? "externalid" : normalized;
+}
+
+export async function notifyChangedImportBalances(
+  programId: string,
+  memberId: string,
+  transactions: Array<Pick<CustomPointTransaction, "pointTypeId" | "amount" | "reason" | "balanceBefore" | "balanceAfter">>,
+): Promise<void> {
+  const changed = transactions.filter(
+    (transaction) => transaction.balanceBefore !== null && transaction.balanceBefore !== transaction.balanceAfter,
+  );
+  await Promise.all(changed.map((transaction) =>
+    notifyCreditAdjustment(
+      programId,
+      memberId,
+      transaction.pointTypeId,
+      transaction.amount,
+      transaction.reason ?? "Member point balance changed by import",
+    ),
+  ));
 }
 
 export function validateImportEmail(memberId?: string, email?: string | null): void {
@@ -709,6 +730,7 @@ export function adminCreditUsersRoutes(
               request.log.error({ err: error, memberId: outcome.member.id }, "Failed to issue onboarding campaigns");
             });
           }
+          await notifyChangedImportBalances(request.programId, outcome.member.id, outcome.transactions);
           report.push({
             row: index + 2,
             status: "success",

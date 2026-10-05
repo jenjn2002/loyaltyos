@@ -100,6 +100,7 @@ const ACTIONS = [
   "CREDIT_BULK",
   "CREDIT_BANK",
   "CREDIT_CLEARANCE",
+  "NOTIFICATION_DELIVERY_FAILED",
 ] as const;
 
 const ACTOR_TYPES: ActorType[] = ["ADMIN_USER", "API_KEY", "MEMBER", "SYSTEM"];
@@ -132,6 +133,7 @@ function actionLabel(action: string): string {
     CREDIT_BULK: "Bulk credit import",
     CREDIT_BANK: "Bank funding",
     CREDIT_CLEARANCE: "Bank cycle closure",
+    NOTIFICATION_DELIVERY_FAILED: "Notification delivery failed",
   };
   return ui(labels[action] ?? action.toLowerCase().replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
 }

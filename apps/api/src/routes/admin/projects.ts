@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../../db.js";
 import { createApprovalRequestWithClient } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
+import { createAdminActivityNotification, notifyApprovalAssignees } from "../../lib/admin-notifications.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { notificationsService } from "../../lib/notifications-setup.js";
 import { assertCapability, requireCapability, type AdminCapability } from "../../lib/permissions.js";
@@ -350,6 +351,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       return approval;
     });
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "SUBMIT_PLAN", approvalRequestId: result.id });
+    await notifyApprovalAssignees(request.programId, result.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: result.id }, "Failed to notify project-plan approvers"));
     return reply.status(201).send({ data: result });
   });
   app.post("/admin/projects/:id/activate", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -367,7 +369,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     const project = await ownedProject(request.programId, adminId, id);
     if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
     const ids = [...new Set(body.memberIds)];
-    const members = await prisma.member.findMany({ where: { id: { in: ids }, programId: request.programId, deletedAt: null, status: "ACTIVE" }, select: { id: true, email: true } });
+    const members = await prisma.member.findMany({ where: { id: { in: ids }, programId: request.programId, deletedAt: null, status: "ACTIVE" }, select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } } });
     if (members.length !== ids.length) throw new LoyaltyError("PROJECT_MEMBER_NOT_FOUND", 404);
     let invited = 0;
     const invitedMemberIds: string[] = [];
@@ -378,18 +380,14 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       });
       if (existingMembership?.status === "ACCEPTED" || existingMembership?.status === "INVITED") continue;
       const invitation = await prisma.projectMember.upsert({ where: { projectId_memberId: { projectId: id, memberId: member.id } }, create: { projectId: id, memberId: member.id, invitedByAdminId: adminId }, update: { status: "INVITED", invitedByAdminId: adminId, invitedAt: new Date(), respondedAt: null } });
-      const prior = await prisma.notification.findFirst({ where: { memberId: member.id, metadata: { path: ["projectInvitationId"], equals: invitation.id }, status: { not: "READ" } }, select: { id: true } });
+      const prior = await prisma.notification.findFirst({ where: { memberId: member.id, channel: "IN_APP", metadata: { path: ["projectInvitationId"], equals: invitation.id }, createdAt: { gte: invitation.invitedAt } }, select: { id: true } });
       if (!prior) {
-        await notificationsService.createAndSendNotification(
-          {
-            memberId: member.id,
-            channel: "IN_APP",
-            subject: "Project invitation",
-            body: `You are invited to join ${project.name}. Please review and respond in Projects.`,
-            metadata: { email: member.email, projectInvitationId: invitation.id, projectId: id },
-          },
-          true,
-        );
+        await notificationsService.sendTrigger(request.programId, "project.invitation", member.id, {
+          member,
+          project: { id, name: project.name },
+          projectInvitationId: invitation.id,
+          _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
+        }).catch((error: unknown) => request.log.warn({ err: error, projectId: id, memberId: member.id }, "Failed to notify project invitation"));
       }
       invited += 1;
       invitedMemberIds.push(member.id);
@@ -407,6 +405,18 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       if (!accepted) throw new LoyaltyError("PROJECT_MEMBER_MUST_ACCEPT_FIRST", 409);
     }
     const task = await prisma.projectTask.create({ data: { projectId: id, title: body.title, description: body.description, assigneeId: body.assigneeId ?? null, dueAt: body.dueAt ? new Date(body.dueAt) : null } });
+    if (task.assigneeId) {
+      const member = await prisma.member.findFirst({
+        where: { id: task.assigneeId, programId: request.programId },
+        select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } },
+      });
+      if (member) await notificationsService.sendTrigger(request.programId, "project.task.assigned", member.id, {
+        member,
+        project: { id, name: project.name },
+        task: { title: task.title, dueAt: task.dueAt?.toISOString() ?? "—" },
+        _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
+      }).catch((error: unknown) => request.log.warn({ err: error, taskId: task.id }, "Failed to notify project task assignment"));
+    }
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "CREATE", projectId: id, title: task.title });
     return reply.status(201).send({ data: task });
   });
@@ -422,6 +432,18 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       if (!accepted) throw new LoyaltyError("PROJECT_MEMBER_MUST_ACCEPT_FIRST", 409);
     }
     const task = await prisma.projectTask.update({ where: { id: taskId }, data: { ...body, dueAt: body.dueAt === undefined ? undefined : body.dueAt ? new Date(body.dueAt) : null, completedAt: body.status ? body.status === "DONE" ? new Date() : null : undefined } });
+    if (task.assigneeId && task.assigneeId !== current.assigneeId) {
+      const member = await prisma.member.findFirst({
+        where: { id: task.assigneeId, programId: request.programId },
+        select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } },
+      });
+      if (member) await notificationsService.sendTrigger(request.programId, "project.task.assigned", member.id, {
+        member,
+        project: { id, name: project.name },
+        task: { title: task.title, dueAt: task.dueAt?.toISOString() ?? "—" },
+        _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
+      }).catch((error: unknown) => request.log.warn({ err: error, taskId: task.id }, "Failed to notify project task assignment"));
+    }
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "UPDATE", projectId: id, title: task.title,
       before: { title: current.title, status: current.status, assigneeId: current.assigneeId, dueAt: current.dueAt?.toISOString() ?? null },
       after: { title: task.title, status: task.status, assigneeId: task.assigneeId, dueAt: task.dueAt?.toISOString() ?? null },
@@ -451,6 +473,18 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     if (transition.count !== 1) throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
     const updated = await prisma.project.findFirstOrThrow({ where: { id, programId: request.programId } });
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "CONFIRM_COMPLETION" });
+    const recipients = await prisma.projectMember.findMany({
+      where: { projectId: id, status: "ACCEPTED", member: { deletedAt: null, status: "ACTIVE" } },
+      include: { member: { select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } } } },
+    });
+    const completionNotices = await Promise.allSettled(recipients.map(({ member }) => notificationsService.sendTrigger(request.programId, "project.completed", member.id, {
+      member,
+      project: { id, name: project.name },
+      _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
+    })));
+    completionNotices.forEach((result) => {
+      if (result.status === "rejected") request.log.warn({ err: result.reason, projectId: id }, "Failed to notify project member of completion");
+    });
     return reply.send({ data: updated });
   });
   app.post("/admin/projects/:id/submit-issuance", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -500,6 +534,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       return { approval, batchId: batch.id, totalAmount };
     });
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "SUBMIT_ISSUANCE", issueBatchId: result.batchId, totalAmount: result.totalAmount, approvalRequestId: result.approval.id });
+    await notifyApprovalAssignees(request.programId, result.approval.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: result.approval.id }, "Failed to notify project-issuance approvers"));
     return reply.status(201).send({ data: result });
   });
   app.post("/admin/projects/:id/close", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
@@ -591,10 +626,27 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
     const { response } = z.object({ response: z.enum(["ACCEPTED", "DECLINED"]) }).parse(request.body);
-    const membership = await prisma.projectMember.findFirst({ where: { projectId: id, memberId: request.memberId, project: { programId: request.programId, status: "ACTIVE" } } });
+    const membership = await prisma.projectMember.findFirst({ where: { projectId: id, memberId: request.memberId, project: { programId: request.programId, status: "ACTIVE" } }, include: { project: { select: { id: true, name: true, createdByAdminId: true } } } });
     if (!membership) throw new LoyaltyError("PROJECT_INVITATION_NOT_FOUND", 404);
     if (membership.status !== "INVITED") throw new LoyaltyError("PROJECT_INVITATION_ALREADY_ANSWERED", 409);
     const updated = await prisma.projectMember.update({ where: { id: membership.id }, data: { status: response, respondedAt: new Date() } });
+    const member = await prisma.member.findUnique({ where: { id: request.memberId }, select: { email: true, firstName: true, lastName: true } });
+    await createAdminActivityNotification({
+      programId: request.programId,
+      adminUserId: membership.project.createdByAdminId,
+      triggerEvent: "admin.project.member_responded",
+      idempotencyKey: `project-member-response:${updated.id}:${updated.respondedAt?.toISOString() ?? updated.status}`,
+      title: response === "ACCEPTED" ? "Project invitation accepted" : "Project invitation declined",
+      body: `${[member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "A member"} ${response === "ACCEPTED" ? "accepted" : "declined"} the invitation to ${membership.project.name}.`,
+      actionUrl: `/projects?project=${encodeURIComponent(id)}`,
+      entityType: "Project",
+      entityId: id,
+      context: {
+        member: { name: [member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "Member", email: member?.email ?? "" },
+        project: { id, name: membership.project.name },
+        response: response.toLowerCase(),
+      },
+    }).catch((error: unknown) => request.log.warn({ err: error, projectId: id, memberId: request.memberId }, "Failed to notify project manager of invitation response"));
     await audit(request.programId, { type: "MEMBER", id: request.memberId }, "CONFIG_CHANGE", "project", id, {
       operation: "RESPOND_INVITATION", memberId: request.memberId,
       before: { status: membership.status }, after: { status: response },
@@ -605,11 +657,30 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
     const { projectId, taskId } = z.object({ projectId: z.string().min(1), taskId: z.string().min(1) }).parse(request.params);
     const { status } = z.object({ status: z.enum(["IN_PROGRESS", "DONE"]) }).parse(request.body);
-    const membership = await prisma.projectMember.findFirst({ where: { projectId, memberId: request.memberId, status: "ACCEPTED", project: { programId: request.programId, status: "ACTIVE" } }, select: { id: true } });
+    const membership = await prisma.projectMember.findFirst({ where: { projectId, memberId: request.memberId, status: "ACCEPTED", project: { programId: request.programId, status: "ACTIVE" } }, include: { project: { select: { id: true, name: true, createdByAdminId: true } } } });
     if (!membership) throw new LoyaltyError("PROJECT_MEMBERSHIP_REQUIRED", 403);
     const task = await prisma.projectTask.findFirst({ where: { id: taskId, projectId, assigneeId: request.memberId } });
     if (!task) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
     const updated = await prisma.projectTask.update({ where: { id: taskId }, data: { status, completedAt: status === "DONE" ? new Date() : null } });
+    if (status === "DONE" && task.status !== "DONE") {
+      const member = await prisma.member.findUnique({ where: { id: request.memberId }, select: { email: true, firstName: true, lastName: true } });
+      await createAdminActivityNotification({
+        programId: request.programId,
+        adminUserId: membership.project.createdByAdminId,
+        triggerEvent: "admin.project.task_completed",
+        idempotencyKey: `project-task-completed:${updated.id}:${updated.completedAt?.toISOString() ?? updated.updatedAt.toISOString()}`,
+        title: "Project task completed",
+        body: `${[member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "A member"} completed “${task.title}” in ${membership.project.name}.`,
+        actionUrl: `/projects?project=${encodeURIComponent(projectId)}`,
+        entityType: "ProjectTask",
+        entityId: taskId,
+        context: {
+          member: { name: [member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "Member", email: member?.email ?? "" },
+          project: { id: projectId, name: membership.project.name },
+          task: { id: taskId, title: task.title },
+        },
+      }).catch((error: unknown) => request.log.warn({ err: error, projectId, taskId }, "Failed to notify project manager of task completion"));
+    }
     await audit(request.programId, { type: "MEMBER", id: request.memberId }, "CONFIG_CHANGE", "project_task", taskId, {
       operation: "UPDATE_TASK_STATUS", projectId, memberId: request.memberId, title: task.title,
       before: { status: task.status }, after: { status },

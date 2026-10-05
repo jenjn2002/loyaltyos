@@ -737,19 +737,28 @@ function includesApprover(step: { assigneesSnapshot: unknown }, adminId: string)
 
 export async function listApprovalRequests(
   programId: string,
-  input: { inboxForAdminId?: string; status?: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; resolvedOnly?: boolean },
+  input: {
+    inboxForAdminId?: string;
+    requesterAdminId?: string;
+    since?: Date;
+    take?: number;
+    status?: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    resolvedOnly?: boolean;
+  },
 ) {
   const isInbox = Boolean(input.inboxForAdminId);
   const requests = await prisma.approvalRequest.findMany({
     where: {
       programId,
+      ...(input.requesterAdminId ? { requesterAdminId: input.requesterAdminId } : {}),
+      ...(input.since ? { resolvedAt: { gte: input.since } } : {}),
       ...(input.status
         ? { status: input.status }
-        : input.resolvedOnly
+        : input.requesterAdminId || input.resolvedOnly
           ? { status: { in: ["APPROVED", "REJECTED", "CANCELLED"] } }
           : isInbox
             ? { status: "PENDING" }
-          : {}),
+            : {}),
     },
     include: {
       workflow: { select: { actionKey: true, name: true } },
@@ -758,7 +767,8 @@ export async function listApprovalRequests(
         include: { decisions: { select: { decision: true, approverAdminId: true } } },
       },
     },
-    orderBy: { requestedAt: "desc" },
+    orderBy: input.requesterAdminId ? { resolvedAt: "desc" } : { requestedAt: "desc" },
+    ...(input.take ? { take: input.take } : {}),
   });
   const withWorkflowSnapshotName = requests.map((request) => {
     const snapshot = request.workflowSnapshot && typeof request.workflowSnapshot === "object" && !Array.isArray(request.workflowSnapshot)
@@ -769,13 +779,15 @@ export async function listApprovalRequests(
     const actionKey = typeof snapshot.actionKey === "string" ? snapshot.actionKey : currentWorkflow.actionKey;
     return { ...request, workflow: { ...currentWorkflow, name: workflowName, actionKey } };
   });
-  if (!input.inboxForAdminId) return withWorkflowSnapshotName;
-  const inboxAdminId = input.inboxForAdminId;
-  const inbox = withWorkflowSnapshotName.filter((request) => {
-    if (request.status !== "PENDING" || request.currentStepOrder == null) return false;
-    const step = request.steps.find((candidate) => candidate.stepOrder === request.currentStepOrder);
-    return Boolean(step && step.status === "PENDING" && includesApprover(step, inboxAdminId));
-  });
+  if (!input.inboxForAdminId && !input.requesterAdminId) return withWorkflowSnapshotName;
+  const inboxAdminId = input.inboxForAdminId ?? input.requesterAdminId;
+  const inbox = input.requesterAdminId
+    ? withWorkflowSnapshotName
+    : withWorkflowSnapshotName.filter((request) => {
+        if (request.status !== "PENDING" || request.currentStepOrder == null) return false;
+        const step = request.steps.find((candidate) => candidate.stepOrder === request.currentStepOrder);
+        return Boolean(step && step.status === "PENDING" && includesApprover(step, inboxAdminId!));
+      });
   const visibleInbox = inbox;
   if (visibleInbox.length === 0) return [];
   const reads = await prisma.adminApprovalNotificationRead.findMany({

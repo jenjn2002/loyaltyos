@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { LoyaltyError } from "../lib/errors.js";
+import { notificationsService } from "../lib/notifications-setup.js";
 import { walletService } from "../lib/wallets.js";
 
 const pageSchema = z.object({
@@ -102,6 +103,24 @@ export function campaignClaimsRoutes(app: FastifyInstance, _opts: unknown, done:
       });
       return { claim: updated, idempotent: issued.idempotent, transactionId: issued.transactionId };
     });
+    if (!result.idempotent) {
+      const claim = await prisma.campaignClaim.findFirst({
+        where: { id, memberId: request.memberId, campaign: { programId: request.programId } },
+        include: {
+          campaign: { select: { name: true, pointType: { select: { id: true, code: true, name: true, unitLabel: true } } } },
+          member: { select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } } },
+        },
+      });
+      if (claim) {
+        await notificationsService.sendTrigger(request.programId, "campaign.points.issued", claim.memberId, {
+          member: claim.member,
+          campaign: { name: claim.campaign.name },
+          pointType: claim.campaign.pointType,
+          amount: claim.pointsAwarded,
+          _locale: claim.member.locale ?? claim.member.program.defaultLocale ?? "vi-VN",
+        }).catch((error: unknown) => request.log.warn({ err: error, claimId: id }, "Failed to notify claimed campaign points"));
+      }
+    }
     return reply.send({ data: result });
   });
 

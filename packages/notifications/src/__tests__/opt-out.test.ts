@@ -70,7 +70,7 @@ function notificationRow(overrides = {}) {
     sentAt: null,
     readAt: null,
     error: null,
-    metadata: {},
+    metadata: { email: "user@example.com" },
     createdAt: new Date(),
     ...overrides,
   };
@@ -127,6 +127,7 @@ describe("Opt-out logic", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("SMS", { channel: "SMS", async send() { return { success: true }; } });
     const result = await svc.send("notif-1");
 
     // Should be SENT (not SKIPPED_OPT_OUT)
@@ -149,6 +150,7 @@ describe("Opt-out logic", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", { channel: "EMAIL", async send() { return { success: true }; } });
     const result = await svc.send("notif-1");
 
     expect(result.status).toBe("SENT");
@@ -171,6 +173,7 @@ describe("Opt-out logic", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("SMS", { channel: "SMS", async send() { return { success: true }; } });
     const result = await svc.send("notif-1");
 
     // Transactional → ignores opt-out, sends anyway
@@ -191,6 +194,7 @@ describe("Opt-out logic", () => {
     });
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("SMS", { channel: "SMS", async send() { return { success: true }; } });
     let enqueuedId: string | null = null;
     svc.setEnqueue((id) => {
       enqueuedId = id;
@@ -217,6 +221,7 @@ describe("Opt-out logic", () => {
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("SMS", { channel: "SMS", async send() { return { success: true }; } });
     let enqueued = false;
     svc.setEnqueue(() => {
       enqueued = true;
@@ -231,13 +236,14 @@ describe("Opt-out logic", () => {
   it("skips when notification has no template (safety — no opt-out check, sends normally)", async () => {
     // Notification without templateId
     mockPrisma.notification.findFirst.mockResolvedValue(
-      notificationRow({ templateId: null, channel: "EMAIL" }),
+      notificationRow({ templateId: null, channel: "EMAIL", metadata: { email: "user@example.com" } }),
     );
     mockPrisma.notification.update.mockResolvedValue(
       notificationRow({ status: "SENT", sentAt: new Date() }),
     );
 
     const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", { channel: "EMAIL", async send() { return { success: true }; } });
     const result = await svc.send("notif-1");
 
     // No template → no opt-out check → sent normally

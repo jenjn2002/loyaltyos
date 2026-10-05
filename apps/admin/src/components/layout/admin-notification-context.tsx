@@ -14,13 +14,32 @@ export interface AdminApprovalNotification {
   workflow: { name: string };
 }
 
+export interface AdminActivityNotification {
+  id: string;
+  title: string;
+  body: string;
+  triggerEvent: string;
+  actionUrl: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+interface AdminActivityResponse {
+  items: AdminActivityNotification[];
+  unreadCount: number;
+}
+
 interface AdminNotificationsContextValue {
   requests: AdminApprovalNotification[];
   unreadRequests: AdminApprovalNotification[];
+  activities: AdminActivityNotification[];
+  unreadActivities: AdminActivityNotification[];
   unreadCount: number;
   isReady: boolean;
   markRead: (id: string) => void;
   markUnread: (id: string) => void;
+  markActivityRead: (id: string) => void;
+  markActivityUnread: (id: string) => void;
   markAllRead: () => void;
 }
 
@@ -39,31 +58,85 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
     refetchInterval: 30_000,
     retry: false,
   });
+  const approvalUnreadCount = useQuery({
+    queryKey: ["admin", "approvals", "inbox", "unread-count"],
+    queryFn: () => fetchApi<{ unreadCount: number }>("/admin/approvals/inbox/unread-count"),
+    enabled: Boolean(admin.data?.id),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const activity = useQuery({
+    queryKey: ["admin", "notifications", "activity"],
+    queryFn: () => fetchApi<AdminActivityResponse>("/admin/notifications/activity"),
+    enabled: Boolean(admin.data?.id),
+    refetchInterval: 30_000,
+    retry: false,
+  });
   const requests = approvals.data ?? [];
   const unreadRequests = requests.filter((request) => !request.isRead);
-  const updateReadState = (ids: string[], isRead: boolean) => {
+  const activities = activity.data?.items ?? [];
+  const unreadActivities = activities.filter((item) => !item.readAt);
+  const updateReadState = (ids: string[], isRead: boolean, all = false) => {
     const uniqueIds = [...new Set(ids)];
-    if (uniqueIds.length === 0) return;
+    if (!all && uniqueIds.length === 0) return;
     const idSet = new Set(uniqueIds);
     queryClient.setQueryData<AdminApprovalNotification[]>(["admin", "approvals", "inbox"], (current) =>
-      current?.map((request) => idSet.has(request.id) ? { ...request, isRead } : request),
+      current?.map((request) => (all || idSet.has(request.id)) ? { ...request, isRead } : request),
     );
+    queryClient.setQueryData<{ unreadCount: number }>(["admin", "approvals", "inbox", "unread-count"], (current) => {
+      if (!current) return current;
+      if (all) return { unreadCount: isRead ? 0 : requests.length };
+      const delta = uniqueIds.reduce((sum, id) => {
+        const item = requests.find((request) => request.id === id);
+        return sum + (item && item.isRead !== isRead ? (isRead ? -1 : 1) : 0);
+      }, 0);
+      return { unreadCount: Math.max(0, current.unreadCount + delta) };
+    });
     void fetchApi("/admin/approvals/read-state", {
       method: "POST",
-      body: JSON.stringify({ ids: uniqueIds, isRead }),
+      body: JSON.stringify({ ids: uniqueIds, isRead, all }),
     }).catch(() => queryClient.invalidateQueries({ queryKey: ["admin", "approvals", "inbox"] }));
+  };
+  const updateActivityReadState = (ids: string[], isRead: boolean, all = false) => {
+    const uniqueIds = [...new Set(ids)];
+    if (!all && uniqueIds.length === 0) return;
+    const idSet = new Set(uniqueIds);
+    queryClient.setQueryData<AdminActivityResponse>(["admin", "notifications", "activity"], (current) => current
+      ? {
+          ...current,
+          unreadCount: all ? (isRead ? 0 : current.items.length) : Math.max(0, current.unreadCount + uniqueIds.reduce((delta, id) => {
+            const item = current.items.find((entry) => entry.id === id);
+            return delta + (item && Boolean(item.readAt) !== isRead ? (isRead ? -1 : 1) : 0);
+          }, 0)),
+          items: current.items.map((item) => (all || idSet.has(item.id))
+            ? { ...item, readAt: isRead ? new Date().toISOString() : null }
+            : item),
+        }
+      : current,
+    );
+    void fetchApi("/admin/notifications/activity/read-state", {
+      method: "POST",
+      body: JSON.stringify({ ids: uniqueIds, isRead, all }),
+    }).catch(() => queryClient.invalidateQueries({ queryKey: ["admin", "notifications", "activity"] }));
   };
   const value = useMemo<AdminNotificationsContextValue>(
     () => ({
       requests,
       unreadRequests,
-      unreadCount: unreadRequests.length,
-      isReady: Boolean(admin.data?.id && approvals.isSuccess),
+      activities,
+      unreadActivities,
+      unreadCount: (approvalUnreadCount.data?.unreadCount ?? unreadRequests.length) + (activity.data?.unreadCount ?? unreadActivities.length),
+      isReady: Boolean(admin.data?.id && (approvals.isSuccess || activity.isSuccess)),
       markRead: (id) => updateReadState([id], true),
       markUnread: (id) => updateReadState([id], false),
-      markAllRead: () => updateReadState(requests.filter((request) => !request.isRead).map((request) => request.id), true),
+      markActivityRead: (id) => updateActivityReadState([id], true),
+      markActivityUnread: (id) => updateActivityReadState([id], false),
+      markAllRead: () => {
+        updateReadState([], true, true);
+        updateActivityReadState([], true, true);
+      },
     }),
-    [admin.data?.id, approvals.isSuccess, requests, unreadRequests],
+    [admin.data?.id, approvals.isSuccess, activity.isSuccess, activity.data?.unreadCount, approvalUnreadCount.data?.unreadCount, activities, unreadActivities, requests, unreadRequests],
   );
 
   return <AdminNotificationsContext.Provider value={value}>{children}</AdminNotificationsContext.Provider>;

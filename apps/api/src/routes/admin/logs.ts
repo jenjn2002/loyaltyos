@@ -33,6 +33,7 @@ const auditActions = [
   "CREDIT_BULK",
   "CREDIT_BANK",
   "CREDIT_CLEARANCE",
+  "NOTIFICATION_DELIVERY_FAILED",
 ] as const satisfies readonly AuditAction[];
 
 const actorTypes = ["ADMIN_USER", "API_KEY", "MEMBER", "SYSTEM"] as const satisfies readonly AuditActorType[];
@@ -109,12 +110,19 @@ export function adminLogsRoutes(app: FastifyInstance, _opts: unknown, done: () =
         "code",
         "email",
         "eventType",
+        "channel",
+        "errorSummary",
+        "failureStage",
+        "adminUserId",
         "memberId",
         "name",
+        "notificationId",
         "operation",
         "pointTypeId",
         "reason",
         "status",
+        "templateId",
+        "triggerEvent",
       ];
 
       const identityTerms = [...new Set([search, actorSearch].filter((term): term is string => Boolean(term && term.length >= 2)))];
@@ -195,6 +203,9 @@ const [campaigns, coupons, rewards, segments, tiers, badges, events, workflows, 
             { entityId: { contains: search, mode: "insensitive" } },
             { reason: { contains: search, mode: "insensitive" } },
             ...(identityIdsByTerm.get(search)?.length ? [{ actorId: { in: identityIdsByTerm.get(search) } }] : []),
+            ...(identityIdsByTerm.get(search)?.length
+              ? identityIdsByTerm.get(search)!.map((adminId) => ({ diff: { path: ["adminUserId"], string_contains: adminId } }))
+              : []),
             ...targetMatches,
             ...searchableDiffFields.map((field) => ({
               diff: { path: [field], string_contains: search },
@@ -230,7 +241,15 @@ const [campaigns, coupons, rewards, segments, tiers, badges, events, workflows, 
         prisma.auditLog.count({ where }),
       ]);
 
-      const adminIds = items.filter((item) => item.actorType === "ADMIN_USER").map((item) => item.actorId);
+      const adminIds = items.flatMap((item) => {
+        const diff = item.diff && typeof item.diff === "object" && !Array.isArray(item.diff)
+          ? item.diff as Record<string, unknown>
+          : {};
+        return [
+          ...(item.actorType === "ADMIN_USER" ? [item.actorId] : []),
+          ...(typeof diff.adminUserId === "string" ? [diff.adminUserId] : []),
+        ];
+      });
       const targetMemberIds = items.flatMap((item) => {
         const diff = item.diff && typeof item.diff === "object" && !Array.isArray(item.diff)
           ? item.diff as Record<string, unknown>
@@ -342,9 +361,12 @@ const [campaigns, coupons, rewards, segments, tiers, badges, events, workflows, 
             ? item.entityId
             : null;
         const member = memberId ? memberById.get(memberId) : undefined;
-        if (!member) return null;
-        const name = [member.firstName, member.lastName].filter(Boolean).join(" ");
-        return [name || null, member.email].filter(Boolean).join(" · ") || null;
+        if (member) {
+          const name = [member.firstName, member.lastName].filter(Boolean).join(" ");
+          return [name || null, member.email].filter(Boolean).join(" · ") || null;
+        }
+        const admin = typeof diff.adminUserId === "string" ? adminById.get(diff.adminUserId) : undefined;
+        return admin ? [admin.name, admin.email].filter(Boolean).join(" · ") || null : null;
       };
 
       return reply.send({

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { audit } from "../lib/audit.js";
+import { notifyApprovalAssignees } from "../lib/admin-notifications.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
 import { walletService } from "../lib/wallets.js";
@@ -197,6 +198,9 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         requestKey,
       );
       if (!result.idempotent && result.redemption) {
+        if (result.approvalRequest?.status === "PENDING") {
+          await notifyApprovalAssignees(request.programId, result.approvalRequest.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: result.approvalRequest?.id }, "Failed to notify reward-redemption approvers"));
+        }
         await audit(
           request.programId,
           request.actor,
@@ -226,18 +230,28 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             program: { select: { defaultLocale: true } },
           },
         });
-        void notificationsService.sendTrigger(
-          request.programId,
-          "credit.redeemed",
-          request.memberId,
-          {
-            member,
-            rewardId: id,
-            amount: result.redemption.pointsSpent,
-            pointTypeId: body.pointTypeId,
-            _locale: member?.locale ?? member?.program.defaultLocale ?? "en-US",
-          },
-        );
+        try {
+          const [reward, pointType] = await Promise.all([
+            prisma.reward.findFirst({ where: { id, programId: request.programId }, select: { id: true, name: true } }),
+            prisma.pointTypeDefinition.findFirst({ where: { id: body.pointTypeId, programId: request.programId }, select: { id: true, code: true, name: true, unitLabel: true } }),
+          ]);
+          await notificationsService.sendTrigger(
+            request.programId,
+            "credit.redeemed",
+            request.memberId,
+            {
+              member,
+              rewardId: id,
+              reward,
+              pointType,
+              amount: result.redemption.pointsSpent,
+              pointTypeId: body.pointTypeId,
+              _locale: member?.locale ?? member?.program.defaultLocale ?? "en-US",
+            },
+          );
+        } catch (error) {
+          request.log.warn({ err: error, rewardId: id, memberId: request.memberId }, "Failed to notify reward redemption");
+        }
       }
       return reply.status(result.idempotent ? 200 : 201).send({ data: result });
     },

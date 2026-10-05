@@ -14,7 +14,7 @@ import { notificationsService } from "../lib/notifications-setup.js";
 import { assertCapability, requireCapability } from "../lib/permissions.js";
 import { BANK_CYCLE_RETURN_TYPES, walletService } from "../lib/wallets.js";
 import { pointExchangeApprovalHook } from "../lib/workflow-integrations.js";
-import { notifyCreditExchangeDecision } from "../lib/member-notifications.js";
+import { notifyCreditAdjustment, notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
 function idempotencyKey(request: {
   headers: Record<string, string | string[] | undefined>;
@@ -321,30 +321,33 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           where: { id: body.destinationPointTypeId, programId: request.programId },
           select: { id: true, code: true, name: true, unitLabel: true },
         });
-        for (const recipient of body.recipients) {
+        await Promise.all(body.recipients.map(async (recipient) => {
           const member = recipientMembers.find((candidate) => candidate.id === recipient.memberId);
           const received = result.transactions.find(
             (transaction) =>
               transaction.action === "GIVE_IN" && transaction.memberId === recipient.memberId,
           );
-          void notificationsService.sendTrigger(
-            request.programId,
-            "credit.received",
-            recipient.memberId,
-            {
-              sourcePointTypeId: body.sourcePointTypeId,
-              destinationPointTypeId: body.destinationPointTypeId,
-              amount: received?.amount ?? recipient.amount,
-              sourceAmount: recipient.amount,
-              message: recipient.message ?? body.message,
-              category: body.category,
-              pointType: destinationType,
-              member,
-              _locale:
-                member?.locale ?? (await memberLocale(recipient.memberId, request.programId)),
-            },
-          );
-        }
+          try {
+            await notificationsService.sendTrigger(
+              request.programId,
+              "credit.received",
+              recipient.memberId,
+              {
+                sourcePointTypeId: body.sourcePointTypeId,
+                destinationPointTypeId: body.destinationPointTypeId,
+                amount: received?.amount ?? recipient.amount,
+                sourceAmount: recipient.amount,
+                message: recipient.message ?? body.message,
+                category: body.category,
+                pointType: destinationType,
+                member,
+                _locale: member?.locale,
+              },
+            );
+          } catch (error) {
+            request.log.warn({ err: error, memberId: recipient.memberId }, "Failed to notify credit recipient");
+          }
+        }));
       }
       return reply.status(result.idempotent ? 200 : 201).send({ data: result });
     },
@@ -386,12 +389,12 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           },
         );
         const locale = await memberLocale(request.memberId, request.programId);
-        void notificationsService.sendTrigger(
+        await notificationsService.sendTrigger(
           request.programId,
           "credit.exchange",
           request.memberId,
           { amount: body.amount, status: result.request.status, _locale: locale },
-        );
+        ).catch((error: unknown) => request.log.warn({ err: error, memberId: request.memberId }, "Failed to notify exchange request submission"));
       }
       return reply.status(result.idempotent ? 200 : 201).send({ data: result });
     },
@@ -526,6 +529,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         },
         body.reason,
       );
+      await notifyCreditAdjustment(request.programId, body.memberId, body.pointTypeId, result.amount, body.reason);
       return reply.status(201).send({ data: result });
     },
   );
@@ -829,6 +833,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         request.actor,
         { reference: body.reference, note: body.note },
       );
+      await notifyCreditExchangeDecision(request.programId, id, "COMPLETED");
       await audit(
         request.programId,
         request.actor,
@@ -864,7 +869,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         request.actor,
         { reason: body.reason },
       );
-      if (result.status === "REJECTED") {
+      if (result.status === "REJECTED" || result.status === "CANCELLED") {
         await notifyCreditExchangeDecision(request.programId, id, result.status);
       }
       await audit(

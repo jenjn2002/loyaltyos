@@ -6,6 +6,7 @@ import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { createdByForEntities } from "../../lib/created-by.js";
 import { LoyaltyError } from "../../lib/errors.js";
+import { requireCapability } from "../../lib/permissions.js";
 import { notificationsService as notifications } from "../../lib/notifications-setup.js";
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -83,6 +84,42 @@ export function adminNotificationsRoutes(
   _opts: unknown,
   done: () => void,
 ): void {
+  app.get("/admin/notifications/activity", { preHandler: [requireCapability("notification.view")] }, async (request, reply) => {
+    if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).parse(request.query);
+    const where = { programId: request.programId, adminUserId: request.adminId };
+    const [items, unreadCount] = await Promise.all([
+      prisma.adminNotification.findMany({ where, orderBy: { createdAt: "desc" }, take: query.limit }),
+      prisma.adminNotification.count({ where: { ...where, readAt: null } }),
+    ]);
+    return reply.send({
+      data: {
+        items: items.map(({ emailBody: _emailBody, emailSubject: _emailSubject, emailError: _emailError, ...item }) => item),
+        unreadCount,
+      },
+    });
+  });
+
+  app.post("/admin/notifications/activity/read-state", { preHandler: [requireCapability("notification.view")] }, async (request, reply) => {
+    if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+    const body = z.object({
+      ids: z.array(z.string().min(1)).max(200).optional().default([]),
+      isRead: z.boolean(),
+      all: z.boolean().optional().default(false),
+    }).parse(request.body);
+    const where = {
+      programId: request.programId,
+      adminUserId: request.adminId,
+      ...(body.all ? {} : { id: { in: [...new Set(body.ids)] } }),
+    };
+    if (!body.all && body.ids.length === 0) return reply.status(204).send();
+    await prisma.adminNotification.updateMany({
+      where,
+      data: { readAt: body.isRead ? new Date() : null },
+    });
+    return reply.status(204).send();
+  });
+
   // ═══ Notification Templates ═══
 
   // GET /admin/notification-templates
@@ -387,11 +424,13 @@ export function adminNotificationsRoutes(
       metadata,
     });
 
-    // Try to send via provider
+    // Return the persisted delivery state (FAILED on an enqueue/provider
+    // configuration error) instead of reporting the original PENDING row.
+    let delivery = notification;
     try {
-      await notifications.send(notification.id);
+      delivery = await notifications.send(notification.id);
     } catch {
-      // Leave as PENDING
+      delivery = await notifications.getNotification(notification.id);
     }
 
     await audit(
@@ -407,7 +446,7 @@ export function adminNotificationsRoutes(
       },
     );
 
-    return reply.status(201).send({ data: notification });
+    return reply.status(201).send({ data: delivery });
   });
 
   // ═══ Notifications ───────────────────────────────────────
@@ -426,7 +465,16 @@ export function adminNotificationsRoutes(
 
     const programId = getProgramId(request);
     const result = await notifications.listNotifications(programId, query);
-    return reply.send({ data: result });
+    return reply.send({
+      data: {
+        ...result,
+        items: result.items.map((notification) =>
+          notification.template?.triggerEvent === "auth.magic_link"
+            ? { ...notification, subject: "Sign-in link sent", body: null, metadata: {} }
+            : notification,
+        ),
+      },
+    });
   });
 
   // ═══ Webhooks ═══════════════════════════════════════════

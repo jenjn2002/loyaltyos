@@ -2,7 +2,7 @@ import { BadgesService, TiersService } from "@loyaltyos/badges";
 import { CampaignsService, evaluateRules } from "@loyaltyos/campaigns";
 import { SegmentsService } from "@loyaltyos/segments";
 import type { Prisma } from "@prisma/client";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
@@ -83,8 +83,9 @@ async function applyIssuanceRules(input: {
   return results;
 }
 
-/** Fire a notification trigger asynchronously (fire-and-forget). */
+/** Await notification persistence/enqueue, but keep notification failures best-effort. */
 async function triggerNotification(
+  request: FastifyRequest,
   triggerEvent: string,
   memberId: string,
   programId: string,
@@ -100,6 +101,7 @@ async function triggerNotification(
     const currentTier = member?.memberTiers.find((mt) => !mt.downgradedAt)?.tier.name;
     const context: Record<string, unknown> = {
       ...baseContext,
+      ...(typeof baseContext.currentTier === "string" ? { tier: { name: baseContext.currentTier } } : {}),
       member: {
         id: member?.id,
         email: member?.email,
@@ -111,8 +113,7 @@ async function triggerNotification(
     };
     await notificationsService.sendTrigger(programId, triggerEvent, memberId, context);
   } catch (err) {
-    // Fire-and-forget: never fail the main operation
-    console.error(`[Notifications] Trigger ${triggerEvent} failed:`, err);
+    request.log.warn({ err, triggerEvent, memberId }, "Failed to enqueue event notification");
   }
 }
 
@@ -314,47 +315,42 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
           }
 
           if (body.type === "purchase") {
-            // Fire notification, tier and badge hooks for purchase activity.
-            void triggerNotification("points.earned", body.memberId, programId, {
+            await triggerNotification(request, "points.earned", body.memberId, programId, {
               points: ruleResults.reduce((sum, result) => sum + result.amount, 0),
               balances: ruleResults.map((result) => result.balanceAfter),
               amount,
               transactionIds: ruleResults.map((result) => result.transactionId),
             });
-            void (async () => {
-              try {
-                const tierResult = await tiers.evaluateMember(body.memberId!, programId);
-                if (tierResult.changed && tierResult.direction === "upgrade") {
-                  void triggerNotification("tier.changed", body.memberId!, programId, {
-                    previousTier: tierResult.previousTier?.name,
-                    currentTier: tierResult.currentTier?.name,
-                    direction: "upgrade",
-                  });
-                }
-              } catch (err) {
-                console.error("[Tiers] Evaluation failed:", err);
-              }
-            })();
-            void (async () => {
-              try {
-                const badgeResult = await badges.evaluateOnEvent({
-                  type: body.type,
-                  memberId: body.memberId!,
-                  programId,
-                  amount,
-                  payload: body.payload,
+            try {
+              const tierResult = await tiers.evaluateMember(body.memberId, programId);
+              if (tierResult.changed && tierResult.direction === "upgrade") {
+                await triggerNotification(request, "tier.changed", body.memberId, programId, {
+                  previousTier: tierResult.previousTier?.name,
+                  currentTier: tierResult.currentTier?.name,
+                  direction: "upgrade",
                 });
-                for (const unlocked of badgeResult.unlocked) {
-                  void triggerNotification("badge.unlocked", body.memberId!, programId, {
-                    badgeId: unlocked.id,
-                    badgeName: unlocked.name,
-                    badgeType: unlocked.type,
-                  });
-                }
-              } catch (err) {
-                console.error("[Badges] Evaluation failed:", err);
               }
-            })();
+            } catch (err) {
+              request.log.warn({ err, memberId: body.memberId }, "Tier evaluation failed for purchase event");
+            }
+            try {
+              const badgeResult = await badges.evaluateOnEvent({
+                type: body.type,
+                memberId: body.memberId,
+                programId,
+                amount,
+                payload: body.payload,
+              });
+              for (const unlocked of badgeResult.unlocked) {
+                await triggerNotification(request, "badge.unlocked", body.memberId, programId, {
+                  badgeId: unlocked.id,
+                  badgeName: unlocked.name,
+                  badgeType: unlocked.type,
+                });
+              }
+            } catch (err) {
+              request.log.warn({ err, memberId: body.memberId }, "Badge evaluation failed for purchase event");
+            }
           }
 
           await prisma.event.update({
@@ -363,7 +359,7 @@ export function eventsRoutes(app: FastifyInstance, _opts: unknown, done: () => v
           });
 
           if (body.type === "registration") {
-            void triggerNotification("registration", body.memberId, programId, {
+            await triggerNotification(request, "registration", body.memberId, programId, {
               bonus: ruleResults.reduce((sum, result) => sum + result.amount, 0),
               points: ruleResults.reduce((sum, result) => sum + result.amount, 0),
               balance: ruleResults[0]?.balanceAfter,

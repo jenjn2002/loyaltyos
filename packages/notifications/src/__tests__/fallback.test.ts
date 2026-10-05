@@ -123,6 +123,54 @@ describe("Fallback chain", () => {
     expect(result.status).toBe("SENT");
   });
 
+  it("persists an IN_APP fallback as an unread customer notice", async () => {
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+    mockPrisma.notificationTemplate.findFirst.mockResolvedValue(
+      templateRow({ id: "tpl-1", channel: "EMAIL", fallbackChannel: "IN_APP", triggerEvent: "promo" }),
+    );
+    mockPrisma.notificationTemplate.findMany.mockResolvedValue([]);
+    mockPrisma.notification.create.mockResolvedValue(notificationRow({ id: "fallback-notice", channel: "IN_APP" }));
+    mockPrisma.notification.update.mockImplementation((args: { where: { id: string }; data: { status: string; error?: string | null } }) =>
+      Promise.resolve(notificationRow({ id: args.where.id, channel: args.where.id === "fallback-notice" ? "IN_APP" : "EMAIL", status: args.data.status as never, error: args.data.error ?? null })),
+    );
+
+    const svc = new NotificationsService(mockPrisma as never);
+    svc.setProvider("EMAIL", { channel: "EMAIL", async send() { return { success: false, error: "SMTP down" }; } });
+
+    const result = await svc.deliver("email-notice");
+
+    expect(result.id).toBe("fallback-notice");
+    expect(result.channel).toBe("IN_APP");
+    expect(result.status).toBe("SENT");
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ channel: "IN_APP", metadata: expect.objectContaining({ fallbackFromNotificationId: "email-notice" }) }),
+    }));
+    expect(mockPrisma.notification.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "email-notice" },
+      data: expect.objectContaining({ status: "FAILED", error: expect.stringContaining("Delivered through IN_APP fallback") }),
+    }));
+  });
+
+  it("retries EMAIL instead of falling back when a separate IN_APP template exists", async () => {
+    mockPrisma.notification.findFirst.mockResolvedValue(notificationRow({ id: "email-notice", channel: "EMAIL" }));
+    mockPrisma.notificationTemplate.findFirst.mockResolvedValue(
+      templateRow({ id: "tpl-1", channel: "EMAIL", fallbackChannel: "IN_APP", triggerEvent: "promo" }),
+    );
+    mockPrisma.notificationTemplate.findMany.mockResolvedValue([
+      templateRow({ id: "tpl-1", channel: "EMAIL", triggerEvent: "promo" }),
+      templateRow({ id: "tpl-in-app", channel: "IN_APP", triggerEvent: "promo" }),
+    ]);
+    mockPrisma.notification.update.mockResolvedValue(notificationRow({ status: "FAILED", error: "SMTP down" }));
+
+    const svc = new NotificationsService(mockPrisma as never);
+    let inAppCalls = 0;
+    svc.setProvider("EMAIL", { channel: "EMAIL", async send() { return { success: false, error: "SMTP down" }; } });
+    svc.setProvider("IN_APP", { channel: "IN_APP", async send() { inAppCalls += 1; return { success: true }; } });
+
+    await expect(svc.deliver("email-notice")).rejects.toThrow("SMTP down");
+    expect(inAppCalls).toBe(0);
+  });
+
   it("marks FAILED when both primary and fallback fail", async () => {
     mockPrisma.notification.findFirst.mockResolvedValue(
       notificationRow({ templateId: "tpl-1", channel: "EMAIL" }),
@@ -155,12 +203,13 @@ describe("Fallback chain", () => {
       },
     });
 
-    const result = await svc.deliver("notif-1");
-
-    expect(result.status).toBe("FAILED");
-    expect(result.error).toContain("Primary and fallback both failed");
-    expect(result.error).toContain("SMTP down");
-    expect(result.error).toContain("Twilio down");
+    await expect(svc.deliver("notif-1")).rejects.toThrow("Primary and fallback both failed");
+    expect(mockPrisma.notification.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "FAILED",
+        error: expect.stringContaining("Primary and fallback both failed"),
+      }),
+    }));
   });
 
   it("does NOT use fallback when primary succeeds", async () => {
@@ -223,10 +272,8 @@ describe("Fallback chain", () => {
       },
     });
 
-    const result = await svc.deliver("notif-1");
-
+    await expect(svc.deliver("notif-1")).rejects.toThrow("SMTP down");
     expect(primaryCalled).toBe(true);
-    expect(result.status).toBe("FAILED");
   });
 
   it("marks FAILED when fallback provider is not registered", async () => {
@@ -256,8 +303,7 @@ describe("Fallback chain", () => {
     // When provider is undefined, deliver() will throw ProviderNotFoundError
     // Actually the fallback logic checks if the provider exists before calling
 
-    const result = await svc.deliver("notif-1");
-    expect(result.status).toBe("FAILED");
+    await expect(svc.deliver("notif-1")).rejects.toThrow("SMTP down");
   });
 
   it("uses same channel when fallback equals primary", async () => {
@@ -284,10 +330,8 @@ describe("Fallback chain", () => {
       },
     });
 
-    const result = await svc.deliver("notif-1");
-
+    await expect(svc.deliver("notif-1")).rejects.toThrow("SMTP down");
     // Should only call once (fallbackChannel === channel, skip)
     expect(callCount).toBe(1);
-    expect(result.status).toBe("FAILED");
   });
 });

@@ -71,6 +71,7 @@ model Program {
   coalitionAccounts             CoalitionAccount[]
   coalitionConfig               CoalitionConfig?
   adminUsers                    AdminUser[]
+  adminNotifications            AdminNotification[]
   adminDashboardPreferences     AdminDashboardPreference[]
   memberCredentials             MemberCredential[]
   memberExternalIdentities      MemberExternalIdentity[]
@@ -1783,6 +1784,7 @@ model AdminUser {
   workflowAssignees ApprovalWorkflowAssignee[]
   approvalDecisions ApprovalDecision[]
   approvalNotificationReads AdminApprovalNotificationRead[]
+  notifications             AdminNotification[]
   projects                  Project[]                       @relation("ProjectCreator")
   dashboardPreferences      AdminDashboardPreference[]
 
@@ -1978,6 +1980,34 @@ model AdminApprovalNotificationRead {
   @@index([approvalRequestId])
 }
 
+model AdminNotification {
+  id             String   @id @default(cuid())
+  programId      String
+  adminUserId    String
+  triggerEvent   String
+  idempotencyKey String
+  title          String
+  body           String
+  actionUrl      String?
+  entityType     String?
+  entityId       String?
+  readAt         DateTime?
+  emailSubject   String?
+  emailBody      String?  @db.Text
+  emailStatus    String   @default("PENDING")
+  emailError     String?
+  emailSentAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  program   Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@unique([adminUserId, idempotencyKey])
+  @@index([programId, adminUserId, readAt, createdAt])
+  @@index([emailStatus, createdAt])
+}
+
 model ApprovalRequestStep {
   id                    String                    @id @default(cuid())
   approvalRequestId     String
@@ -2130,6 +2160,7 @@ enum AuditAction {
   CREDIT_BULK
   CREDIT_BANK
   CREDIT_CLEARANCE
+  NOTIFICATION_DELIVERY_FAILED
 }
 
 enum AuditActorType {

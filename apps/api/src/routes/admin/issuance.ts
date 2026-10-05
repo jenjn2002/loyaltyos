@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../../db.js";
 import { createApprovalRequest } from "../../lib/approval-workflows.js";
+import { notifyApprovalAssignees } from "../../lib/admin-notifications.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { requireCapability } from "../../lib/permissions.js";
@@ -192,6 +193,7 @@ export function adminIssuanceRoutes(
       });
       if (!approval)
         throw new LoyaltyError("POINT_ISSUANCE_WORKFLOW_NOT_CONFIGURED", 409);
+      await notifyApprovalAssignees(request.programId, approval.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: approval.id }, "Failed to notify approval assignees"));
       await audit(
         request.programId,
         request.actor,

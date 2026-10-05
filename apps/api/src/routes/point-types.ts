@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import { audit } from "../lib/audit.js";
 import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
+import { notifyCreditAdjustment } from "../lib/member-notifications.js";
 import { requireCapability } from "../lib/permissions.js";
 import {
   POINT_EXPIRY_MODES,
@@ -606,6 +607,7 @@ export function pointTypesRoutes(app: FastifyInstance, _opts: unknown, done: () 
         { pointTypeId: id, ...body },
         body.reason,
       );
+      await notifyCreditAdjustment(request.programId, body.memberId, id, transaction.amount, body.reason);
       return reply.status(201).send({ data: transaction });
     },
   );

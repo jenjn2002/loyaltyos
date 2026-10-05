@@ -9,6 +9,7 @@ import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { walletService } from "../../lib/wallets.js";
 import { createApprovalRequestWithClient } from "../../lib/approval-workflows.js";
+import { notifyApprovalAssignees } from "../../lib/admin-notifications.js";
 import { isStandingOccasionMode } from "../../lib/occasion-schedule.js";
 import { issueOccasion } from "../../lib/occasion-issuance.js";
 
@@ -754,6 +755,7 @@ export function adminCampaignsRoutes(app: FastifyInstance, _opts: unknown, done:
       approvalRequestId: approval.id,
       approvalStatus: "PENDING",
     });
+    await notifyApprovalAssignees(request.programId, approval.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: approval.id }, "Failed to notify campaign approvers"));
     return reply.status(201).send({ data: approval });
   });
   done();

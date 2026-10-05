@@ -117,7 +117,7 @@ export function createRepository(prisma: PrismaClient) {
     async updateNotificationStatus(
       id: string,
       status: string,
-      extra: { sentAt?: Date; readAt?: Date | null; error?: string } = {},
+      extra: { sentAt?: Date | null; readAt?: Date | null; error?: string | null; body?: string | null } = {},
     ): Promise<NotificationRow> {
       return prisma.notification.update({
         where: { id },
@@ -126,6 +126,7 @@ export function createRepository(prisma: PrismaClient) {
           ...(extra.sentAt !== undefined && { sentAt: extra.sentAt }),
           ...(extra.readAt !== undefined && { readAt: extra.readAt }),
           ...(extra.error !== undefined && { error: extra.error }),
+          ...(extra.body !== undefined && { body: extra.body }),
         },
       });
     },
