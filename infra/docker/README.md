@@ -496,7 +496,29 @@ If a route returns 404, check its hostname against the Compose router label. If
 it returns 502, check the frontend/API health and that the frontend is attached
 to the expected Docker networks.
 
-### 6. Service and volume reference
+### 6. Refresh obsolete built-in guide text after an upgrade
+
+After deploying the current API image, run the following once for each
+environment when upgrading from the old dashboard/member guides:
+
+```bash
+docker compose -p docker -f infra/docker/docker-compose.prod.yml \
+  --env-file infra/docker/.env.production exec -T \
+  -e EXPECTED_LOYALTYOS_ENVIRONMENT=production api \
+  node apps/api/prisma/refresh-documentation-defaults.mjs
+docker compose -p loyaltyos-staging -f infra/docker/docker-compose.staging.yml \
+  --env-file infra/docker/.env.staging exec -T \
+  -e EXPECTED_LOYALTYOS_ENVIRONMENT=sandbox api \
+  node apps/api/prisma/refresh-documentation-defaults.mjs
+```
+
+The idempotent repair changes only exact known obsolete default sentences in
+the dashboard, member-photo and member-point-import articles. Authored copy,
+uploaded screenshots and article status are preserved. Each changed article
+is audited; a guard rejects the wrong environment. The 25 built-in overview
+screenshots ship with the admin image, while uploaded images take precedence.
+
+### 7. Service and volume reference
 
 | Service | Port | Purpose |
 | --- | ---: | --- |
