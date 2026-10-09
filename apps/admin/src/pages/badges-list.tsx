@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import type { PaginatedResponse } from "@/types";
 
 interface BadgeType {
@@ -39,6 +40,7 @@ interface BadgeType {
 }
 
 export function BadgesListPage(): JSX.Element {
+  const canManage = useAdminCapability("badge.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -76,14 +78,14 @@ export function BadgesListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("badges.title")}</h1>
-        <Button
+        {canManage && <Button
           onClick={() => {
             navigate("/badges/new");
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           {t("badges.createBadge")}
-        </Button>
+        </Button>}
       </div>
 
       <Card>
@@ -158,7 +160,7 @@ export function BadgesListPage(): JSX.Element {
                         {badge.createdBy ? <><p className="font-medium">{badge.createdBy.name}</p><p className="text-xs text-muted-foreground">{badge.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
+                        {canManage && <div className="flex gap-1">
                           <Button
                             size="icon"
                             variant="ghost"
@@ -177,7 +179,7 @@ export function BadgesListPage(): JSX.Element {
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
-                        </div>
+                        </div>}
                       </TableCell>
                     </TableRow>
                   ))}

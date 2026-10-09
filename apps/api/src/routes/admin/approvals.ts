@@ -7,13 +7,13 @@ import {
   listApprovalRequests,
 } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
-import { withApprovalDisplay } from "../../lib/approval-display.js";
+import { approvalActionLabels, approvalSubjectName, withApprovalDisplay } from "../../lib/approval-display.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { requireCapability } from "../../lib/permissions.js";
 import { pointExchangeApprovalHook } from "../../lib/workflow-integrations.js";
 import { notifyCreditExchangeDecision } from "../../lib/member-notifications.js";
 import { notificationsService } from "../../lib/notifications-setup.js";
-import { createAdminActivityNotification } from "../../lib/admin-notifications.js";
+import { createAdminActivityNotification, notifyApprovalAssignees } from "../../lib/admin-notifications.js";
 import { runOccasions } from "../../workers/occasions.js";
 import { prisma } from "../../db.js";
 
@@ -36,14 +36,19 @@ export function adminApprovalsRoutes(
     { preHandler: [requireCapability("approval.inbox")] },
     async (request, reply) => {
       const currentAdminId = adminId(request);
-      const [pending, submittedOutcomes] = await Promise.all([
-        listApprovalRequests(request.programId, { inboxForAdminId: currentAdminId }),
-        listApprovalRequests(request.programId, { requesterAdminId: currentAdminId, take: 50 }),
-      ]);
-      const byId = new Map([...submittedOutcomes, ...pending].map((item) => [item.id, item]));
-      const items = [...byId.values()].sort((left, right) => right.requestedAt.getTime() - left.requestedAt.getTime()).slice(0, 100);
+      const pending = await listApprovalRequests(request.programId, { inboxForAdminId: currentAdminId });
+      const notificationKeys = pending.map((item) => `approval-pending:${item.id}:${item.currentStepOrder}:${currentAdminId}`);
+      const notifications = notificationKeys.length ? await prisma.adminNotification.findMany({
+        where: { programId: request.programId, adminUserId: currentAdminId, idempotencyKey: { in: notificationKeys } },
+        select: { idempotencyKey: true, title: true, body: true },
+      }) : [];
+      const byKey = new Map(notifications.map((item) => [item.idempotencyKey, item]));
+      const items = await withApprovalDisplay(request.programId, pending);
       return reply.send({
-        data: await withApprovalDisplay(request.programId, items),
+        data: items.map((item) => ({
+          ...item,
+          notification: byKey.get(`approval-pending:${item.id}:${item.currentStepOrder}:${currentAdminId}`) ?? null,
+        })),
       });
     },
   );
@@ -54,15 +59,9 @@ export function adminApprovalsRoutes(
     async (request, reply) => {
       const currentAdminId = adminId(request);
       const pending = await listApprovalRequests(request.programId, { inboxForAdminId: currentAdminId });
-      const unreadOutcomes = await prisma.approvalRequest.count({
-        where: {
-          programId: request.programId,
-          requesterAdminId: currentAdminId,
-          status: { in: ["APPROVED", "REJECTED", "CANCELLED"] },
-          adminNotificationReads: { none: { adminUserId: currentAdminId } },
-        },
+      return reply.send({
+        data: { unreadCount: pending.filter((item) => !("isRead" in item) || !item.isRead).length },
       });
-      return reply.send({ data: { unreadCount: pending.filter((item) => !("isRead" in item) || !item.isRead).length + unreadOutcomes } });
     },
   );
 
@@ -86,6 +85,9 @@ export function adminApprovalsRoutes(
       if (requestedIds.some((id) => !allowedIds.has(id)))
         throw new LoyaltyError("APPROVAL_REQUEST_NOT_IN_INBOX", 404);
       if (requestedIds.length === 0) return reply.status(204).send();
+      const pendingKeys = inbox
+        .filter((item) => requestedIds.includes(item.id))
+        .map((item) => `approval-pending:${item.id}:${item.currentStepOrder}:${currentAdminId}`);
       if (body.isRead && requestedIds.length > 0) {
         await prisma.adminApprovalNotificationRead.createMany({
           data: requestedIds.map((approvalRequestId) => ({ adminUserId: currentAdminId, approvalRequestId })),
@@ -94,6 +96,12 @@ export function adminApprovalsRoutes(
       } else if (requestedIds.length > 0) {
         await prisma.adminApprovalNotificationRead.deleteMany({
           where: { adminUserId: currentAdminId, approvalRequestId: { in: requestedIds } },
+        });
+      }
+      if (pendingKeys.length) {
+        await prisma.adminNotification.updateMany({
+          where: { programId: request.programId, adminUserId: currentAdminId, idempotencyKey: { in: pendingKeys } },
+          data: { readAt: body.isRead ? new Date() : null },
         });
       }
       return reply.status(204).send();
@@ -136,33 +144,65 @@ export function adminApprovalsRoutes(
         body.comment,
         pointExchangeApprovalHook,
       );
+      const exchangeStatus = result.actionKey === "POINT_EXCHANGE" && result.subjectType === "PointExchangeRequest"
+        ? result.status === "APPROVED" ? "COMPLETED" : result.status === "REJECTED" ? "REJECTED" : undefined
+        : undefined;
+      await prisma.adminNotification.updateMany({
+        where: {
+          programId: request.programId,
+          triggerEvent: "admin.approval.pending",
+          actionUrl: `/approvals?request=${encodeURIComponent(id)}`,
+          ...(result.status === "PENDING" ? { adminUserId: adminId(request) } : {}),
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      }).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: id }, "Failed to clear resolved approval notifications"));
+      if (result.status === "PENDING") {
+        await notifyApprovalAssignees(request.programId, id).catch((error: unknown) =>
+          request.log.warn({ err: error, approvalRequestId: id }, "Failed to notify next approval assignees"),
+        );
+      }
       if (result.status === "APPROVED" || result.status === "REJECTED" || result.status === "CANCELLED") {
         const requestOwner = await prisma.approvalRequest.findFirst({
           where: { id, programId: request.programId },
-          select: { requesterAdminId: true, actionKey: true, subjectType: true, subjectId: true, resolutionComment: true },
+          select: { requesterAdminId: true, actionKey: true, subjectType: true, subjectId: true, resolutionComment: true, payload: true },
         });
         if (requestOwner?.requesterAdminId) {
           await prisma.adminApprovalNotificationRead.deleteMany({
             where: { adminUserId: requestOwner.requesterAdminId, approvalRequestId: id },
           });
           const outcome = result.status.toLowerCase();
+          const notificationStatus = exchangeStatus === "COMPLETED" ? "completed" : outcome;
+          const outcomeComment = [
+            exchangeStatus === "COMPLETED" ? "The voucher was automatically completed after final workflow approval." : "",
+            requestOwner.resolutionComment ?? "",
+          ].filter(Boolean).join(" ");
+          const subjectName = await approvalSubjectName(
+            request.programId,
+            requestOwner.subjectType,
+            requestOwner.subjectId,
+            requestOwner.payload,
+          );
           await createAdminActivityNotification({
             programId: request.programId,
             adminUserId: requestOwner.requesterAdminId,
             triggerEvent: "admin.approval.resolved",
             idempotencyKey: `approval-resolved:${id}:${result.status}`,
-            title: `Approval ${outcome}`,
-            body: `Your ${requestOwner.actionKey.replaceAll("_", " ").toLowerCase()} request was ${outcome}. ${requestOwner.resolutionComment ?? ""}`.trim(),
+            title: exchangeStatus === "COMPLETED" ? "Point exchange completed" : "Approval request resolved",
+            body: "An approval request was resolved.",
             actionUrl: requestOwner.subjectType === "Project" ? `/projects?project=${encodeURIComponent(requestOwner.subjectId)}` : `/approvals?request=${encodeURIComponent(id)}`,
             entityType: requestOwner.subjectType,
             entityId: requestOwner.subjectId,
             context: {
               approval: {
                 actionKey: requestOwner.actionKey,
-                status: outcome,
+                actionLabels: approvalActionLabels(requestOwner.actionKey),
+                status: notificationStatus,
                 subjectType: requestOwner.subjectType,
                 subjectId: requestOwner.subjectId,
-                comment: requestOwner.resolutionComment ?? "",
+                subjectName,
+                comment: outcomeComment,
+                ...(exchangeStatus ? { subjectStatus: exchangeStatus } : {}),
               },
             },
           }).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: id }, "Failed to notify approval requester"));
@@ -173,8 +213,8 @@ export function adminApprovalsRoutes(
           request.log.error({ err: error, approvalRequestId: id }, "Failed to run approved campaign occasions");
         });
       }
-      if (result.actionKey === "POINT_EXCHANGE" && (result.status === "APPROVED" || result.status === "REJECTED")) {
-        await notifyCreditExchangeDecision(request.programId, result.subjectId, result.status);
+      if (exchangeStatus) {
+        await notifyCreditExchangeDecision(request.programId, result.subjectId, exchangeStatus);
       }
       if (result.actionKey === "REWARD_REDEMPTION" && result.status === "REJECTED") {
         const redemption = await prisma.rewardRedemption.findFirst({
@@ -263,6 +303,10 @@ export function adminApprovalsRoutes(
         subjectType: result.subjectType,
         subjectId: result.subjectId,
         status: result.status,
+        ...(exchangeStatus ? {
+          subjectStatus: exchangeStatus,
+          ...(exchangeStatus === "COMPLETED" ? { completionReference: `approval:${id}` } : {}),
+        } : {}),
         comment: body.comment ?? null,
       });
       return reply.send({ data: result });

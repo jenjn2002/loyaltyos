@@ -23,7 +23,7 @@ export const adminGuide: AdminGuideTopic[] = [
     id: "roles-permissions", title: "Roles & permissions", group: "Tổng quan và quản trị", route: "/permissions", image: "roles",
     purpose: "Tạo vai trò quản trị riêng và cấp quyền theo nhóm tính năng, để mỗi nhân viên chỉ truy cập đúng phần việc cần thiết.",
     prerequisites: "Cần quyền quản lý phân quyền. Quyền truy cập admin và quyền trên từng chức năng được kiểm tra riêng.",
-    steps: ["Mở Roles & permissions; chọn một role để xem hoặc chỉnh quyền.", "Tạo role mới với tên mô tả công việc, ví dụ Người duyệt chiến dịch.", "Mở từng nhóm tính năng giống taskbar, rồi bật quyền xem hoặc quản lý cần thiết.", "Lưu role, gán role cho tài khoản admin phù hợp và đăng nhập thử bằng tài khoản có phạm vi thấp."],
+    steps: ["Mở Roles & permissions; chọn một role để xem hoặc chỉnh quyền.", "Tạo role mới với tên mô tả công việc, ví dụ Người duyệt chiến dịch.", "Bật từng quyền cần thiết hoặc dùng Chọn tất cả/Bỏ chọn tất cả ở một nhóm hay toàn bộ role; kiểm tra lại trước khi lưu.", "Lưu role, gán role cho tài khoản admin phù hợp và đăng nhập thử bằng tài khoản có phạm vi thấp."],
     result: "Menu và các thao tác được kiểm soát theo capability của role; thay đổi quyền có thể áp dụng ngay hoặc sau khi tải lại phiên.",
     notes: ["Cấp quyền tối thiểu cần dùng; quyền manage thường cho phép thay đổi dữ liệu.", "Không xóa hoặc hạ quyền tài khoản quản trị cuối cùng khi chưa xác nhận còn người quản trị khác."],
   },
@@ -158,7 +158,7 @@ export const adminGuide: AdminGuideTopic[] = [
   {
     id: "exchange", title: "Exchange vouchers", group: "Campaign, reward và đổi điểm", route: "/credits/exchange", image: "wallet",
     purpose: "Quản lý phiên bản tỷ lệ đổi điểm và các yêu cầu exchange của member qua vòng đời pending/approved/completed/rejected/cancelled.",
-    steps: ["Thiết lập tỷ lệ exchange mới; lưu ý cấu hình mới được version hóa.", "Mở request history, lọc trạng thái và mở yêu cầu để kiểm tra point, số lượng, member và tỷ lệ snapshot.", "Approve hoặc Reject theo quyền và quy trình; khi hoàn tất nghiệp vụ bên ngoài, chọn Complete và nhập external completion reference.", "Kiểm tra trạng thái cuối và ledger/notification liên quan."],
+    steps: ["Thiết lập tỷ lệ exchange mới, chọn ngày hết hạn hoặc No expiry; chọn No cumulative limit hoặc đặt hạn mức theo số ngày. Mỗi tỷ giá mới được version hóa.", "Mở request history, lọc trạng thái và mở yêu cầu để kiểm tra point, số lượng, member và tỷ lệ snapshot.", "Nếu request có workflow POINT_EXCHANGE, xử lý tại Approval inbox theo các bước và người duyệt đã cấu hình; khi hoàn tất nghiệp vụ bên ngoài, chọn Complete và nhập external completion reference.", "Kiểm tra trạng thái cuối và ledger/notification liên quan."],
     result: "Mỗi yêu cầu giữ tỷ giá snapshot tại lúc tạo. Từ chối/hủy có thể hoàn điểm theo luồng xử lý.",
     notes: ["Exchange voucher là bản ghi kế toán nội bộ; không đồng nghĩa app đã chuyển tiền/thực hiện giao dịch bên ngoài.", "Không hoàn tất nếu chưa có xác nhận nghiệp vụ thực tế hoặc reference theo quy trình tổ chức."],
   },

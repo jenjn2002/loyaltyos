@@ -1,19 +1,15 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
-import {
-  decideApprovalRequest,
-  ensurePointExchangeApprovalRequest,
-} from "../lib/approval-workflows.js";
+import { notifyApprovalAssignees, notifyDirectExchangeApprovers } from "../lib/admin-notifications.js";
 import { audit } from "../lib/audit.js";
 import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
-import { assertCapability, requireCapability } from "../lib/permissions.js";
+import { requireCapability } from "../lib/permissions.js";
 import { BANK_CYCLE_RETURN_TYPES, walletService } from "../lib/wallets.js";
-import { pointExchangeApprovalHook } from "../lib/workflow-integrations.js";
 import { notifyCreditAdjustment, notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
 function idempotencyKey(request: {
@@ -52,6 +48,19 @@ function netBankCycleAllocated(transactionTotal: number | null, fallback: number
 }
 
 const exchangeStatusSchema = z.enum(["PENDING", "APPROVED", "COMPLETED", "CANCELLED", "REJECTED"]);
+
+async function clearDirectExchangeNotifications(programId: string, voucherId: string): Promise<void> {
+  await prisma.adminNotification.updateMany({
+    where: {
+      programId,
+      triggerEvent: "admin.exchange.pending",
+      entityType: "PointExchangeRequest",
+      entityId: voucherId,
+      readAt: null,
+    },
+    data: { readAt: new Date() },
+  });
+}
 
 async function memberLocale(memberId: string, programId: string): Promise<string> {
   const member = await prisma.member.findFirst({
@@ -395,6 +404,15 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           request.memberId,
           { amount: body.amount, status: result.request.status, _locale: locale },
         ).catch((error: unknown) => request.log.warn({ err: error, memberId: request.memberId }, "Failed to notify exchange request submission"));
+        if (result.request.approvalRequestId) {
+          await notifyApprovalAssignees(request.programId, result.request.approvalRequestId).catch((error: unknown) =>
+            request.log.warn({ err: error, approvalRequestId: result.request.approvalRequestId }, "Failed to notify exchange approvers"),
+          );
+        } else {
+          await notifyDirectExchangeApprovers(request.programId, result.request.id, result.request.documentNumber).catch((error: unknown) =>
+            request.log.warn({ err: error, voucherId: result.request.id }, "Failed to notify direct exchange approvers"),
+          );
+        }
       }
       return reply.status(result.idempotent ? 200 : 201).send({ data: result });
     },
@@ -742,7 +760,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .extend({ memberId: z.string().optional(), status: exchangeStatusSchema.optional() })
         .parse(request.query);
       return reply.send({
-        data: await walletService.exchangeRequests(request.programId, query),
+        data: await walletService.exchangeRequests(request.programId, {
+          ...query,
+          includeApprovalDetails: true,
+        }),
       });
     },
   );
@@ -760,39 +781,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .parse(request.body);
       const voucher = await prisma.pointExchangeRequest.findFirst({
         where: { id, programId: request.programId },
-        select: { memberId: true, approvalRequestId: true },
+        select: { approvalRequestId: true },
       });
       if (!voucher) throw new LoyaltyError("POINT_EXCHANGE_REQUEST_NOT_FOUND", 404);
-      const approval = await ensurePointExchangeApprovalRequest(
-        request.programId,
-        id,
-        voucher.memberId,
-      );
-      if (approval) {
-        await assertCapability(request, "approval.decide");
-        if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
-        await decideApprovalRequest(
-          request.programId,
-          approval.id,
-          request.adminId,
-          "APPROVE",
-          body.note,
-          pointExchangeApprovalHook,
-        );
-        const result = await prisma.pointExchangeRequest.findUniqueOrThrow({ where: { id } });
-        if (result.status === "APPROVED" || result.status === "REJECTED") {
-          await notifyCreditExchangeDecision(request.programId, id, result.status);
-        }
-        await audit(
-          request.programId,
-          request.actor,
-          "CREDIT_EXCHANGE",
-          "point_exchange_request",
-          id,
-          { status: result.status, documentNumber: result.documentNumber, note: body.note },
-        );
-        return reply.send({ data: result });
-      }
+      if (voucher.approvalRequestId) throw new LoyaltyError("POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW", 409);
       const result = await walletService.updateExchangeRequest(
         request.programId,
         id,
@@ -803,6 +795,9 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       if (result.status === "APPROVED" || result.status === "REJECTED") {
         await notifyCreditExchangeDecision(request.programId, id, result.status);
       }
+      await clearDirectExchangeNotifications(request.programId, id).catch((error: unknown) =>
+        request.log.warn({ err: error, voucherId: id }, "Failed to clear direct exchange notifications"),
+      );
       await audit(
         request.programId,
         request.actor,
@@ -862,16 +857,61 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           reason: z.string().trim().min(1).max(500),
         })
         .parse(request.body);
-      const result = await walletService.updateExchangeRequest(
-        request.programId,
-        id,
-        body.status,
-        request.actor,
-        { reason: body.reason },
-      );
+      const result = await prisma.$transaction(async (tx) => {
+        const voucher = await tx.pointExchangeRequest.findFirst({
+          where: { id, programId: request.programId },
+          select: { status: true, approvalRequestId: true },
+        });
+        if (!voucher) throw new LoyaltyError("POINT_EXCHANGE_REQUEST_NOT_FOUND", 404);
+        if (voucher.approvalRequestId && voucher.status === "PENDING") {
+          if (body.status === "REJECTED") throw new LoyaltyError("POINT_EXCHANGE_REJECT_VIA_WORKFLOW", 409);
+          const now = new Date();
+          const changed = await tx.approvalRequest.updateMany({
+            where: {
+              id: voucher.approvalRequestId,
+              programId: request.programId,
+              actionKey: "POINT_EXCHANGE",
+              subjectId: id,
+              status: "PENDING",
+            },
+            data: {
+              status: "CANCELLED",
+              currentStepOrder: null,
+              resolvedAt: now,
+              resolvedBy: request.adminId,
+              resolutionComment: body.reason,
+            },
+          });
+          if (changed.count !== 1) throw new LoyaltyError("APPROVAL_REQUEST_NOT_PENDING", 409);
+          await tx.approvalRequestStep.updateMany({
+            where: { approvalRequestId: voucher.approvalRequestId, status: { in: ["PENDING", "WAITING"] } },
+            data: { status: "SKIPPED", completedAt: now },
+          });
+          await tx.adminNotification.updateMany({
+            where: {
+              programId: request.programId,
+              triggerEvent: "admin.approval.pending",
+              actionUrl: `/approvals?request=${encodeURIComponent(voucher.approvalRequestId)}`,
+              readAt: null,
+            },
+            data: { readAt: now },
+          });
+        }
+        return walletService.updateExchangeRequestWithTransaction(
+          tx,
+          request.programId,
+          id,
+          body.status,
+          request.actor,
+          { reason: body.reason },
+        );
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       if (result.status === "REJECTED" || result.status === "CANCELLED") {
         await notifyCreditExchangeDecision(request.programId, id, result.status);
       }
+      await clearDirectExchangeNotifications(request.programId, id).catch((error: unknown) =>
+        request.log.warn({ err: error, voucherId: id }, "Failed to clear direct exchange notifications"),
+      );
       await audit(
         request.programId,
         request.actor,
@@ -903,16 +943,21 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           maxPoints: z.number().int().positive().optional(),
           periodLimitPoints: z.number().int().positive().optional(),
           periodDays: z.number().int().positive().max(3660).default(30),
+          expiresAt: z.string().datetime().nullish(),
         })
         .refine(
           (value) => value.maxPoints == null || value.maxPoints >= value.minPoints,
           "Maximum must be greater than or equal to minimum",
         )
+        .refine(
+          (value) => value.expiresAt == null || new Date(value.expiresAt).getTime() > Date.now(),
+          "Expiry must be in the future",
+        )
         .parse(request.body);
       const result = await walletService.createExchangeRate(
         request.programId,
         { pointTypeId: body.pointTypeId },
-        body,
+        { ...body, expiresAt: body.expiresAt ? new Date(body.expiresAt) : null },
       );
       await audit(
         request.programId,

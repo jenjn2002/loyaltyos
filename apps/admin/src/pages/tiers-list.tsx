@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface TierItem {
   id: string;
@@ -63,6 +64,7 @@ interface PointTypeItem {
 }
 
 export function TiersListPage(): JSX.Element {
+  const canManage = useAdminCapability("tier.manage");
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export function TiersListPage(): JSX.Element {
 
   const { data: pointTypes } = useQuery({
     queryKey: ["point-types", "tiers"],
-    queryFn: () => fetchApi<PointTypeItem[]>("/admin/point-types"),
+    queryFn: () => fetchApi<PointTypeItem[]>("/point-types"),
   });
   const activePointTypes = (pointTypes ?? []).filter(
     (pointType) => pointType.isActive && !pointType.archivedAt,
@@ -269,7 +271,7 @@ export function TiersListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("tiers.title")}</h1>
-        <Button
+        {canManage && <Button
           onClick={() => {
             setNewTier(true);
             setFormData({
@@ -282,7 +284,7 @@ export function TiersListPage(): JSX.Element {
           }}
           disabled={newTier}
         >
-          <Plus className="mr-2 h-4 w-4" />{ui("New Tier")}</Button>
+          <Plus className="mr-2 h-4 w-4" />{ui("New Tier")}</Button>}
       </div>
 
       {!isLoading && tiers && tiers.length > 0 && (
@@ -348,7 +350,7 @@ export function TiersListPage(): JSX.Element {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {newTier && (
+                {newTier && canManage && (
                   <TableRow>
                     <TableCell className="text-muted-foreground">{ui("New")}</TableCell>
                     <TableCell>
@@ -408,7 +410,7 @@ export function TiersListPage(): JSX.Element {
                       <Badge variant="secondary">{String(tier.rank)}</Badge>
                     </TableCell>
                     <TableCell>
-                      {editingId === tier.id ? (
+                      {editingId === tier.id && canManage ? (
                         <Input
                           value={formData.name}
                           onChange={(e) => {
@@ -420,15 +422,15 @@ export function TiersListPage(): JSX.Element {
                       )}
                     </TableCell>
                     <TableCell>
-                      {editingId === tier.id
+                      {editingId === tier.id && canManage
                         ? renderRequirements(formData.requirements, true)
                         : renderRequirements(tierRequirements(tier), false)}
                     </TableCell>
                     <TableCell>
-                      {editingId === tier.id ? null : <span>--</span>}
+                      {editingId === tier.id && canManage ? null : <span>--</span>}
                     </TableCell>
                     <TableCell>
-                      {editingId === tier.id ? (
+                      {editingId === tier.id && canManage ? (
                         <select
                           aria-label={ui("Logic")}
                           className="h-9 rounded-md border bg-background px-2 text-xs"
@@ -457,7 +459,7 @@ export function TiersListPage(): JSX.Element {
                       {tier.createdBy ? <><p className="font-medium">{tier.createdBy.name}</p><p className="text-xs text-muted-foreground">{tier.createdBy.email}</p></> : <span className="text-muted-foreground">{ui("System / legacy")}</span>}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      {canManage && <div className="flex gap-1">
                         {editingId === tier.id ? (
                           <Button
                             size="sm"
@@ -509,7 +511,7 @@ export function TiersListPage(): JSX.Element {
                         >
                           <ArrowDown className="h-4 w-4" />
                         </Button>
-                      </div>
+                      </div>}
                     </TableCell>
                   </TableRow>
                 ))}

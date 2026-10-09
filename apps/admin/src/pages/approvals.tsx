@@ -113,18 +113,25 @@ export function ApprovalsPage(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const handledLink = useRef<string | null>(null);
   const currentAdmin = useQuery({ queryKey: ["admin", "me"], queryFn: () => fetchApi<AdminMe>("/admin/me") });
-  const inbox = useQuery({ queryKey: ["admin", "approvals", "inbox"], queryFn: () => fetchApi<ApprovalRequest[]>("/admin/approvals/inbox") });
-  const history = useQuery({ queryKey: ["admin", "approvals", "history"], queryFn: () => fetchApi<ApprovalRequest[]>("/admin/approvals/history"), enabled: tab === "history" });
+  const canInbox = currentAdmin.data?.capabilities?.["approval.inbox"] === true;
+  const canHistory = currentAdmin.data?.capabilities?.["approval.view"] === true;
+  const inbox = useQuery({ queryKey: ["admin", "approvals", "inbox"], queryFn: () => fetchApi<ApprovalRequest[]>("/admin/approvals/inbox"), enabled: canInbox });
+  const history = useQuery({ queryKey: ["admin", "approvals", "history"], queryFn: () => fetchApi<ApprovalRequest[]>("/admin/approvals/history"), enabled: tab === "history" && canHistory });
+  useEffect(() => {
+    if (currentAdmin.data && !canInbox && canHistory) setTab("history");
+  }, [currentAdmin.data, canInbox, canHistory]);
   useEffect(() => {
     const requestId = searchParams.get("request");
     if (!requestId) { handledLink.current = null; return; }
-    if (handledLink.current === requestId || !inbox.data) return;
+    if (handledLink.current === requestId || (canInbox && !inbox.data)) return;
     handledLink.current = requestId;
-    setTab(inbox.data.some((request) => request.id === requestId) ? "inbox" : "history");
+    const isPendingForMe = inbox.data?.some((request) => request.id === requestId) ?? false;
+    setTab(isPendingForMe ? "inbox" : "history");
+    if (isPendingForMe) markRead(requestId);
     setSelectedId(requestId);
     setComment("");
-  }, [inbox.data, searchParams]);
-  const detail = useQuery({ queryKey: ["admin", "approval", selectedId], queryFn: () => fetchApi<ApprovalRequest>("/admin/approvals/" + selectedId), enabled: Boolean(selectedId) });
+  }, [inbox.data, searchParams, canInbox]);
+  const detail = useQuery({ queryKey: ["admin", "approval", selectedId], queryFn: () => fetchApi<ApprovalRequest>("/admin/approvals/" + selectedId), enabled: Boolean(selectedId) && canHistory });
   const decide = useMutation({
     mutationFn: ({ id, decision, comment: decisionComment }: { id: string; decision: "approve" | "reject"; comment: string }) =>
       fetchApi<ApprovalRequest>("/admin/approvals/" + id + "/" + decision, { method: "POST", body: JSON.stringify({ comment: decisionComment.trim() || undefined }) }),
@@ -137,7 +144,7 @@ export function ApprovalsPage(): JSX.Element {
   });
   const source = tab === "inbox" ? inbox : history;
   const rows = source.data ?? [];
-  const selected = detail.data;
+  const selected = canHistory ? detail.data : inbox.data?.find((request) => request.id === selectedId);
   const activeStep = selected?.steps.find((step) => step.status === "PENDING");
   const canDecide = Boolean(activeStep && currentAdmin.data?.id && currentAdmin.data.capabilities?.["approval.decide"] && activeStep.assigneesSnapshot.some((assignee) => assignee.adminId === currentAdmin.data?.id) && !activeStep.decisions.some((decision) => decision.approver.id === currentAdmin.data?.id));
   const changeTab = (next: "inbox" | "history"): void => {
@@ -147,7 +154,7 @@ export function ApprovalsPage(): JSX.Element {
   return <div className="space-y-6">
     <header><h1 className="flex items-center gap-2 text-3xl font-bold"><Clock3 />{ui("Approval inbox")}</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">{tr("Review who requested the change, what it affects, and why before making a decision.", "Xem người đề nghị, nội dung thay đổi và lý do trước khi quyết định.")}</p></header>
     {notice && <div role="status" className="rounded-md border bg-muted p-3 text-sm">{notice}</div>}
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2"><div className="flex gap-2"><Button disabled={decide.isPending} variant={tab === "inbox" ? "default" : "ghost"} onClick={() => changeTab("inbox")}>{ui("My inbox")}</Button><Button disabled={decide.isPending} variant={tab === "history" ? "default" : "ghost"} onClick={() => changeTab("history")}>{ui("History")}</Button></div><Button variant="outline" disabled={source.isFetching || decide.isPending} onClick={() => { void source.refetch(); if (selectedId) void detail.refetch(); }}><RefreshCw className="mr-2 h-4 w-4" />{ui("Refresh")}</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2"><div className="flex gap-2">{canInbox && <Button disabled={decide.isPending} variant={tab === "inbox" ? "default" : "ghost"} onClick={() => changeTab("inbox")}>{ui("My inbox")}</Button>}{canHistory && <Button disabled={decide.isPending} variant={tab === "history" ? "default" : "ghost"} onClick={() => changeTab("history")}>{ui("History")}</Button>}</div><Button variant="outline" disabled={source.isFetching || decide.isPending} onClick={() => { void source.refetch(); if (selectedId && canHistory) void detail.refetch(); }}><RefreshCw className="mr-2 h-4 w-4" />{ui("Refresh")}</Button></div>
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]">
       <Card><CardHeader><CardTitle>{tab === "inbox" ? ui("Pending for me") : tr("Resolved requests", "Yêu cầu đã xử lý")}</CardTitle><CardDescription>{rows.length} {ui("request(s)")}</CardDescription></CardHeader><CardContent className="space-y-2">
         {source.isLoading && <p role="status" className="text-sm text-muted-foreground">{ui("Loading approvals…")}</p>}

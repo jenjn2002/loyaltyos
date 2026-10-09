@@ -12,6 +12,7 @@ export interface AdminApprovalNotification {
   requestedAt: string;
   isRead: boolean;
   workflow: { name: string };
+  notification?: { title: string; body: string } | null;
 }
 
 export interface AdminActivityNotification {
@@ -34,6 +35,7 @@ interface AdminNotificationsContextValue {
   unreadRequests: AdminApprovalNotification[];
   activities: AdminActivityNotification[];
   unreadActivities: AdminActivityNotification[];
+  pendingApprovalCount: number;
   unreadCount: number;
   isReady: boolean;
   markRead: (id: string) => void;
@@ -49,34 +51,37 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
   const queryClient = useQueryClient();
   const admin = useQuery({
     queryKey: ["admin-me"],
-    queryFn: () => fetchApi<{ id: string }>("/admin/me"),
+    queryFn: () => fetchApi<{ id: string; capabilities: Record<string, boolean> }>("/admin/me"),
   });
+  const canInbox = admin.data?.capabilities["approval.inbox"] === true;
+  const canViewActivity = admin.data?.capabilities["notification.view"] === true;
   const approvals = useQuery({
     queryKey: ["admin", "approvals", "inbox"],
     queryFn: () => fetchApi<AdminApprovalNotification[]>("/admin/approvals/inbox"),
-    enabled: Boolean(admin.data?.id),
+    enabled: canInbox,
     refetchInterval: 30_000,
     retry: false,
   });
   const approvalUnreadCount = useQuery({
     queryKey: ["admin", "approvals", "inbox", "unread-count"],
     queryFn: () => fetchApi<{ unreadCount: number }>("/admin/approvals/inbox/unread-count"),
-    enabled: Boolean(admin.data?.id),
+    enabled: canInbox,
     refetchInterval: 30_000,
     retry: false,
   });
   const activity = useQuery({
     queryKey: ["admin", "notifications", "activity"],
     queryFn: () => fetchApi<AdminActivityResponse>("/admin/notifications/activity"),
-    enabled: Boolean(admin.data?.id),
+    enabled: canViewActivity,
     refetchInterval: 30_000,
     retry: false,
   });
-  const requests = approvals.data ?? [];
+  const requests = canInbox ? approvals.data ?? [] : [];
   const unreadRequests = requests.filter((request) => !request.isRead);
-  const activities = activity.data?.items ?? [];
+  const activities = canViewActivity ? activity.data?.items ?? [] : [];
   const unreadActivities = activities.filter((item) => !item.readAt);
   const updateReadState = (ids: string[], isRead: boolean, all = false) => {
+    if (!canInbox) return;
     const uniqueIds = [...new Set(ids)];
     if (!all && uniqueIds.length === 0) return;
     const idSet = new Set(uniqueIds);
@@ -98,6 +103,7 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
     }).catch(() => queryClient.invalidateQueries({ queryKey: ["admin", "approvals", "inbox"] }));
   };
   const updateActivityReadState = (ids: string[], isRead: boolean, all = false) => {
+    if (!canViewActivity) return;
     const uniqueIds = [...new Set(ids)];
     if (!all && uniqueIds.length === 0) return;
     const idSet = new Set(uniqueIds);
@@ -125,8 +131,9 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
       unreadRequests,
       activities,
       unreadActivities,
-      unreadCount: (approvalUnreadCount.data?.unreadCount ?? unreadRequests.length) + (activity.data?.unreadCount ?? unreadActivities.length),
-      isReady: Boolean(admin.data?.id && (approvals.isSuccess || activity.isSuccess)),
+      pendingApprovalCount: canInbox ? approvalUnreadCount.data?.unreadCount ?? unreadRequests.length : 0,
+      unreadCount: (canInbox ? approvalUnreadCount.data?.unreadCount ?? unreadRequests.length : 0) + (canViewActivity ? activity.data?.unreadCount ?? unreadActivities.length : 0),
+      isReady: Boolean(admin.data?.id && (!canInbox || approvals.isSuccess) && (!canViewActivity || activity.isSuccess)),
       markRead: (id) => updateReadState([id], true),
       markUnread: (id) => updateReadState([id], false),
       markActivityRead: (id) => updateActivityReadState([id], true),
@@ -136,7 +143,7 @@ export function AdminNotificationsProvider({ children }: { children: ReactNode }
         updateActivityReadState([], true, true);
       },
     }),
-    [admin.data?.id, approvals.isSuccess, activity.isSuccess, activity.data?.unreadCount, approvalUnreadCount.data?.unreadCount, activities, unreadActivities, requests, unreadRequests],
+    [admin.data?.id, canInbox, canViewActivity, approvals.isSuccess, activity.isSuccess, activity.data?.unreadCount, approvalUnreadCount.data?.unreadCount, activities, unreadActivities, requests, unreadRequests],
   );
 
   return <AdminNotificationsContext.Provider value={value}>{children}</AdminNotificationsContext.Provider>;

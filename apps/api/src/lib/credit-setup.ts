@@ -195,16 +195,59 @@ export async function ensureCreditNotificationTemplates(): Promise<void> {
     { name: "admin-project-task-completed-in-app", triggerEvent: "admin.project.task_completed", subject: "Project task completed: {{task.title}}", bodyText: "{{member.name}} completed {{task.title}} in project {{project.name}}.", locale: "en-US", channel: "IN_APP" },
     { name: "admin-project-task-completed", triggerEvent: "admin.project.task_completed", subject: "Nhiệm vụ dự án đã hoàn thành: {{task.title}}", bodyText: "{{member.name}} đã hoàn thành nhiệm vụ {{task.title}} trong dự án {{project.name}}.", locale: "vi-VN" },
     { name: "admin-project-task-completed", triggerEvent: "admin.project.task_completed", subject: "Project task completed: {{task.title}}", bodyText: "{{member.name}} completed {{task.title}} in project {{project.name}}.", locale: "en-US" },
-    { name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", subject: "Yêu cầu {{approval.actionKey}} đã {{approval.statusLabel}}", bodyText: "Yêu cầu phê duyệt {{approval.actionKey}} cho {{approval.subjectType}} {{approval.statusLabel}}. {{approval.comment}}", locale: "vi-VN", channel: "IN_APP" },
-    { name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", subject: "{{approval.actionKey}} request {{approval.statusLabel}}", bodyText: "Your {{approval.actionKey}} request for {{approval.subjectType}} was {{approval.statusLabel}}. {{approval.comment}}", locale: "en-US", channel: "IN_APP" },
-    { name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", subject: "Yêu cầu {{approval.actionKey}} đã {{approval.statusLabel}}", bodyText: "Yêu cầu phê duyệt {{approval.actionKey}} cho {{approval.subjectType}} {{approval.statusLabel}}. {{approval.comment}}", locale: "vi-VN" },
-    { name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", subject: "{{approval.actionKey}} request {{approval.statusLabel}}", bodyText: "Your {{approval.actionKey}} request for {{approval.subjectType}} was {{approval.statusLabel}}. {{approval.comment}}", locale: "en-US" },
+    { name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", subject: "{{approval.subjectName}} · {{approval.statusLabel}}", bodyText: "{{approval.actionLabel}} “{{approval.subjectName}}” đã {{approval.statusLabel}}. {{approval.comment}}", locale: "vi-VN", channel: "IN_APP" },
+    { name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", subject: "{{approval.subjectName}} · {{approval.statusLabel}}", bodyText: "{{approval.actionLabel}} “{{approval.subjectName}}” was {{approval.statusLabel}}. {{approval.comment}}", locale: "en-US", channel: "IN_APP" },
+    { name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", subject: "{{approval.subjectName}} · {{approval.statusLabel}}", bodyText: "{{approval.actionLabel}} “{{approval.subjectName}}” đã {{approval.statusLabel}}. {{approval.comment}}", locale: "vi-VN" },
+    { name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", subject: "{{approval.subjectName}} · {{approval.statusLabel}}", bodyText: "{{approval.actionLabel}} “{{approval.subjectName}}” was {{approval.statusLabel}}. {{approval.comment}}", locale: "en-US" },
     { name: "admin-approval-pending-in-app", triggerEvent: "admin.approval.pending", subject: "Cần phê duyệt: {{workflow.name}}", bodyText: "{{workflow.name}} đang chờ bạn xem xét và phê duyệt.", locale: "vi-VN", channel: "IN_APP" },
     { name: "admin-approval-pending-in-app", triggerEvent: "admin.approval.pending", subject: "Approval needed: {{workflow.name}}", bodyText: "{{workflow.name}} is waiting for your review and approval.", locale: "en-US", channel: "IN_APP" },
     { name: "admin-approval-pending", triggerEvent: "admin.approval.pending", subject: "Cần phê duyệt: {{workflow.name}}", bodyText: "{{workflow.name}} đang chờ bạn xem xét và phê duyệt.", locale: "vi-VN" },
     { name: "admin-approval-pending", triggerEvent: "admin.approval.pending", subject: "Approval needed: {{workflow.name}}", bodyText: "{{workflow.name}} is waiting for your review and approval.", locale: "en-US" },
+    { name: "admin-exchange-pending-in-app", triggerEvent: "admin.exchange.pending", subject: "Chứng từ đổi điểm chờ duyệt", bodyText: "Chứng từ {{voucher.documentNumber}} đang chờ bạn duyệt trực tiếp.", locale: "vi-VN", channel: "IN_APP" },
+    { name: "admin-exchange-pending-in-app", triggerEvent: "admin.exchange.pending", subject: "Exchange voucher awaiting approval", bodyText: "Voucher {{voucher.documentNumber}} is awaiting your direct approval.", locale: "en-US", channel: "IN_APP" },
+    { name: "admin-exchange-pending", triggerEvent: "admin.exchange.pending", subject: "Chứng từ đổi điểm chờ duyệt", bodyText: "Chứng từ {{voucher.documentNumber}} đang chờ bạn duyệt trực tiếp.", locale: "vi-VN" },
+    { name: "admin-exchange-pending", triggerEvent: "admin.exchange.pending", subject: "Exchange voucher awaiting approval", bodyText: "Voucher {{voucher.documentNumber}} is awaiting your direct approval.", locale: "en-US" },
     { name: "Magic Link", triggerEvent: "auth.magic_link", subject: "Đăng nhập vào {{program.name}}", bodyText: "Chọn liên kết sau để đăng nhập. Liên kết có thời hạn và chỉ sử dụng một lần: {{magicLinkUrl}}", locale: "vi-VN", transactional: true, fallbackChannel: null },
     { name: "Magic Link", triggerEvent: "auth.magic_link", subject: "Sign in to {{program.name}}", bodyText: "Use this one-time sign-in link before it expires: {{magicLinkUrl}}", locale: "en-US", transactional: true, fallbackChannel: null },
+  ];
+  const legacyApprovalResolvedTemplates: Array<{
+    name: string;
+    triggerEvent: string;
+    channel: "IN_APP" | "EMAIL";
+    locale: string;
+    oldSubject: string;
+    oldBody: string;
+    newSubject: string;
+    newBody: string;
+  }> = [
+    {
+      name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", channel: "IN_APP", locale: "vi-VN",
+      oldSubject: "Yêu cầu {{approval.actionKey}} đã {{approval.statusLabel}}",
+      oldBody: "Yêu cầu phê duyệt {{approval.actionKey}} cho {{approval.subjectType}} {{approval.statusLabel}}. {{approval.comment}}",
+      newSubject: "{{approval.subjectName}} · {{approval.statusLabel}}",
+      newBody: "{{approval.actionLabel}} “{{approval.subjectName}}” đã {{approval.statusLabel}}. {{approval.comment}}",
+    },
+    {
+      name: "admin-approval-resolved-in-app", triggerEvent: "admin.approval.resolved", channel: "IN_APP", locale: "en-US",
+      oldSubject: "{{approval.actionKey}} request {{approval.statusLabel}}",
+      oldBody: "Your {{approval.actionKey}} request for {{approval.subjectType}} was {{approval.statusLabel}}. {{approval.comment}}",
+      newSubject: "{{approval.subjectName}} · {{approval.statusLabel}}",
+      newBody: "{{approval.actionLabel}} “{{approval.subjectName}}” was {{approval.statusLabel}}. {{approval.comment}}",
+    },
+    {
+      name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", channel: "EMAIL", locale: "vi-VN",
+      oldSubject: "Yêu cầu {{approval.actionKey}} đã {{approval.statusLabel}}",
+      oldBody: "Yêu cầu phê duyệt {{approval.actionKey}} cho {{approval.subjectType}} {{approval.statusLabel}}. {{approval.comment}}",
+      newSubject: "{{approval.subjectName}} · {{approval.statusLabel}}",
+      newBody: "{{approval.actionLabel}} “{{approval.subjectName}}” đã {{approval.statusLabel}}. {{approval.comment}}",
+    },
+    {
+      name: "admin-approval-resolved", triggerEvent: "admin.approval.resolved", channel: "EMAIL", locale: "en-US",
+      oldSubject: "{{approval.actionKey}} request {{approval.statusLabel}}",
+      oldBody: "Your {{approval.actionKey}} request for {{approval.subjectType}} was {{approval.statusLabel}}. {{approval.comment}}",
+      newSubject: "{{approval.subjectName}} · {{approval.statusLabel}}",
+      newBody: "{{approval.actionLabel}} “{{approval.subjectName}}” was {{approval.statusLabel}}. {{approval.comment}}",
+    },
   ];
   for (const program of programs) {
     for (const template of templates) {
@@ -226,6 +269,21 @@ export async function ensureCreditNotificationTemplates(): Promise<void> {
         update: template.triggerEvent === "auth.magic_link"
           ? { transactional: true, fallbackChannel: null }
           : {},
+      });
+    }
+    for (const legacy of legacyApprovalResolvedTemplates) {
+      await prisma.notificationTemplate.updateMany({
+        where: {
+          programId: program.id,
+          name: legacy.name,
+          triggerEvent: legacy.triggerEvent,
+          channel: legacy.channel,
+          locale: legacy.locale,
+          subject: legacy.oldSubject,
+          bodyText: legacy.oldBody,
+          bodyHtml: null,
+        },
+        data: { subject: legacy.newSubject, bodyText: legacy.newBody },
       });
     }
   }

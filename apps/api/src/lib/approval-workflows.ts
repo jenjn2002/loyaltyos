@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { prisma } from "../db.js";
 import { LoyaltyError } from "./errors.js";
+import { defaultCapability, type AdminCapability } from "./permissions.js";
 
 export const BUILTIN_WORKFLOW_ACTIONS = [
   "POINT_EXCHANGE",
@@ -35,6 +36,7 @@ export interface WorkflowDefinitionInput {
 /** Known built-in filters plus room for module-specific JSON fields. */
 export interface WorkflowScope {
   pointTypeIds?: string[];
+  payoutTypes?: ("CASH" | "NON_CASH")[];
   minAmount?: number;
   maxAmount?: number;
   minValueMinor?: number;
@@ -46,6 +48,7 @@ export interface WorkflowScope {
 
 export interface WorkflowMatchContext {
   pointTypeId?: string;
+  payoutType?: "CASH" | "NON_CASH";
   amount?: number;
   valueMinor?: number;
   rewardId?: string;
@@ -149,7 +152,7 @@ function numberValue(scope: WorkflowScope, key: string): number | undefined {
 }
 
 function validateScope(actionKey: string, scope: WorkflowScope): void {
-  const arrayKeys = ["pointTypeIds", "rewardIds", "rewardCategories"];
+  const arrayKeys = ["pointTypeIds", "payoutTypes", "rewardIds", "rewardCategories"];
   for (const key of arrayKeys) {
     const value = scope[key];
     if (value !== undefined) {
@@ -158,6 +161,9 @@ function validateScope(actionKey: string, scope: WorkflowScope): void {
       if (new Set(value).size !== value.length) throw new LoyaltyError("WORKFLOW_SCOPE_DUPLICATE_VALUE", 400);
     }
   }
+  if (scope.payoutTypes !== undefined &&
+      (!Array.isArray(scope.payoutTypes) || scope.payoutTypes.some((value) => value !== "CASH" && value !== "NON_CASH")))
+    throw new LoyaltyError("WORKFLOW_SCOPE_INVALID", 400);
   const numericKeys = ["minAmount", "maxAmount", "minValueMinor", "maxValueMinor"];
   for (const key of numericKeys) {
     const value = scope[key];
@@ -173,6 +179,8 @@ function validateScope(actionKey: string, scope: WorkflowScope): void {
   if (minValueMinor != null && maxValueMinor != null && minValueMinor > maxValueMinor)
     throw new LoyaltyError("WORKFLOW_SCOPE_RANGE_INVALID", 400);
   if (actionKey === "POINT_EXCHANGE" && (scope.rewardIds !== undefined || scope.rewardCategories !== undefined))
+    throw new LoyaltyError("WORKFLOW_SCOPE_INVALID", 400);
+  if (actionKey !== "POINT_EXCHANGE" && scope.payoutTypes !== undefined)
     throw new LoyaltyError("WORKFLOW_SCOPE_INVALID", 400);
   if (actionKey === "REWARD_REDEMPTION" &&
       (scope.pointTypeIds !== undefined || minAmount != null || maxAmount != null || minValueMinor != null || maxValueMinor != null))
@@ -207,6 +215,7 @@ export function workflowScopesMayOverlap(
   if (["POINT_EXCHANGE", "POINT_ISSUANCE_PROPOSAL", "CAMPAIGN_ISSUANCE_PROPOSAL"].includes(actionKey)) {
     return (
       listMayOverlap(stringList(left, "pointTypeIds"), stringList(right, "pointTypeIds")) &&
+      (actionKey !== "POINT_EXCHANGE" || listMayOverlap(stringList(left, "payoutTypes"), stringList(right, "payoutTypes"))) &&
       rangesMayOverlap(left, right, "minAmount", "maxAmount") &&
       rangesMayOverlap(left, right, "minValueMinor", "maxValueMinor")
     );
@@ -231,6 +240,10 @@ export function workflowMatchesScope(
   if (["POINT_EXCHANGE", "POINT_ISSUANCE_PROPOSAL", "CAMPAIGN_ISSUANCE_PROPOSAL"].includes(actionKey)) {
     const pointTypeIds = stringList(scope, "pointTypeIds");
     if (pointTypeIds?.length && (!context.pointTypeId || !pointTypeIds.includes(context.pointTypeId))) return false;
+    if (actionKey === "POINT_EXCHANGE") {
+      const payoutTypes = stringList(scope, "payoutTypes");
+      if (payoutTypes?.length && (!context.payoutType || !payoutTypes.includes(context.payoutType))) return false;
+    }
     for (const [minKey, maxKey, contextKey] of [
       ["minAmount", "maxAmount", "amount"],
       ["minValueMinor", "maxValueMinor", "valueMinor"],
@@ -652,6 +665,24 @@ export async function createApprovalRequestWithClient(
     snapshots.push({ step, assignees, required });
   }
 
+  if (input.actionKey === "POINT_EXCHANGE") {
+    const capabilities: AdminCapability[] = ["approval.inbox", "approval.view", "approval.decide"];
+    const roles = [...new Set(snapshots.flatMap(({ assignees }) => assignees.map((assignee) => assignee.role)))];
+    const overrides = await tx.adminRolePermission.findMany({
+      where: { programId: input.programId, role: { in: roles }, capability: { in: capabilities } },
+      select: { role: true, capability: true, allowed: true },
+    });
+    const byRoleAndCapability = new Map(overrides.map((item) => [`${item.role}:${item.capability}`, item.allowed]));
+    for (const { assignees } of snapshots) {
+      for (const assignee of assignees) {
+        if (capabilities.some((capability) =>
+          !(byRoleAndCapability.get(`${assignee.role}:${capability}`) ?? defaultCapability(assignee.role, capability)))) {
+          throw new LoyaltyError("POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING", 409);
+        }
+      }
+    }
+  }
+
   const request = await tx.approvalRequest.create({
     data: {
       programId: input.programId,
@@ -764,7 +795,12 @@ export async function listApprovalRequests(
       workflow: { select: { actionKey: true, name: true } },
       steps: {
         orderBy: { stepOrder: "asc" },
-        include: { decisions: { select: { decision: true, approverAdminId: true } } },
+        include: {
+          decisions: {
+            orderBy: { createdAt: "asc" },
+            include: { approver: { select: { id: true, name: true, email: true, role: true } } },
+          },
+        },
       },
     },
     orderBy: input.requesterAdminId ? { resolvedAt: "desc" } : { requestedAt: "desc" },
@@ -786,7 +822,12 @@ export async function listApprovalRequests(
     : withWorkflowSnapshotName.filter((request) => {
         if (request.status !== "PENDING" || request.currentStepOrder == null) return false;
         const step = request.steps.find((candidate) => candidate.stepOrder === request.currentStepOrder);
-        return Boolean(step && step.status === "PENDING" && includesApprover(step, inboxAdminId!));
+        return Boolean(
+          step &&
+          step.status === "PENDING" &&
+          includesApprover(step, inboxAdminId!) &&
+          !step.decisions.some((decision) => decision.approverAdminId === inboxAdminId),
+        );
       });
   const visibleInbox = inbox;
   if (visibleInbox.length === 0) return [];
@@ -944,48 +985,4 @@ export async function decideApprovalRequestWithClient(
       }
     }
   return getApprovalRequestWithClient(tx, programId, request.id);
-}
-
-export async function ensurePointExchangeApprovalRequest(
-  programId: string,
-  pointExchangeRequestId: string,
-  memberId: string,
-) {
-  return serializable(prisma, async (tx) => {
-    const voucher = await tx.pointExchangeRequest.findFirst({
-      where: { id: pointExchangeRequestId, programId, memberId },
-    });
-    if (!voucher) throw new LoyaltyError("POINT_EXCHANGE_REQUEST_NOT_FOUND", 404);
-    if (voucher.approvalRequestId)
-      return getApprovalRequestWithClient(tx, programId, voucher.approvalRequestId);
-    const approval = await createApprovalRequestWithClient(tx, {
-      programId,
-      actionKey: "POINT_EXCHANGE",
-      requestedByType: "MEMBER",
-      requestedById: memberId,
-      subjectType: "PointExchangeRequest",
-      subjectId: voucher.id,
-      payload: {
-        documentNumber: voucher.documentNumber,
-        memberId: voucher.memberId,
-        pointTypeId: voucher.pointTypeId,
-        amount: voucher.amount,
-        valueMinor: voucher.valueMinor,
-        currency: voucher.currency,
-        payoutType: voucher.payoutType,
-      },
-      idempotencyKey: `point-exchange:${voucher.id}`,
-      scopeContext: {
-        pointTypeId: voucher.pointTypeId,
-        amount: voucher.amount,
-        valueMinor: voucher.valueMinor,
-      },
-    });
-    if (!approval) return null;
-    await tx.pointExchangeRequest.update({
-      where: { id: voucher.id },
-      data: { approvalRequestId: approval.id },
-    });
-    return getApprovalRequestWithClient(tx, programId, approval.id);
-  });
 }

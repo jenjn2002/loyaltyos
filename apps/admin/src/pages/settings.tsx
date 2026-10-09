@@ -11,7 +11,10 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SystemBrandingSettings } from "@/components/system-branding-settings";
+import { ApiAccessSettings } from "@/components/api-access-settings";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface MicrosoftSettings {
   enabled: boolean;
@@ -29,6 +32,7 @@ interface MicrosoftSettings {
 const DEFAULT_SCOPES = ["openid", "profile", "email"];
 
 export function SettingsPage(): JSX.Element {
+  const canManage = useAdminCapability("settings.manage");
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
@@ -121,12 +125,15 @@ export function SettingsPage(): JSX.Element {
           {notice}
         </div>
       )}
+      <SystemBrandingSettings canManage={canManage} />
+      <ApiAccessSettings />
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.microsoft.title")}</CardTitle>
           <CardDescription>{t("settings.microsoft.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          <fieldset disabled={!canManage} className="space-y-5">
           <div className="flex items-center justify-between rounded-md border p-3">
             <div className="flex items-center gap-2">
               <Label htmlFor="microsoft-enabled">{t("settings.microsoft.enabled")}</Label>
@@ -254,6 +261,7 @@ export function SettingsPage(): JSX.Element {
               </div>
             </div>
           </div>
+          </fieldset>
 
           <div className="rounded-md bg-muted p-4 text-sm">
             <div className="mb-2 flex items-center gap-2 font-medium">
@@ -312,7 +320,7 @@ export function SettingsPage(): JSX.Element {
             </ul>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-t pt-4">
+          {canManage && <div className="flex flex-wrap gap-2 border-t pt-4">
             <Button
               type="button"
               disabled={save.isPending}
@@ -339,7 +347,7 @@ export function SettingsPage(): JSX.Element {
                 <Check className="h-3 w-3" /> {t("settings.microsoft.enabledConfigured")}
               </Badge>
             )}
-          </div>
+          </div>}
         </CardContent>
       </Card>
     </div>

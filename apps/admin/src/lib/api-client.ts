@@ -1,5 +1,59 @@
+import i18n, {
+  getAdminLocalePreference,
+  getLegacyExplicitLocale,
+  persistLocale,
+  persistProfileLocale,
+  type AdminLocale,
+} from "@/i18n";
+
 const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
 const PROGRAM_ID: string = (import.meta.env.VITE_PROGRAM_ID as string | undefined) ?? "prog_dev";
+
+interface AdminLocaleProfile {
+  id: string;
+  locale?: string | null;
+}
+
+function isAdminLocale(value: unknown): value is AdminLocale {
+  return value === "vi-VN" || value === "en-US";
+}
+
+async function hydrateAdminLocale(profile: AdminLocaleProfile): Promise<void> {
+  const profileLocale: AdminLocale = isAdminLocale(profile.locale) ? profile.locale : "vi-VN";
+  const preference = getAdminLocalePreference(profile.id);
+  const explicitLocale = preference?.source === "explicit"
+    ? preference.locale
+    : preference ? null : getLegacyExplicitLocale();
+
+  if (explicitLocale) {
+    if (profileLocale !== explicitLocale) {
+      try {
+        const updated = await fetchApi<{ id: string; locale: string }>("/admin/me", {
+          method: "PATCH",
+          body: JSON.stringify({ locale: explicitLocale }),
+        });
+        if (updated.id !== profile.id || updated.locale !== explicitLocale) {
+          throw new Error("The admin language preference was not saved.");
+        }
+      } catch (error) {
+        // The profile controls notification language. If the preference cannot
+        // be synchronized, roll back to it rather than leave the UI and notices
+        // silently using different languages.
+        await i18n.changeLanguage(profileLocale);
+        persistProfileLocale(profileLocale, profile.id);
+        console.error("Could not synchronize the admin language preference; using the saved profile locale.", error);
+        return;
+      }
+    }
+    persistLocale(explicitLocale, profile.id, "explicit");
+    await i18n.changeLanguage(explicitLocale);
+    return;
+  }
+
+  persistProfileLocale(profileLocale, profile.id);
+  await i18n.changeLanguage(profileLocale);
+}
+
 export function configuredProgramId(): string {
   return PROGRAM_ID;
 }
@@ -91,6 +145,10 @@ export async function restoreAdminSession(): Promise<boolean> {
       signal: controller.signal,
     });
     adminCredentialMode = response.ok;
+    if (response.ok) {
+      const body = await response.json() as { data?: AdminLocaleProfile };
+      if (body.data?.id) await hydrateAdminLocale(body.data);
+    }
     return response.ok;
   } catch {
     adminCredentialMode = false;
@@ -98,6 +156,17 @@ export async function restoreAdminSession(): Promise<boolean> {
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export async function updateAdminLocale(locale: AdminLocale, adminId: string): Promise<void> {
+  const updated = await fetchApi<{ id: string; locale: string }>("/admin/me", {
+    method: "PATCH",
+    body: JSON.stringify({ locale }),
+  });
+  if (updated.id !== adminId || updated.locale !== locale) {
+    throw new Error("The admin language preference was not saved.");
+  }
+  persistLocale(locale, adminId, "explicit");
 }
 
 export async function adminLogin(

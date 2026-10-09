@@ -11,6 +11,7 @@ datasource db {
 model Program {
   id                      String   @id @default(cuid())
   name                    String
+  systemName              String   @default("LoyaltyOS")
   description             String?
   pointsUnit              String   @default("PTS")
   creditGivingLimit       Int?
@@ -520,6 +521,7 @@ model PointExchangeRate {
   maxPoints          Int?
   periodLimitPoints  Int?
   periodDays         Int      @default(30)
+  expiresAt          DateTime?
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 

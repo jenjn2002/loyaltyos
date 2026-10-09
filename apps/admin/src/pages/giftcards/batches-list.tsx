@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import { ui } from "@/lib/ui-text";
 import type { GiftCardBatch, PaginatedResponse } from "@/types";
 
@@ -41,6 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function BatchesListPage(): JSX.Element {
+  const canManage = useAdminCapability("giftcard.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -74,14 +76,14 @@ export function BatchesListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("giftcards.title")}</h1>
-        <Button
+        {canManage && <Button
           onClick={() => {
             navigate("/giftcards/batches/new");
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           {t("giftcards.createBatch")}
-        </Button>
+        </Button>}
       </div>
 
       <Card>

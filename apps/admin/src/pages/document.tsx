@@ -1,15 +1,21 @@
 import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, CircleAlert, Download, ImagePlus, Pencil, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
+import { useSystemBranding } from "@/lib/system-branding";
 import { builtInGuideArticles } from "@/content/document-seed";
+import { guideScreenshot } from "@/content/document-screenshots";
 import type { GuideArticle, GuideArticleContent, GuideLocaleContent, GuideScenario, GuideScreenshot } from "@/content/document-types";
+
+const DeveloperDocument = lazy(() => import("@/components/developer-document").then((module) => ({ default: module.DeveloperDocument })));
 
 const emptyLocale = (): GuideLocaleContent => ({
   title: "", section: "", route: "", purpose: "", prerequisites: "", steps: [""], result: "", notes: [], scenarios: [], imageAlt: "",
@@ -144,9 +150,10 @@ function documentationSection(slug: string, isEnglish: boolean, fallback: string
 }
 
 function ImageBlock({ topic, isEnglish }: { topic: RenderTopic; isEnglish: boolean }): JSX.Element {
-  if (topic.imageData) {
+  const screenshot = guideScreenshot(topic);
+  if (screenshot) {
     return <figure className="overflow-hidden rounded-xl border bg-background">
-      <img src={topic.imageData} alt={topic.imageAlt || topic.title} className="max-h-[480px] w-full object-contain" />
+      <img loading="lazy" src={screenshot} alt={topic.imageAlt || topic.title} className="max-h-[480px] w-full object-contain" />
       <figcaption className="border-t px-3 py-2 text-xs text-muted-foreground">{topic.imageAlt || topic.title}</figcaption>
     </figure>;
   }
@@ -253,8 +260,14 @@ function LocaleEditor({
 }
 
 export function AdminDocumentPage(): JSX.Element {
+  const canManage = useAdminCapability("documentation.manage");
+  const { systemName } = useSystemBranding();
   const { i18n } = useTranslation();
   const isEnglish = i18n.resolvedLanguage?.startsWith("en") ?? i18n.language.startsWith("en");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const section = searchParams.get("section") === "developer" ? "developer" : "admin";
+  const [developerVisited, setDeveloperVisited] = useState(section === "developer");
+  const [adminVisited, setAdminVisited] = useState(section === "admin");
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [contentsOpen, setContentsOpen] = useState(false);
@@ -267,6 +280,8 @@ export function AdminDocumentPage(): JSX.Element {
   const [showDrafts, setShowDrafts] = useState(false);
   const [editorSession, setEditorSession] = useState(0);
   const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (section === "developer") setDeveloperVisited(true); }, [section]);
+  useEffect(() => { if (section === "admin") setAdminVisited(true); }, [section]);
   const copy = isEnglish
     ? {
         eyebrow: "ADMINISTRATOR GUIDE", title: "LoyaltyOS Admin guide", intro: "Find a feature to learn its purpose, prerequisites, workflows, alternate cases, and expected results.", searchLabel: "Search the admin guide", searchPlaceholder: "Search: member import, workflow, bank cycle...", contents: "Contents by taskbar group", home: "Back to Dashboard", permissionsTitle: "Permissions:", permissionsBody: "Menus and actions depend on each role's capabilities. If an option is missing, check permissions first.", liveTitle: "Live actions:", liveBody: "Wallet adjustments, point imports, Run campaign now, approvals, and project awards can change real data or balances.", empty: "No matching topics. Try a different search term.", purpose: "What is this feature for?", prerequisites: "Before you start:", steps: "Main workflow", result: "Expected result", notes: "Important notes", situations: "Use cases and troubleshooting", caseWhen: "Use this path when", caseHelp: "If it still does not work", footer: "LoyaltyOS Admin guide · Illustrations use sample data only.", exportPdf: "Export PDF", pdfHint: "In the print dialog, choose Save as PDF.", manage: "Manage guides", stopManaging: "Done", create: "New guide", publish: "Published", draft: "Draft", audience: "Audience", customer: "Customer", admin: "Admin", sortOrder: "Display order", slug: "Article key", save: "Save guide", cancel: "Cancel", delete: "Delete", edit: "Edit", view: "View", image: "Feature screenshot", removeImage: "Remove image", upload: "Upload screenshot", all: "All articles", publishedOnly: "Published only", vi: "Vietnamese", en: "English", confirmDelete: "Permanently delete this guide? This cannot be undone.", saveError: "Unable to save the guide.", deleteError: "Unable to delete the guide.", introManage: "Create, edit, publish, or delete bilingual articles. Customer users see published customer guides only.", status: "Publishing status", altImage: "Feature illustration", generatedImage: "Upload a screenshot for this feature; otherwise a sample mockup is shown.", noAdminAccess: "Changes require Manage documentation permission.", addProcedures: (count: number) => `Add ${count} new built-in procedures`,
@@ -277,9 +292,10 @@ export function AdminDocumentPage(): JSX.Element {
 
   const articles = useQuery({
     queryKey: ["admin", "documentation"],
+    enabled: section === "admin",
     queryFn: async () => {
       const current = await fetchApi<AdminDocumentationResponse>("/admin/documentation");
-      if (current.configured || current.articles.length) return current;
+      if (!canManage || current.configured || current.articles.length) return current;
       try {
         return await fetchApi<AdminDocumentationResponse>("/admin/documentation/seed", { method: "POST", body: JSON.stringify({ articles: builtInGuideArticles }) });
       } catch {
@@ -333,6 +349,7 @@ export function AdminDocumentPage(): JSX.Element {
   const filteredTopicKey = filteredTopics.map((topic) => topic.id).join("\u0000");
 
   useEffect(() => {
+    if (section !== "admin") return;
     const topicIds = filteredTopicKey ? filteredTopicKey.split("\u0000") : [];
     if (topicIds.length === 0) {
       setActiveTopicId(null);
@@ -368,12 +385,12 @@ export function AdminDocumentPage(): JSX.Element {
       window.removeEventListener("resize", updateActiveTopic);
       window.removeEventListener("hashchange", updateActiveTopic);
     };
-  }, [filteredTopicKey]);
+  }, [filteredTopicKey, section]);
 
   useEffect(() => {
-    if (!activeTopicId || window.matchMedia("(max-width: 1279px)").matches) return;
+    if (section !== "admin" || !activeTopicId || window.matchMedia("(max-width: 1279px)").matches) return;
     document.getElementById(`guide-nav-${activeTopicId}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeTopicId]);
+  }, [activeTopicId, section]);
 
   const saveDraft = () => {
     if (!draft) return;
@@ -409,11 +426,22 @@ export function AdminDocumentPage(): JSX.Element {
   }, [editorSession]);
 
   return (
-    <div className="documentation-print-area mx-auto max-w-7xl">
+    <Tabs className="mx-auto max-w-7xl" value={section} onValueChange={(value) => {
+      const next = new URLSearchParams(searchParams);
+      if (value === "developer") next.set("section", "developer");
+      else next.delete("section");
+      setSearchParams(next);
+    }}>
+      <TabsList className="no-print mb-4 grid h-auto w-full grid-cols-2 sm:inline-flex sm:w-auto" aria-label={isEnglish ? "Documentation section" : "Nhóm tài liệu"}>
+        <TabsTrigger className="min-h-10 min-w-0 whitespace-normal" value="admin">{isEnglish ? "Admin guide" : "Hướng dẫn Admin"}</TabsTrigger>
+        <TabsTrigger className="min-h-10 min-w-0 whitespace-normal" value="developer">Developer document</TabsTrigger>
+      </TabsList>
+      <TabsContent forceMount value="admin" hidden={section !== "admin"} className={section === "admin" ? "mt-0" : "hidden"}>
+      {(section === "admin" || adminVisited) && <div className="documentation-print-area mx-auto max-w-7xl">
       <header className="overflow-hidden rounded-2xl bg-slate-950 px-5 py-7 text-white sm:px-8 sm:py-9">
         <div className="max-w-4xl">
           <div className="flex items-center gap-2 text-sm font-medium text-violet-200"><BookOpen className="h-4 w-4" /> {copy.eyebrow}</div>
-          <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{copy.title}</h1>
+          <h1 className="mt-3 break-words text-3xl font-bold tracking-tight [overflow-wrap:anywhere] sm:text-4xl">{isEnglish ? `${systemName} Admin guide` : `Hướng dẫn ${systemName} Admin`}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 sm:text-base">{copy.intro}</p>
           <label className="no-print mt-6 flex max-w-2xl items-center gap-3 rounded-xl border border-white/15 bg-white/10 px-4 py-3 focus-within:ring-2 focus-within:ring-violet-300">
             <Search className="h-4 w-4 shrink-0 text-slate-300" aria-hidden="true" /><span className="sr-only">{copy.searchLabel}</span>
@@ -422,11 +450,11 @@ export function AdminDocumentPage(): JSX.Element {
         </div>
         <div className="no-print mt-5 flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" onClick={() => window.print()}><Download className="mr-1.5 h-4 w-4" />{copy.exportPdf}</Button><span className="self-center text-xs text-slate-300">{copy.pdfHint}</span>
-          <Button size="sm" variant={managementMode ? "secondary" : "outline"} className={managementMode ? "" : "border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"} onClick={() => { setManagementMode((value) => !value); setDraft(null); }}><Pencil className="mr-1.5 h-4 w-4" />{managementMode ? copy.stopManaging : copy.manage}</Button>
+          {canManage && <Button size="sm" variant={managementMode ? "secondary" : "outline"} className={managementMode ? "" : "border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"} onClick={() => { setManagementMode((value) => !value); setDraft(null); }}><Pencil className="mr-1.5 h-4 w-4" />{managementMode ? copy.stopManaging : copy.manage}</Button>}
         </div>
       </header>
 
-      {managementMode && <section className="no-print mt-5 rounded-xl border bg-card p-4 sm:p-5">
+      {canManage && managementMode && <section className="no-print mt-5 rounded-xl border bg-card p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{copy.manage}</h2><p className="mt-1 text-sm text-muted-foreground">{copy.introManage}</p></div><div className="flex flex-wrap gap-2">{missingBuiltInArticles.length > 0 && <Button variant="outline" size="sm" disabled={importMissing.isPending} onClick={() => importMissing.mutate(missingBuiltInArticles)}>{copy.addProcedures(missingBuiltInArticles.length)}</Button>}<Button variant="outline" size="sm" onClick={() => setShowDrafts((value) => !value)}>{showDrafts ? copy.publishedOnly : copy.all}</Button><Button size="sm" onClick={() => { openEditor(newDraft()); setEditLanguage(isEnglish ? "en" : "vi"); }}><Plus className="mr-1.5 h-4 w-4" />{copy.create}</Button></div></div>
         {notice && <p role="status" className="mt-3 rounded-md border bg-muted px-3 py-2 text-sm">{notice}</p>}
         {articles.isError && <p role="alert" className="mt-3 rounded-md border border-destructive/40 px-3 py-2 text-sm">{copy.noAdminAccess}</p>}
@@ -450,9 +478,9 @@ export function AdminDocumentPage(): JSX.Element {
           <div className="mt-5 flex flex-wrap gap-2 border-b pb-3"><Button type="button" size="sm" variant={editLanguage === "vi" ? "default" : "outline"} onClick={() => setEditLanguage("vi")}>{copy.vi}</Button><Button type="button" size="sm" variant={editLanguage === "en" ? "default" : "outline"} onClick={() => setEditLanguage("en")}>{copy.en}</Button></div>
           <div className="mt-4"><LocaleEditor value={draft.content[editLanguage]} isEnglish={editLanguage === "en"} onChange={(locale) => setDraft({ ...draft, content: { ...draft.content, [editLanguage]: locale } as GuideArticleContent })} /></div>
           <div className="mt-5 rounded-lg border p-3">
-            <div className="flex flex-wrap items-center gap-2"><ImagePlus className="h-4 w-4" /><strong className="text-sm">{copy.image}</strong><label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"><input className="sr-only" type="file" accept="image/*" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (!file) return; setImageError(null); void toDataUrl(file).then((imageData) => setDraft({ ...draft, imageData, imageKey: null })).catch((error: unknown) => setImageError(error instanceof Error ? error.message : "Image upload failed")); }} />{copy.upload}</label>{draft.imageData && <Button size="sm" variant="ghost" onClick={() => setDraft({ ...draft, imageData: null })}><X className="mr-1 h-3.5 w-3.5" />{copy.removeImage}</Button>}</div>
+            <div className="flex flex-wrap items-center gap-2"><ImagePlus className="h-4 w-4" /><strong className="text-sm">{copy.image}</strong><label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"><input className="sr-only" type="file" accept="image/*" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (!file) return; setImageError(null); void toDataUrl(file).then((imageData) => setDraft({ ...draft, imageData, imageKey: null })).catch((error: unknown) => setImageError(error instanceof Error ? error.message : "Image upload failed")); }} />{copy.upload}</label>{guideScreenshot(draft) && <Button size="sm" variant="ghost" onClick={() => setDraft({ ...draft, imageData: null, imageKey: null })}><X className="mr-1 h-3.5 w-3.5" />{copy.removeImage}</Button>}</div>
             <p className="mt-2 text-xs text-muted-foreground">{isEnglish ? "Upload an actual screenshot of this feature. No sample mockup is used." : "Tải ảnh chụp màn hình thật của tính năng. Không sử dụng mockup mẫu."}</p>
-            {draft.imageData ? <img src={draft.imageData} alt={draft.content[editLanguage].imageAlt || draft.content[editLanguage].title} className="mt-3 max-h-72 rounded-md border object-contain" /> : <div className="mt-3 rounded-md border border-dashed p-4 text-xs text-muted-foreground">{isEnglish ? "No actual feature screenshot uploaded yet." : "Chưa tải ảnh chụp màn hình thật cho tính năng."}</div>}
+            {guideScreenshot(draft) ? <img src={guideScreenshot(draft)!} alt={draft.content[editLanguage].imageAlt || draft.content[editLanguage].title} className="mt-3 max-h-72 rounded-md border object-contain" /> : <div className="mt-3 rounded-md border border-dashed p-4 text-xs text-muted-foreground">{isEnglish ? "No actual feature screenshot uploaded yet." : "Chưa tải ảnh chụp màn hình thật cho tính năng."}</div>}
             {imageError && <p className="mt-2 text-sm text-destructive">{imageError}</p>}
           </div>
           <ScreenshotEditor screenshots={draft.content.screenshots ?? []} isEnglish={isEnglish} onChange={(screenshots) => setDraft((current) => current ? { ...current, content: { ...current.content, screenshots } } : current)} onError={setImageError} />
@@ -488,9 +516,16 @@ export function AdminDocumentPage(): JSX.Element {
             </div>
             {topic.scenarios.length > 0 && <section className="mt-5 border-t pt-4"><h3 className="mb-3 text-sm font-bold">{copy.situations}</h3><div className="grid gap-3 lg:grid-cols-2">{topic.scenarios.map((scenario, scenarioIndex) => <div className="rounded-lg border bg-background p-4" key={`${scenarioIndex}-${scenario.title}`}><h4 className="font-semibold">{scenario.title}</h4><p className="mt-1 text-xs leading-5 text-muted-foreground"><strong>{copy.caseWhen}:</strong> {scenario.when}</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5">{scenario.steps.map((step, stepIndex) => <li key={`${stepIndex}-${step}`}>{step}</li>)}</ol>{scenario.expected && <p className="mt-2 text-xs leading-5"><strong>{copy.result}:</strong> {scenario.expected}</p>}{scenario.help && <p className="mt-2 rounded bg-amber-50 p-2 text-xs leading-5 text-amber-950"><strong>{copy.caseHelp}:</strong> {scenario.help}</p>}</div>)}</div></section>}
           </article></div>)}</div>}
-          <footer className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs text-muted-foreground"><span>{isEnglish ? "LoyaltyOS Admin guide · Screenshots are captured from the actual application." : "Hướng dẫn LoyaltyOS Admin · Ảnh chụp được lấy từ giao diện thực tế của ứng dụng."}</span><Link className="no-print font-semibold text-primary" to="/">{copy.home}</Link></footer>
+          <footer className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs text-muted-foreground"><span className="min-w-0 break-words [overflow-wrap:anywhere]">{isEnglish ? `${systemName} Admin guide · Screenshots are captured from the actual application.` : `Hướng dẫn ${systemName} Admin · Ảnh chụp được lấy từ giao diện thực tế của ứng dụng.`}</span><Link className="no-print font-semibold text-primary" to="/">{copy.home}</Link></footer>
         </main>
       </div>
-    </div>
+      </div>}
+      </TabsContent>
+      <TabsContent forceMount value="developer" hidden={section !== "developer"} className={section === "developer" ? "mt-0" : "hidden"}>
+        {(section === "developer" || developerVisited) && <Suspense fallback={<p className="rounded-xl border p-6 text-sm text-muted-foreground" role="status">{isEnglish ? "Loading developer documentation…" : "Đang tải tài liệu lập trình viên…"}</p>}>
+          <DeveloperDocument isEnglish={isEnglish} systemName={systemName} active={section === "developer"} />
+        </Suspense>}
+      </TabsContent>
+    </Tabs>
   );
 }

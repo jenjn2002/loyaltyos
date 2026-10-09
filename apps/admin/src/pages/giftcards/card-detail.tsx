@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import type { GiftCard, GiftCardTransaction, PaginatedResponse } from "@/types";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -48,6 +49,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function CardDetailPage(): JSX.Element {
+  const canManage = useAdminCapability("giftcard.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { code } = useParams<{ code: string }>();
@@ -268,7 +270,7 @@ export function CardDetailPage(): JSX.Element {
               {actionError && <p className="mt-4 text-sm text-destructive">{actionError}</p>}
 
               <div className="mt-4 flex gap-2">
-                {card.status === "active" && (
+                {canManage && card.status === "active" && (
                   <>
                     <Button
                       onClick={() => {

@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import type { GiftCard, GiftCardBatch, PaginatedResponse } from "@/types";
 
 const TERMINAL_STATUSES = new Set(["ready", "partial", "failed", "cancelled"]);
@@ -45,6 +46,7 @@ const STATUS_COLORS: Record<string, string> = {
 const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
 
 export function BatchDetailPage(): JSX.Element {
+  const canManage = useAdminCapability("giftcard.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -169,7 +171,7 @@ export function BatchDetailPage(): JSX.Element {
             <Download className="mr-1 h-4 w-4" />
             {downloading === "xlsx" ? t("common.loading") : t("giftcards.exportXlsx")}
           </Button>
-          {!isTerminal && (
+          {canManage && !isTerminal && (
             <Button
               variant="destructive"
               size="sm"

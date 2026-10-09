@@ -1,8 +1,10 @@
 import { render, toPlainText, type NotificationRow } from "@loyaltyos/notifications";
 
 import { prisma } from "../db.js";
+import { approvalActionLabels, approvalResolutionNotificationCopy, approvalSubjectLabels } from "./approval-display.js";
 import { auditAdminNotificationDeliveryFailure } from "./notification-delivery-audit.js";
 import { emailNotificationProvider, notificationsQueue } from "./notifications-setup.js";
+import { defaultCapability } from "./permissions.js";
 
 export interface AdminActivityNotificationInput {
   programId: string;
@@ -25,6 +27,12 @@ function renderTemplate(value: string | null | undefined, context: Record<string
   return value ? render(value, context) : fallback;
 }
 
+function localeValue(value: unknown, locale: string): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const localized = (value as Record<string, unknown>)[locale];
+  return typeof localized === "string" ? localized : undefined;
+}
+
 /** Persist an admin's in-app activity and queue its matching email. Business mutations
  * must not fail if the optional email queue is temporarily unavailable. */
 export async function createAdminActivityNotification(input: AdminActivityNotificationInput) {
@@ -45,10 +53,11 @@ export async function createAdminActivityNotification(input: AdminActivityNotifi
   const context = input.context ?? {};
   const locales = [...new Set([admin.locale, program?.defaultLocale, "en-US", "en"].filter((locale): locale is string => Boolean(locale)))];
   const preferredLocale = locales[0] ?? "vi-VN";
+  const displayLocale = preferredLocale.toLowerCase().startsWith("vi") ? "vi-VN" : "en-US";
   const isVietnamese = preferredLocale.toLowerCase().startsWith("vi");
   const labels: Record<string, string> = isVietnamese
-    ? { accepted: "chấp nhận", declined: "từ chối", approved: "được phê duyệt", rejected: "bị từ chối", cancelled: "bị hủy" }
-    : { accepted: "accepted", declined: "declined", approved: "approved", rejected: "rejected", cancelled: "cancelled" };
+    ? { accepted: "chấp nhận", declined: "từ chối", approved: "được phê duyệt", rejected: "bị từ chối", cancelled: "bị hủy", completed: "hoàn tất" }
+    : { accepted: "accepted", declined: "declined", approved: "approved", rejected: "rejected", cancelled: "cancelled", completed: "completed" };
   const approvalContext = context.approval && typeof context.approval === "object" && !Array.isArray(context.approval)
     ? context.approval as Record<string, unknown>
     : null;
@@ -58,10 +67,26 @@ export async function createAdminActivityNotification(input: AdminActivityNotifi
     ...(approvalContext ? {
       approval: {
         ...approvalContext,
+        actionLabel: typeof approvalContext.actionLabel === "string"
+          ? approvalContext.actionLabel
+          : localeValue(approvalContext.actionLabels, displayLocale) ?? approvalActionLabels(typeof approvalContext.actionKey === "string" ? approvalContext.actionKey : "")[displayLocale],
+        subjectName: typeof approvalContext.subjectName === "string"
+          ? approvalContext.subjectName
+          : localeValue(approvalContext.subjectNames, displayLocale) ?? approvalSubjectLabels(typeof approvalContext.subjectType === "string" ? approvalContext.subjectType : "")[displayLocale],
         statusLabel: typeof approvalContext.status === "string" ? labels[approvalContext.status] ?? approvalContext.status : "",
       },
     } : {}),
   };
+  const approvalFallback = input.triggerEvent === "admin.approval.resolved" && approvalContext
+    ? approvalResolutionNotificationCopy({
+        actionKey: typeof approvalContext.actionKey === "string" ? approvalContext.actionKey : "",
+        subjectType: typeof approvalContext.subjectType === "string" ? approvalContext.subjectType : "",
+        subjectName: typeof approvalContext.subjectName === "string" ? approvalContext.subjectName : "",
+        status: typeof approvalContext.status === "string" ? approvalContext.status.toUpperCase() : "",
+        comment: typeof approvalContext.comment === "string" ? approvalContext.comment : null,
+        locale: displayLocale,
+      })
+    : null;
   const templates = await prisma.notificationTemplate.findMany({
     where: {
       programId: input.programId,
@@ -75,8 +100,8 @@ export async function createAdminActivityNotification(input: AdminActivityNotifi
   const inApp = findTemplate("IN_APP");
   const email = findTemplate("EMAIL");
 
-  const title = renderTemplate(inApp?.subject, templateContext, input.title).slice(0, 240);
-  const body = plainBody(renderTemplate(inApp?.bodyText ?? inApp?.bodyHtml, templateContext, input.body));
+  const title = renderTemplate(inApp?.subject, templateContext, approvalFallback?.title ?? input.title).slice(0, 240);
+  const body = plainBody(renderTemplate(inApp?.bodyText ?? inApp?.bodyHtml, templateContext, approvalFallback?.body ?? input.body));
   const emailSubject = renderTemplate(email?.subject, templateContext, title).slice(0, 240);
   const emailBodyTemplate = email?.bodyHtml ?? email?.bodyText;
   const emailBody = renderTemplate(emailBodyTemplate, templateContext, body).slice(0, 20_000);
@@ -147,16 +172,24 @@ export async function notifyApprovalAssignees(programId: string, approvalRequest
       subjectId: true,
       currentStepOrder: true,
       workflowSnapshot: true,
-      steps: { where: { status: "PENDING" }, select: { stepOrder: true, assigneesSnapshot: true } },
+      steps: {
+        where: { status: "PENDING" },
+        select: {
+          stepOrder: true,
+          assigneesSnapshot: true,
+          decisions: { select: { approverAdminId: true } },
+        },
+      },
     },
   });
   if (!request || request.currentStepOrder == null) return;
   const step = request.steps.find((item) => item.stepOrder === request.currentStepOrder);
   if (!step || !Array.isArray(step.assigneesSnapshot)) return;
+  const decidedAdminIds = new Set(step.decisions.map((decision) => decision.approverAdminId));
   const adminIds = [...new Set(step.assigneesSnapshot.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const adminId = (item as Record<string, unknown>).adminId;
-    return typeof adminId === "string" ? [adminId] : [];
+    return typeof adminId === "string" && !decidedAdminIds.has(adminId) ? [adminId] : [];
   }))];
   if (!adminIds.length) return;
   const admins = await prisma.adminUser.findMany({
@@ -184,6 +217,41 @@ export async function notifyApprovalAssignees(programId: string, approvalRequest
   })));
   outcomes.forEach((outcome) => {
     if (outcome.status === "rejected") console.error("[Notifications] Failed to create approval-request notification", outcome.reason);
+  });
+}
+
+/** Direct exchange vouchers have no ApprovalRequest, so notify administrators
+ * who can use the legacy exchange.approve action. */
+export async function notifyDirectExchangeApprovers(
+  programId: string,
+  voucherId: string,
+  documentNumber: string,
+): Promise<void> {
+  const admins = await prisma.adminUser.findMany({
+    where: { programId, isActive: true },
+    select: { id: true, role: true },
+  });
+  const roles = [...new Set(admins.map((admin) => admin.role))];
+  const overrides = await prisma.adminRolePermission.findMany({
+    where: { programId, role: { in: roles }, capability: "exchange.approve" },
+    select: { role: true, allowed: true },
+  });
+  const byRole = new Map(overrides.map((permission) => [permission.role, permission.allowed]));
+  const eligible = admins.filter((admin) => byRole.get(admin.role) ?? defaultCapability(admin.role, "exchange.approve"));
+  const outcomes = await Promise.allSettled(eligible.map((admin) => createAdminActivityNotification({
+    programId,
+    adminUserId: admin.id,
+    triggerEvent: "admin.exchange.pending",
+    idempotencyKey: `exchange-pending:${voucherId}:${admin.id}`,
+    title: "Exchange voucher awaiting approval",
+    body: `${documentNumber} requires direct approval.`,
+    actionUrl: "/credits/exchange",
+    entityType: "PointExchangeRequest",
+    entityId: voucherId,
+    context: { voucher: { documentNumber }, documentNumber },
+  })));
+  outcomes.forEach((outcome) => {
+    if (outcome.status === "rejected") console.error("[Notifications] Failed to notify direct exchange approver", outcome.reason);
   });
 }
 

@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import { ui } from "@/lib/ui-text";
 import type { TermsTemplate } from "@/types";
 
@@ -38,6 +39,7 @@ const LOCALE_LABELS: Record<string, string> = {
 };
 
 export function TermsListPage(): JSX.Element {
+  const canManage = useAdminCapability("giftcard.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -91,14 +93,14 @@ export function TermsListPage(): JSX.Element {
           </Button>
           <h1 className="text-3xl font-bold">{t("giftcards.termsTemplates")}</h1>
         </div>
-        <Button
+        {canManage && <Button
           onClick={() => {
             navigate("/giftcards/terms/new");
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           {t("giftcards.newTermsTemplate")}
-        </Button>
+        </Button>}
       </div>
 
       <Card>
@@ -140,6 +142,7 @@ export function TermsListPage(): JSX.Element {
                       <TableCell>
                         <Switch
                           checked={tpl.isActive}
+                          disabled={!canManage}
                           onCheckedChange={() => {
                             void handleToggle(tpl);
                           }}
@@ -153,7 +156,7 @@ export function TermsListPage(): JSX.Element {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button
+                          {canManage && <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => {
@@ -161,8 +164,8 @@ export function TermsListPage(): JSX.Element {
                             }}
                           >
                             <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
+                          </Button>}
+                          {canManage && <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => {
@@ -170,7 +173,7 @@ export function TermsListPage(): JSX.Element {
                             }}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button>}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -184,7 +187,7 @@ export function TermsListPage(): JSX.Element {
 
       {/* Delete confirmation */}
       <AlertDialog
-        open={!!deleteTarget}
+        open={canManage && !!deleteTarget}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null);
         }}

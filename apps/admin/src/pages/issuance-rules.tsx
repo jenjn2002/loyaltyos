@@ -4,8 +4,10 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAdminPermissions } from "@/lib/admin-permissions";
 
 export function IssuanceRulesPage(): JSX.Element {
+  const permissions = useAdminPermissions();
   const navigate = useNavigate();
   return (
     <div className="space-y-6 pb-10">
@@ -21,8 +23,8 @@ export function IssuanceRulesPage(): JSX.Element {
           <CardDescription>{ui("Use scheduled occasions such as onboarding, birthdays, work anniversaries and fixed company dates. Choose Standing campaign when the points may run automatically after activation.")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
-          <Button onClick={() => navigate("/campaigns/new")}>{ui("Open campaign builder")}<ArrowRight className="ml-2 h-4 w-4" /></Button>
-          <Button variant="outline" onClick={() => navigate("/event-definitions")}>{ui("Configure event definitions")}</Button>
+          {permissions.can("campaign.manage") && <Button onClick={() => navigate("/campaigns/new")}>{ui("Open campaign builder")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
+          {permissions.can("event.view") && <Button variant="outline" onClick={() => navigate("/event-definitions")}>{ui("Configure event definitions")}</Button>}
         </CardContent>
       </Card>
       <Card>
@@ -32,7 +34,7 @@ export function IssuanceRulesPage(): JSX.Element {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">{ui("This approval applies to the campaign configuration and its target audience, schedule and budget. It is separate from a manual grant proposal for one member.")}</p>
-          <Button onClick={() => navigate("/campaigns/new")}><ShieldCheck className="mr-2 h-4 w-4" />{ui("Create campaign proposal")}</Button>
+          {permissions.can("campaign.manage") && <Button onClick={() => navigate("/campaigns/new")}><ShieldCheck className="mr-2 h-4 w-4" />{ui("Create campaign proposal")}</Button>}
         </CardContent>
       </Card>
     </div>

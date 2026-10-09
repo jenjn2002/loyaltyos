@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface Reward {
   id: string;
@@ -57,6 +58,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function RewardsListPage(): JSX.Element {
+  const canManage = useAdminCapability("reward.manage");
   const [view, setView] = useState<"table" | "grid">("table");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -94,10 +96,10 @@ export function RewardsListPage(): JSX.Element {
           <h1 className="text-2xl font-bold">{ui("Rewards")}</h1>
           <p className="text-sm text-muted-foreground">{ui("Manage your rewards catalog")}</p>
         </div>
-        <Button asChild>
+        {canManage && <Button asChild>
           <Link to="/rewards/new">
             <Plus className="mr-2 h-4 w-4" />{ui("New Reward")}</Link>
-        </Button>
+        </Button>}
       </div>
 
       <div className="flex items-center gap-4">
@@ -140,6 +142,7 @@ export function RewardsListPage(): JSX.Element {
       ) : view === "table" ? (
         <RewardsTable
           rewards={visibleRewards}
+          canManage={canManage}
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
@@ -149,6 +152,7 @@ export function RewardsListPage(): JSX.Element {
       ) : (
         <RewardsGrid
           rewards={visibleRewards}
+          canManage={canManage}
           onEdit={(id) => {
             navigate(`/rewards/${id}/edit`);
           }}
@@ -192,11 +196,13 @@ export function RewardsListPage(): JSX.Element {
 
 function RewardsTable({
   rewards,
+  canManage,
   onEdit,
   onDelete,
   deletingId,
 }: {
   rewards: Reward[];
+  canManage: boolean;
   onEdit: (id: string) => void;
   onDelete: (reward: Reward) => void;
   deletingId: string | null | undefined;
@@ -249,7 +255,7 @@ function RewardsTable({
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button
+                    {canManage && <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => {
@@ -257,13 +263,13 @@ function RewardsTable({
                       }}
                     >
                       <Pencil className="h-4 w-4" />
-                    </Button>
+                    </Button>}
                     <Button variant="ghost" size="icon" asChild>
                       <Link to={`/rewards/${r.id}/redemptions`}>
                         <List className="h-4 w-4" />
                       </Link>
                     </Button>
-                    <Button
+                    {canManage && <Button
                       variant="ghost"
                       size="icon"
                       className="text-destructive"
@@ -275,7 +281,7 @@ function RewardsTable({
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </Button>}
                   </div>
                 </TableCell>
               </TableRow>
@@ -289,11 +295,13 @@ function RewardsTable({
 
 function RewardsGrid({
   rewards,
+  canManage,
   onEdit,
   onDelete,
   deletingId,
 }: {
   rewards: Reward[];
+  canManage: boolean;
   onEdit: (id: string) => void;
   onDelete: (reward: Reward) => void;
   deletingId: string | null | undefined;
@@ -332,21 +340,21 @@ function RewardsGrid({
               <p className="mt-2 text-xs text-muted-foreground">Stock: {r.stock}</p>
             )}
             <div className="mt-3 flex gap-2">
-              <Button
+              {canManage && <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   onEdit(r.id);
                 }}
               >
-                <Pencil className="mr-1 h-3 w-3" />{ui("Edit")}</Button>
+                <Pencil className="mr-1 h-3 w-3" />{ui("Edit")}</Button>}
               <Button variant="outline" size="sm" asChild>
                 <Link to={`/rewards/${r.id}/redemptions`}>
                   <List className="mr-1 h-3 w-3" />
                   Redemptions ({r.redemptions.length})
                 </Link>
               </Button>
-              <Button
+              {canManage && <Button
                 variant="outline"
                 size="sm"
                 className="text-destructive"
@@ -355,7 +363,7 @@ function RewardsGrid({
                   onDelete(r);
                 }}
               >
-                <Trash2 className="mr-1 h-3 w-3" />{ui("Delete")}</Button>
+                <Trash2 className="mr-1 h-3 w-3" />{ui("Delete")}</Button>}
             </div>
           </CardContent>
         </Card>

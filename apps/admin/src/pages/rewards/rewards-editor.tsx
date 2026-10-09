@@ -71,7 +71,7 @@ export function RewardsEditorPage(): JSX.Element {
 
   const pointTypes = useQuery({
     queryKey: ["point-types", "reward-editor"],
-    queryFn: () => fetchApi<PointType[]>("/admin/point-types"),
+    queryFn: () => fetchApi<PointType[]>("/point-types"),
   });
   const redeemableTypes = (pointTypes.data ?? []).filter(
     (type) => type.redeemable && type.isActive && !type.archivedAt,

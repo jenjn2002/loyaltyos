@@ -36,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminPermissions } from "@/lib/admin-permissions";
 
 type ExpiryMode = "NEVER" | "AFTER_DAYS" | "FIXED_DATE" | "PER_GRANT";
 type GiveSource = "BALANCE" | "ALLOWANCE" | "BOTH";
@@ -380,6 +381,9 @@ function Toggle({
 }
 
 export function PointTypesPage({ view = "registry" }: { view?: PointTypesView }): JSX.Element {
+  const permissions = useAdminPermissions();
+  const canManage = permissions.can("point_type.manage");
+  const canAdjustWallets = permissions.can("wallet.adjust");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { id: routePointTypeId } = useParams<{ id: string }>();
@@ -647,7 +651,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {view === "registry" ? (
+          {view === "registry" ? (canManage ? (
             <>
               <Button
                 variant="outline"
@@ -663,6 +667,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
               >
                 <Plus />{ui("Create point type")}</Button>
             </>
+          ) : null
           ) : (
             <Button variant="outline" onClick={reset}>{ui("Back to registry")}</Button>
           )}
@@ -1391,7 +1396,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {pointType.archivedAt ? (
+                    {pointType.archivedAt && canManage ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1401,9 +1406,9 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                         }}
                       >
                         <ArchiveRestore />{ui("Restore")}</Button>
-                    ) : (
+                    ) : !pointType.archivedAt ? (
                       <>
-                        {pointType.isActive && pointType.expiryMode !== "NEVER" && (
+                        {canAdjustWallets && pointType.isActive && pointType.expiryMode !== "NEVER" && (
                           <>
                             <Button
                               size="sm"
@@ -1429,14 +1434,14 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             </Button>
                           </>
                         )}
-                        <Button
+                        {canManage && <Button
                           size="sm"
                           variant="outline"
                           onClick={() => {
                             navigate(`/point-types/${pointType.id}/edit`);
                           }}
-                        >{ui("Edit")}</Button>
-                        <Button
+                        >{ui("Edit")}</Button>}
+                        {canManage && <Button
                           size="sm"
                           variant="outline"
                           disabled={clone.isPending}
@@ -1453,8 +1458,8 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             if (name) clone.mutate({ pointType, code, name });
                           }}
                         >
-                          <Copy />{ui("Clone")}</Button>
-                        <Button
+                          <Copy />{ui("Clone")}</Button>}
+                        {canManage && <Button
                           size="sm"
                           variant="destructive"
                           disabled={remove.isPending}
@@ -1467,9 +1472,9 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                               remove.mutate(pointType);
                           }}
                         >
-                          <Trash2 />{ui("Delete")}</Button>
+                          <Trash2 />{ui("Delete")}</Button>}
                       </>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>

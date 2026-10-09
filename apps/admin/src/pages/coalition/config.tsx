@@ -34,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import { cn } from "@/lib/utils";
 
 const PROVIDERS = [
@@ -96,6 +97,7 @@ interface HealthcheckResult {
 }
 
 export function CoalitionConfigPage(): JSX.Element {
+  const canManage = useAdminCapability("coalition.manage");
   const queryClient = useQueryClient();
   const [showPrivateToken, setShowPrivateToken] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string>("MX");
@@ -246,7 +248,8 @@ export function CoalitionConfigPage(): JSX.Element {
       )}
 
       {/* eslint-disable-next-line @typescript-eslint/no-misused-promises */}
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+      <fieldset disabled={!canManage} className="space-y-6">
         {/* Provider Selection */}
         <Card>
           <CardHeader>
@@ -515,7 +518,7 @@ export function CoalitionConfigPage(): JSX.Element {
         </Card>
 
         {/* Actions */}
-        <div className="flex items-center gap-4">
+        {canManage && <div className="flex items-center gap-4">
           <Button type="submit" disabled={saveMutation.isPending}>
             {saveMutation.isPending ? (
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -540,7 +543,7 @@ export function CoalitionConfigPage(): JSX.Element {
             )}
             {ui("Test Connection")}
           </Button>
-        </div>
+        </div>}
 
         {/* Save Status */}
         {saveMutation.isSuccess && (
@@ -585,6 +588,7 @@ export function CoalitionConfigPage(): JSX.Element {
               : "Healthcheck failed"}
           </p>
         )}
+      </fieldset>
       </form>
     </div>
   );

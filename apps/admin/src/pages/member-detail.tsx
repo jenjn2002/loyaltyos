@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { memberPhotoFileToDataUrl } from "@/lib/member-photo";
 import type { Member, MemberPointWallet, PaginatedResponse, PointTransaction } from "@/types";
 
 const transactionTypeColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -84,6 +85,8 @@ export function MemberDetailPage(): JSX.Element {
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<MemberProfileForm>(emptyProfileForm);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
 
   const {
@@ -100,6 +103,9 @@ export function MemberDetailPage(): JSX.Element {
     queryKey: ["admin-me"],
     queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
   });
+  const canManage = admin.data?.capabilities["member.manage"] === true;
+  const canManageCredentials = admin.data?.capabilities["member.credentials.manage"] === true;
+  const canViewWallets = admin.data?.capabilities["wallet.view"] === true;
 
   const customFields = useQuery({
     queryKey: ["member-fields"],
@@ -155,6 +161,7 @@ export function MemberDetailPage(): JSX.Element {
       }),
     onSuccess: async () => {
       setProfileEditing(false);
+      setPhotoUploadError(null);
       setProfileMessage(ui("Member profile updated."));
       await queryClient.invalidateQueries({ queryKey: ["member", memberId] });
       await queryClient.invalidateQueries({ queryKey: ["members"] });
@@ -206,7 +213,7 @@ export function MemberDetailPage(): JSX.Element {
       fetchApi<{ id: string; providerSubject: string; tenantId: string; email: string | null }[]>(
         `/admin/members/${memberId}/microsoft-identities`,
       ),
-    enabled: Boolean(memberId) && admin.data?.capabilities["member.credentials.manage"] !== false,
+    enabled: Boolean(memberId) && canManageCredentials,
   });
 
   const linkIdentity = useMutation({
@@ -248,7 +255,7 @@ export function MemberDetailPage(): JSX.Element {
   const { data: wallets, isLoading: balanceLoading } = useQuery({
     queryKey: ["member-balance", memberId],
     queryFn: () => fetchApi<MemberPointWallet[]>(`/members/${memberId}/balance`),
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && canViewWallets,
   });
 
   const [txPage, setTxPage] = useState(1);
@@ -262,7 +269,7 @@ export function MemberDetailPage(): JSX.Element {
         `/members/${memberId}/transactions?${params.toString()}`,
       );
     },
-    enabled: Boolean(memberId),
+    enabled: Boolean(memberId) && canViewWallets,
   });
 
   const updateMemberStatus = async (status: "ACTIVE" | "INACTIVE"): Promise<void> => {
@@ -404,7 +411,7 @@ export function MemberDetailPage(): JSX.Element {
               </CardTitle>
               <CardDescription>{ui("Member Profile")}</CardDescription>
             </div>
-            {admin.data?.capabilities["member.manage"] !== false && !memberLoading && (
+            {canManage && !memberLoading && (
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   type="button"
@@ -418,7 +425,7 @@ export function MemberDetailPage(): JSX.Element {
                   <Pencil className="mr-2 h-4 w-4" />
                   {profileEditing ? t("common.cancel") : t("common.edit")}
                 </Button>
-                {admin.data?.capabilities["member.manage"] === true && !member?.deletedAt && (
+                {!member?.deletedAt && (
                   <Button
                     type="button"
                     variant="destructive"
@@ -443,11 +450,12 @@ export function MemberDetailPage(): JSX.Element {
               <Skeleton className="h-4 w-48" />
               <Skeleton className="h-4 w-32" />
             </div>
-          ) : profileEditing ? (
+          ) : profileEditing && canManage ? (
             <form
               className="space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (photoUploading) return;
                 const missingField = customFields.data?.find((field) => {
                   if (!field.isActive || !field.required) return false;
                   return !Object.prototype.hasOwnProperty.call(customValues, field.key) ||
@@ -530,13 +538,47 @@ export function MemberDetailPage(): JSX.Element {
                 <Label htmlFor="member-profile-photo-url">{ui("Photo URL (optional)")}</Label>
                 <Input
                   id="member-profile-photo-url"
-                  type="url"
-                  value={profileForm.photoUrl}
+                  type="text"
+                  value={profileForm.photoUrl.startsWith("data:image/") ? "" : profileForm.photoUrl}
                   onChange={(event) => {
+                    setPhotoUploadError(null);
                     setProfileForm((current) => ({ ...current, photoUrl: event.target.value }));
                   }}
                   placeholder="https://"
                 />
+                <div className="space-y-2">
+                  <Label htmlFor="member-profile-photo-file">{ui("Or upload a photo")}</Label>
+                  <Input
+                    id="member-profile-photo-file"
+                    type="file"
+                    accept="image/*"
+                    disabled={photoUploading}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (!file) return;
+                      const input = event.currentTarget;
+                      setPhotoUploadError(null);
+                      setPhotoUploading(true);
+                      void memberPhotoFileToDataUrl(file)
+                        .then((photoUrl) => {
+                          setProfileForm((current) => ({ ...current, photoUrl }));
+                        })
+                        .catch((uploadError: unknown) => {
+                          setPhotoUploadError(uploadError instanceof Error ? ui(uploadError.message) : ui("Unable to upload image"));
+                        })
+                        .finally(() => {
+                          setPhotoUploading(false);
+                          input.value = "";
+                        });
+                    }}
+                  />
+                  {profileForm.photoUrl.startsWith("data:image/") && <p className="text-xs text-muted-foreground">{ui("Uploaded photo selected")}</p>}
+                  <p className="text-xs text-muted-foreground">{ui("Images are resized automatically. Maximum file size: 5 MB.")}</p>
+                  {photoUploadError && <p className="text-sm text-destructive">{photoUploadError}</p>}
+                  {profileForm.photoUrl.startsWith("data:image/") && (
+                    <img src={profileForm.photoUrl} alt={ui("Member photo preview")} className="h-16 w-16 rounded-full border object-cover" />
+                  )}
+                </div>
               </div>
               {customFields.data?.some((field) => field.isActive) && (
                 <div className="grid gap-4 rounded-md border p-4 sm:grid-cols-2">
@@ -572,8 +614,8 @@ export function MemberDetailPage(): JSX.Element {
                 >
                   {t("common.cancel")}
                 </Button>
-                <Button type="submit" disabled={updateMemberProfile.isPending}>
-                  {updateMemberProfile.isPending ? t("common.loading") : t("common.save")}
+                <Button type="submit" disabled={updateMemberProfile.isPending || photoUploading}>
+                  {updateMemberProfile.isPending || photoUploading ? t("common.loading") : t("common.save")}
                 </Button>
               </div>
             </form>
@@ -634,8 +676,8 @@ export function MemberDetailPage(): JSX.Element {
                 </div>
                 <div>
                   <dt className="text-sm text-muted-foreground">{ui("Photo URL (optional)")}</dt>
-                  <dd className="max-w-full truncate" title={member?.photoUrl ?? undefined}>
-                    {member?.photoUrl ?? "--"}
+                  <dd className="max-w-full truncate" title={member?.photoUrl?.startsWith("data:image/") ? ui("Uploaded image") : member?.photoUrl ?? undefined}>
+                    {member?.photoUrl?.startsWith("data:image/") ? ui("Uploaded image") : member?.photoUrl ?? "--"}
                   </dd>
                 </div>
                 <div>
@@ -696,7 +738,7 @@ export function MemberDetailPage(): JSX.Element {
           {profileMessage && !profileEditing && (
             <p className="mt-3 text-sm text-muted-foreground">{profileMessage}</p>
           )}
-          <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
+          {canManage && <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
             <div className="min-w-64 flex-1">
               <Label htmlFor="status-reason">{ui("Status / offboarding reason")}</Label>
               <Input
@@ -753,11 +795,11 @@ export function MemberDetailPage(): JSX.Element {
             {statusMessage && (
               <p className="w-full text-sm text-muted-foreground">{statusMessage}</p>
             )}
-          </div>
+          </div>}
         </CardContent>
       </Card>
 
-      {admin.data?.capabilities["member.credentials.manage"] !== false && (
+      {canManageCredentials && (
         <Card>
           <CardHeader>
             <CardTitle>{t("members.portalAccess")}</CardTitle>
@@ -902,6 +944,7 @@ export function MemberDetailPage(): JSX.Element {
       )}
 
       {/* Balance */}
+      {canViewWallets && <>
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-3">
           <CardHeader>
@@ -1048,6 +1091,7 @@ export function MemberDetailPage(): JSX.Element {
           )}
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface AssignmentDraft { value: string }
 interface StepDraft {
@@ -36,6 +37,7 @@ interface WorkflowDraft {
 }
 interface WorkflowScope {
   pointTypeIds?: string[];
+  payoutTypes?: ("CASH" | "NON_CASH")[];
   minAmount?: number;
   maxAmount?: number;
   minValueMinor?: number;
@@ -128,7 +130,7 @@ function numericScopeValue(value: string): number | undefined {
 
 function builtInScope(actionKey: string, scope: WorkflowScope): WorkflowScope {
   const keys = ["POINT_EXCHANGE", "POINT_ISSUANCE_PROPOSAL", "CAMPAIGN_ISSUANCE_PROPOSAL"].includes(actionKey)
-    ? ["pointTypeIds", "minAmount", "maxAmount", "minValueMinor", "maxValueMinor"]
+    ? ["pointTypeIds", ...(actionKey === "POINT_EXCHANGE" ? ["payoutTypes"] : []), "minAmount", "maxAmount", "minValueMinor", "maxValueMinor"]
     : ["rewardIds", "rewardCategories"];
   const result: WorkflowScope = {};
   for (const key of keys) {
@@ -142,6 +144,7 @@ function assignmentValue(assignee: { adminUserId: string | null; role: string | 
 }
 
 export function WorkflowsPage(): JSX.Element {
+  const canManage = useAdminCapability("workflow.manage");
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkflowDraft>(blankDraft);
@@ -282,8 +285,8 @@ export function WorkflowsPage(): JSX.Element {
           <h1 className="flex items-center gap-2 text-3xl font-bold"><WorkflowIcon />{ui("Approval workflows")}</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{ui("Configure ordered approval layers per program and action. Requests snapshot assignees at creation time.")}</p>
         </div>
-        <Button onClick={() => { setEditingId(null); setDraft(blankDraft()); setNotice(null); }}>
-          <Plus className="mr-2 h-4 w-4" />{ui("New workflow")}</Button>
+        {canManage && <Button onClick={() => { setEditingId(null); setDraft(blankDraft()); setNotice(null); }}>
+          <Plus className="mr-2 h-4 w-4" />{ui("New workflow")}</Button>}
       </div>
       {notice && <div role="status" className="rounded-md border bg-muted p-3 text-sm">{notice}</div>}
       <div className="grid gap-6 xl:grid-cols-[minmax(16rem,1fr)_minmax(0,2fr)]">
@@ -311,9 +314,13 @@ export function WorkflowsPage(): JSX.Element {
         <Card>
           <CardHeader>
             <CardTitle>{editingId ? ui("Edit workflow") : ui("Create workflow")}</CardTitle>
-            <CardDescription>{ui("Save inactive while building, then activate after all layers have valid active assignees.")}</CardDescription>
+            <CardDescription>
+              {ui("Save inactive while building, then activate after all layers have valid active assignees.")}
+              {draft.actionKey === "POINT_EXCHANGE" && <> {ui("Once an exchange workflow is active, cover every enabled point type, payout type, and allowed amount; unmatched exchange requests are blocked.")}</>}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
+            <fieldset disabled={!canManage} className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <Label htmlFor="workflow-action" data-help={ui("Unique program-scoped trigger key used by modules to select this workflow.")}>{ui("Action key")}</Label>
@@ -355,6 +362,23 @@ export function WorkflowsPage(): JSX.Element {
               <Label htmlFor="workflow-priority" data-help={ui("Higher priority wins when more than one active workflow matches the same action and scope. Equal-priority overlapping scopes are rejected.")}>{ui("Priority")}</Label>
               <Input id="workflow-priority" type="number" step={1} value={draft.priority} onChange={(event) => { setDraft((current) => ({ ...current, priority: Number(event.target.value) })); }} />
             </div>
+            {draft.actionKey === "POINT_EXCHANGE" && (
+              <div>
+                <Label htmlFor="workflow-payout-types" data-help={ui("Select cash, non-cash, or leave both unselected to match every payout type.")}>{ui("Payout types")}</Label>
+                <select
+                  id="workflow-payout-types"
+                  multiple
+                  size={2}
+                  className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={draft.scope.payoutTypes ?? []}
+                  onChange={(event) => { updateScope("payoutTypes", selectedValues(event)); }}
+                >
+                  <option value="CASH">{ui("Cash")}</option>
+                  <option value="NON_CASH">{ui("Non-cash")}</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">{ui("Leave empty to match both payout types.")}</p>
+              </div>
+            )}
             {draft.actionKey === "POINT_EXCHANGE" && <div className="space-y-3 rounded-md border bg-muted/20 p-4"><div><h3 className="font-semibold">{ui("Point exchange scope")}</h3><p className="text-xs text-muted-foreground">{ui("Empty point type selection matches all active point types. Amount and value limits are inclusive.")}</p></div><div><Label htmlFor="workflow-point-types" data-help={ui("Select point types for this workflow. Leave empty to match every point type.")}>{ui("Point types")}</Label><select id="workflow-point-types" multiple size={4} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.scope.pointTypeIds ?? []} onChange={(event) => { updateScope("pointTypeIds", selectedValues(event)); }}>{(scopeCatalog.data?.pointTypes ?? []).map((pointType) => <option key={pointType.id} value={pointType.id}>{pointType.code} · {pointType.name}</option>)}</select></div><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="workflow-min-amount" data-help={ui("Minimum source point amount required for a match.")}>{ui("Minimum amount")}</Label><Input id="workflow-min-amount" type="number" min={0} value={draft.scope.minAmount ?? ""} onChange={(event) => { updateScope("minAmount", numericScopeValue(event.target.value)); }} /></div><div><Label htmlFor="workflow-max-amount" data-help={ui("Maximum source point amount allowed for a match.")}>{ui("Maximum amount")}</Label><Input id="workflow-max-amount" type="number" min={0} value={draft.scope.maxAmount ?? ""} onChange={(event) => { updateScope("maxAmount", numericScopeValue(event.target.value)); }} /></div><div><Label htmlFor="workflow-min-value" data-help={ui("Minimum exchange value in minor currency units, such as cents.")}>{ui("Minimum value (minor units)")}</Label><Input id="workflow-min-value" type="number" min={0} value={draft.scope.minValueMinor ?? ""} onChange={(event) => { updateScope("minValueMinor", numericScopeValue(event.target.value)); }} /></div><div><Label htmlFor="workflow-max-value" data-help={ui("Maximum exchange value in minor currency units, such as cents.")}>{ui("Maximum value (minor units)")}</Label><Input id="workflow-max-value" type="number" min={0} value={draft.scope.maxValueMinor ?? ""} onChange={(event) => { updateScope("maxValueMinor", numericScopeValue(event.target.value)); }} /></div></div></div>}
             {(draft.actionKey === "POINT_ISSUANCE_PROPOSAL" || draft.actionKey === "CAMPAIGN_ISSUANCE_PROPOSAL") && <div className="space-y-3 rounded-md border bg-muted/20 p-4"><div><h3 className="font-semibold">{ui(draft.actionKey === "CAMPAIGN_ISSUANCE_PROPOSAL" ? "Campaign issuance proposal scope" : "Point issuance proposal scope")}</h3><p className="text-xs text-muted-foreground">{ui(draft.actionKey === "CAMPAIGN_ISSUANCE_PROPOSAL" ? "Match campaign-level proposals for exceptional events; the campaign remains inactive until approved." : "Leave point types and amount limits empty to match every manual member grant proposal.")}</p></div><div><Label htmlFor="workflow-issuance-point-types">{ui("Point types")}</Label><select id="workflow-issuance-point-types" multiple size={4} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.scope.pointTypeIds ?? []} onChange={(event) => { updateScope("pointTypeIds", selectedValues(event)); }}>{(scopeCatalog.data?.pointTypes ?? []).map((pointType) => <option key={pointType.id} value={pointType.id}>{pointType.code} · {pointType.name}</option>)}</select></div><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="workflow-issuance-min-amount">{ui("Minimum amount")}</Label><Input id="workflow-issuance-min-amount" type="number" min={0} value={draft.scope.minAmount ?? ""} onChange={(event) => { updateScope("minAmount", numericScopeValue(event.target.value)); }} /></div><div><Label htmlFor="workflow-issuance-max-amount">{ui("Maximum amount")}</Label><Input id="workflow-issuance-max-amount" type="number" min={0} value={draft.scope.maxAmount ?? ""} onChange={(event) => { updateScope("maxAmount", numericScopeValue(event.target.value)); }} /></div></div></div>}
             {draft.actionKey === "REWARD_REDEMPTION" && <div className="space-y-3 rounded-md border bg-muted/20 p-4"><div><h3 className="font-semibold">{ui("Reward redemption scope")}</h3><p className="text-xs text-muted-foreground">{ui("Empty reward or category selections match all rewards. Categories come from the reward’s current category field.")}</p></div><div><Label htmlFor="workflow-rewards" data-help={ui("Select individual rewards for this workflow. Leave empty to match every reward.")}>{ui("Rewards")}</Label><select id="workflow-rewards" multiple size={4} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.scope.rewardIds ?? []} onChange={(event) => { updateScope("rewardIds", selectedValues(event)); }}>{(scopeCatalog.data?.rewards ?? []).map((reward) => <option key={reward.id} value={reward.id}>{reward.name}</option>)}</select></div><div><Label htmlFor="workflow-reward-categories" data-help={ui("Select reward categories. A reward matches when its category is one of the selected values.")}>{ui("Reward categories")}</Label><select id="workflow-reward-categories" multiple size={4} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.scope.rewardCategories ?? []} onChange={(event) => { updateScope("rewardCategories", selectedValues(event)); }}>{Array.from(new Set((scopeCatalog.data?.rewards ?? []).map((reward) => reward.category).filter((category): category is string => Boolean(category)))).map((category) => <option key={category} value={category}>{category}</option>)}</select></div></div>}
@@ -384,7 +408,8 @@ export function WorkflowsPage(): JSX.Element {
                 </div>
               ))}
             </div>
-            <div className="flex flex-wrap gap-2"><Button disabled={save.isPending} onClick={() => { save.mutate(); }}><Save className="mr-2 h-4 w-4" />{save.isPending ? ui("Saving…") : ui("Save workflow")}</Button>{editingId && <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => { if (window.confirm(ui("Delete this workflow definition? Historical requests prevent deletion."))) remove.mutate(); }}><Trash2 className="mr-2 h-4 w-4" />{ui("Delete")}</Button>}</div>
+            {canManage && <div className="flex flex-wrap gap-2"><Button disabled={save.isPending} onClick={() => { save.mutate(); }}><Save className="mr-2 h-4 w-4" />{save.isPending ? ui("Saving…") : ui("Save workflow")}</Button>{editingId && <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => { if (window.confirm(ui("Delete this workflow definition? Historical requests prevent deletion."))) remove.mutate(); }}><Trash2 className="mr-2 h-4 w-4" />{ui("Delete")}</Button>}</div>}
+            </fieldset>
           </CardContent>
         </Card>
       </div>

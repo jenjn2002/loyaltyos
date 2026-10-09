@@ -14,4 +14,8 @@ describe("member CSV export escaping", () => {
   it("still quotes CSV delimiters after escaping", () => {
     expect(csvCell("=1,2")).toBe("\"'=1,2\"");
   });
+
+  it("keeps numeric negative balances numeric for import round-trips", () => {
+    expect(csvCell(-100)).toBe("-100");
+  });
 });

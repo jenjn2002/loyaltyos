@@ -19,10 +19,19 @@ const FIELD_DEFINITIONS: [RegExp, string][] = [
     "Controls whether value never expires, expires after a number of days, on one fixed date, or per individual grant.",
   ],
   [
-    /expiry|expires/i,
-    "The date or duration after which unused value is removed from the member wallet.",
+    /api key.*expiry|expiry.*api key|key expiry|expires in.*key/i,
+    "Controls how long this API key is accepted for authentication. After it expires, requests using the key are rejected; this does not affect member point expiry.",
   ],
-  [/warning/i, "Days before expiry when the member should receive an expiry reminder."],
+  [
+    /point.*(?:balance|amount|expiry|points?|cost|value)|(?:balance|amount|expiry|points?|cost|value).*point/i,
+    "The points or balance for the selected point type. The point type’s rules govern its use and expiry.",
+  ],
+  [
+    /point expiry reminder|wallet expiry warning|expiry reminder/i,
+    "Days before unspent point value expires when the member should receive a reminder.",
+  ],
+  [/expiry|expires/i, "The date or duration after which this configured item or value is no longer valid."],
+  [/warning/i, "The timing or threshold used for this warning."],
   [
     /allowance/i,
     "A separate renewable Give budget. Spending it does not reduce the giver’s owned wallet balance.",
@@ -80,7 +89,7 @@ const FIELD_DEFINITIONS: [RegExp, string][] = [
   [/cash/i, "Permits a cash payout. This can only be enabled when exchange is enabled."],
   [
     /balance|amount|points|cost|value/i,
-    "The integer quantity applied to this wallet or operation.",
+    "The numeric quantity applied to this operation; use the units and limits shown with the field.",
   ],
   [
     /reason|description|note/i,
@@ -124,6 +133,16 @@ function associatedLabel(control: HTMLElement): HTMLLabelElement | null {
   );
 }
 
+function visibleLabelText(label: HTMLLabelElement): string {
+  const textOnlyLabel = label.cloneNode(true) as HTMLLabelElement;
+  textOnlyLabel
+    .querySelectorAll(
+      'input, select, textarea, button, [role="combobox"], [role="switch"], [role="checkbox"], [role="radio"], [data-field-help-ignore]',
+    )
+    .forEach((control) => control.remove());
+  return (textOnlyLabel.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 function attachHelp(control: HTMLElement): void {
   if (control.dataset.fieldHelpAttached === "true") return;
   control.dataset.fieldHelpAttached = "true";
@@ -131,7 +150,7 @@ function attachHelp(control: HTMLElement): void {
   const explicit = control.dataset.help ?? label?.dataset.help;
   const labelText =
     explicit ??
-    label?.textContent ??
+    (label ? visibleLabelText(label) : undefined) ??
     control.getAttribute("aria-label") ??
     control.getAttribute("placeholder") ??
     control.getAttribute("name") ??

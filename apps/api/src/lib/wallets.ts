@@ -12,6 +12,7 @@ import type {
 import { prisma } from "../db.js";
 import { createApprovalRequestWithClient } from "./approval-workflows.js";
 import { LoyaltyError } from "./errors.js";
+import { formatPointExchangeReason } from "./exchange-reason.js";
 
 export const POINT_TYPE_CODES = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 export const POINT_EXPIRY_MODES = ["NEVER", "AFTER_DAYS", "FIXED_DATE", "PER_GRANT"] as const;
@@ -1917,6 +1918,9 @@ export class WalletService {
           },
           member: { select: { id: true, firstName: true, lastName: true, email: true } },
           categoryRef: { select: { id: true, name: true } },
+          exchangeRequest: {
+            select: { id: true, documentNumber: true, payoutType: true, valueMinor: true, currency: true, payoutMechanism: true, status: true },
+          },
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * pageSize,
@@ -1963,6 +1967,7 @@ export class WalletService {
       maxPoints?: number;
       periodLimitPoints?: number;
       periodDays: number;
+      expiresAt?: Date | null;
     },
   ) {
     return this.db.$transaction(async (tx) => {
@@ -1996,6 +2001,7 @@ export class WalletService {
           maxPoints: input.maxPoints,
           periodLimitPoints: input.periodLimitPoints,
           periodDays: input.periodDays,
+          expiresAt: input.expiresAt,
         },
         include: { pointType: true },
       });
@@ -2006,7 +2012,11 @@ export class WalletService {
     return this.db.pointExchangeRate.findMany({
       where: {
         programId,
-        ...(activeOnly ? { isActive: true, pointType: { isActive: true, archivedAt: null } } : {}),
+        ...(activeOnly ? {
+          isActive: true,
+          pointType: { isActive: true, archivedAt: null },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        } : {}),
       },
       include: { pointType: true },
       orderBy: [{ pointType: { sortOrder: "asc" } }, { version: "desc" }],
@@ -2055,6 +2065,7 @@ export class WalletService {
           pointTypeId: pointType.id,
           payoutType: input.payoutType,
           isActive: true,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         orderBy: { version: "desc" },
       });
@@ -2067,6 +2078,7 @@ export class WalletService {
           where: {
             memberId,
             pointTypeId: pointType.id,
+            payoutType: input.payoutType,
             requestedAt: { gte: since },
             status: { notIn: ["CANCELLED", "REJECTED"] },
           },
@@ -2097,11 +2109,13 @@ export class WalletService {
         amount: input.amount,
         action: "EXCHANGE",
         source: "member:exchange",
+        reason: formatPointExchangeReason(request),
         idempotencyKey: `${input.idempotencyKey}:ledger`,
         exchangeRateId: rate.id,
         exchangeRequestId: request.id,
         actor: { type: "MEMBER", id: memberId },
         metadata: {
+          documentNumber: request.documentNumber,
           valueMinor: request.valueMinor,
           currency: request.currency,
           payoutType: request.payoutType,
@@ -2126,10 +2140,18 @@ export class WalletService {
         idempotencyKey: `point-exchange:${request.id}`,
         scopeContext: {
           pointTypeId: pointType.id,
+          payoutType: input.payoutType,
           amount: request.amount,
           valueMinor: request.valueMinor,
         },
       });
+      if (!approvalRequest) {
+        const activeWorkflow = await tx.approvalWorkflow.findFirst({
+          where: { programId, actionKey: "POINT_EXCHANGE", isActive: true },
+          select: { id: true },
+        });
+        if (activeWorkflow) throw new LoyaltyError("POINT_EXCHANGE_WORKFLOW_NOT_MATCHED", 409);
+      }
       const linkedRequest = approvalRequest
         ? await tx.pointExchangeRequest.update({
             where: { id: request.id },
@@ -2142,7 +2164,14 @@ export class WalletService {
 
   async exchangeRequests(
     programId: string,
-    input: { status?: PointExchangeStatus; memberId?: string; page?: number; pageSize?: number },
+    input: {
+      status?: PointExchangeStatus;
+      memberId?: string;
+      page?: number;
+      pageSize?: number;
+      /** Only authenticated admin callers may request internal workflow history. */
+      includeApprovalDetails?: boolean;
+    },
   ) {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 50;
@@ -2174,7 +2203,91 @@ export class WalletService {
       }),
       this.db.pointExchangeRequest.count({ where }),
     ]);
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    const pagination = { total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    if (!input.includeApprovalDetails) return { items, ...pagination };
+
+    const approvalIds = [...new Set(items.flatMap((item) =>
+      item.approvalRequest ? [item.approvalRequest.id] : [],
+    ))];
+    const actorIds = [...new Set(items.flatMap((item) =>
+      [item.approvedBy, item.completedBy].filter((id): id is string => Boolean(id)),
+    ))];
+    const [approvalRequests, actors] = await Promise.all([
+      approvalIds.length ? this.db.approvalRequest.findMany({
+        where: { programId, id: { in: approvalIds } },
+        select: {
+          id: true,
+          requestedAt: true,
+          workflowSnapshot: true,
+          workflow: { select: { name: true } },
+          steps: {
+            orderBy: { stepOrder: "asc" },
+            select: {
+              id: true,
+              stepOrder: true,
+              name: true,
+              approvalMode: true,
+              requiredApprovalCount: true,
+              status: true,
+              openedAt: true,
+              completedAt: true,
+              assigneesSnapshot: true,
+              decisions: {
+                orderBy: { createdAt: "asc" },
+                select: {
+                  id: true,
+                  decision: true,
+                  comment: true,
+                  createdAt: true,
+                  approver: { select: { id: true, name: true, email: true, role: true } },
+                },
+              },
+            },
+          },
+        },
+      }) : [],
+      actorIds.length ? this.db.adminUser.findMany({
+        where: { programId, id: { in: actorIds } },
+        select: { id: true, name: true, email: true },
+      }) : [],
+    ]);
+    const approvalsById = new Map(approvalRequests.map((approval) => {
+      const snapshot = approval.workflowSnapshot;
+      const savedName = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+        ? snapshot.name : undefined;
+      return [approval.id, {
+        workflowName: typeof savedName === "string" ? savedName : approval.workflow.name,
+        requestedAt: approval.requestedAt,
+        steps: approval.steps.map((step) => ({
+          ...step,
+          assigneesSnapshot: Array.isArray(step.assigneesSnapshot)
+            ? step.assigneesSnapshot.flatMap((value) => {
+                if (!value || typeof value !== "object" || Array.isArray(value)
+                  || typeof value.adminId !== "string") return [];
+                return [{
+                  adminId: value.adminId,
+                  name: typeof value.name === "string" ? value.name : "",
+                  email: typeof value.email === "string" ? value.email : "",
+                  role: typeof value.role === "string" ? value.role : "",
+                }];
+              })
+            : [],
+        })),
+      }] as const;
+    }));
+    const actorsById = new Map(actors.map((actor) => [actor.id, actor]));
+    return {
+      items: items.map((item) => ({
+        ...item,
+        approvedByAdmin: item.approvedBy ? actorsById.get(item.approvedBy) ?? null : null,
+        completedByAdmin: item.completedBy ? actorsById.get(item.completedBy) ?? null : null,
+        approvalRequest: item.approvalRequest ? {
+          ...item.approvalRequest,
+          ...approvalsById.get(item.approvalRequest.id),
+        } : null,
+      })),
+      ...pagination,
+    };
   }
 
   async updateExchangeRequest(

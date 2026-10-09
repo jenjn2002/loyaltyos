@@ -48,6 +48,7 @@
     "invalidCredentials": "Thông tin xác thực không hợp lệ",
     "signingIn": "Đang đăng nhập…",
     "loginTitle": "LoyaltyOS",
+    "brandedLoginTitle": "Quản trị {{systemName}}",
     "loginDescription": "Đăng nhập vào bảng điều khiển quản trị",
     "microsoftAdminApproval": "Tài khoản Microsoft 365 phải được Owner phê duyệt trước khi được cấp quyền Admin.",
     "networkError": "Lỗi mạng. API có đang chạy không?"
@@ -169,13 +170,37 @@
   },
   "settings": {
     "title": "Cài đặt",
+    "languageSaveFailed": "Không thể lưu tùy chọn ngôn ngữ. Ngôn ngữ trước đó vẫn được giữ.",
+    "branding": {
+      "title": "Tên và logo hệ thống",
+      "description": "Chọn tên và logo hiển thị trên trang quản trị, cổng thành viên và tab trình duyệt.",
+      "systemName": "Tên hệ thống",
+      "systemNameHelp": "Dùng 1–80 ký tự. Khoảng trắng đầu và cuối được loại bỏ.",
+      "logo": "Logo hệ thống",
+      "logoHelp": "PNG, JPEG, WebP hoặc GIF, tối đa 5 MB. Hiển thị trên tab trình duyệt, thanh bên và trang đăng nhập.",
+      "logoPreview": "Xem trước logo hệ thống",
+      "removeLogo": "Xóa logo",
+      "noLogo": "Chưa cấu hình logo",
+      "processingLogo": "Đang xử lý logo…",
+      "logoInvalidType": "Chọn ảnh PNG, JPEG, WebP hoặc GIF.",
+      "logoTooLarge": "Chọn ảnh không quá 5 MB.",
+      "logoError": "Không thể xử lý ảnh này. Hãy chọn ảnh khác.",
+      "save": "Lưu tên và logo",
+      "saving": "Đang lưu…",
+      "saved": "Đã lưu tên và logo hệ thống.",
+      "required": "Nhập tên hệ thống.",
+      "tooLong": "Tên hệ thống không được vượt quá 80 ký tự.",
+      "loadError": "Không tải được tên và logo hệ thống. Vui lòng thử lại.",
+      "saveError": "Không lưu được tên và logo hệ thống.",
+      "readOnly": "Bạn có thể xem cài đặt này. Cần quyền quản lý cài đặt để thay đổi."
+    },
     "language": "Ngôn ngữ",
     "languages": {
       "english": "English",
       "vietnamese": "Tiếng Việt"
     },
     "microsoft": {
-      "pageDescription": "Định cấu hình nhà cung cấp đăng nhập tùy chọn cho chương trình này.",
+      "pageDescription": "Cấu hình tên và logo hệ thống, truy cập API và nhà cung cấp đăng nhập cho chương trình này.",
       "title": "Đăng nhập Microsoft 365",
       "description": "Đăng nhập vào Microsoft có thể liên kết thành viên hiện có hoặc cung cấp thành viên mới trong lần đăng nhập đầu tiên khi tính năng tự động cấp phép được bật.",
       "enabled": "Đã bật",
@@ -440,6 +465,10 @@
     "confirmCancelDesc": "Bạn có chắc chắn muốn hủy lô \"{{name}}\" bằng thẻ {{count}} không? Điều này sẽ hủy tất cả các thẻ hoạt động còn lại."
   },
   "errors": {
+    "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "Không có quy trình phê duyệt phù hợp với yêu cầu đổi điểm này. Hãy nhờ quản trị viên cập nhật quy trình trước khi thử lại.",
+    "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "Yêu cầu đổi điểm này phải được duyệt qua quy trình phê duyệt.",
+    "POINT_EXCHANGE_REJECT_VIA_WORKFLOW": "Hãy từ chối yêu cầu này trong quy trình phê duyệt, hoặc hủy để hoàn điểm cho thành viên.",
+    "POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING": "Người duyệt yêu cầu đổi điểm cần các quyền Inbox, View và Decide. Hãy nhờ quản trị viên cập nhật vai trò phê duyệt.",
     "INVALID_INPUT": "Dữ liệu không hợp lệ",
     "UNAUTHORIZED": "Chưa xác thực",
     "FORBIDDEN": "Bị từ chối truy cập",

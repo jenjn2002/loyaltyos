@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface CoalitionTransaction {
   id: string;
@@ -59,6 +60,7 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | 
 };
 
 export function CoalitionTransactionsPage(): JSX.Element {
+  const canManage = useAdminCapability("coalition.manage");
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [memberIdFilter, setMemberIdFilter] = useState("");
@@ -212,7 +214,7 @@ export function CoalitionTransactionsPage(): JSX.Element {
                     {format(new Date(tx.createdAt), ui("MMM d, HH:mm"))}
                   </TableCell>
                   <TableCell>
-                    {(tx.status === "PENDING" || tx.status === "FAILED") && (
+                    {canManage && (tx.status === "PENDING" || tx.status === "FAILED") && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -378,7 +380,7 @@ export function CoalitionTransactionsPage(): JSX.Element {
             </div>
 
             {/* Reverse Action */}
-            {(selectedTx.status === "PENDING" || selectedTx.status === "FAILED") && (
+            {canManage && (selectedTx.status === "PENDING" || selectedTx.status === "FAILED") && (
               <div className="mt-6">
                 <Button
                   variant="destructive"
@@ -395,7 +397,7 @@ export function CoalitionTransactionsPage(): JSX.Element {
       )}
 
       {/* Reverse Confirmation Dialog */}
-      <Dialog open={reverseDialogOpen} onOpenChange={setReverseDialogOpen}>
+      <Dialog open={canManage && reverseDialogOpen} onOpenChange={setReverseDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{ui("Reverse Transaction")}</DialogTitle>

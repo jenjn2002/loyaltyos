@@ -7,6 +7,7 @@ import { customerGuide } from "../content/document-guide";
 import { customerGuideEnglish } from "../content/document-guide.en";
 import { customerGuideExpanded } from "../content/document-guide-expanded";
 import { configuredProgramId } from "../lib/api-client";
+import { useSystemBranding } from "../lib/system-branding";
 
 interface GuideScenario {
   title: string;
@@ -158,6 +159,7 @@ function screenshotGallery(screenshots: GuideScreenshot[] | undefined, isEnglish
 
 export default function CustomerDocumentPage(): JSX.Element {
   const { i18n } = useTranslation();
+  const systemName = useSystemBranding();
   const isEnglish = i18n.resolvedLanguage?.startsWith("en") ?? i18n.language.startsWith("en");
   const [query, setQuery] = useState("");
   const [contentsOpen, setContentsOpen] = useState(false);
@@ -178,10 +180,10 @@ export default function CustomerDocumentPage(): JSX.Element {
 
   const copy = isEnglish
     ? {
-        eyebrow: "MEMBER GUIDE", title: "How to use LoyaltyOS", intro: "Learn each feature's purpose, normal workflow, common use cases, and what to check if something does not work.", searchLabel: "Search the guide", searchPlaceholder: "Search: claim points, transactions, projects...", contents: "Contents", navLabel: "Guide contents", profile: "Open profile", illustrationNotice: "Illustrations use sample data. Balances, limits, and available actions depend on your program settings.", empty: "No matching topics. Try a different search term.", purpose: "What is this feature for?", steps: "Main workflow", result: "Expected result", notes: "Important notes", situations: "Use cases and troubleshooting", caseWhen: "Use this path when", caseHelp: "If it still does not work", footer: "LoyaltyOS member guide · Illustrations use sample data.", home: "Back to Home", exportPdf: "Export PDF", pdfHint: "In the print dialog, choose Save as PDF.",
+        eyebrow: "MEMBER GUIDE", title: `How to use ${systemName}`, intro: "Learn each feature's purpose, normal workflow, common use cases, and what to check if something does not work.", searchLabel: "Search the guide", searchPlaceholder: "Search: claim points, transactions, projects...", contents: "Contents", navLabel: "Guide contents", profile: "Open profile", illustrationNotice: "Illustrations use sample data. Balances, limits, and available actions depend on your program settings.", empty: "No matching topics. Try a different search term.", purpose: "What is this feature for?", steps: "Main workflow", result: "Expected result", notes: "Important notes", situations: "Use cases and troubleshooting", caseWhen: "Use this path when", caseHelp: "If it still does not work", footer: `${systemName} member guide · Illustrations use sample data.`, home: "Back to Home", exportPdf: "Export PDF", pdfHint: "In the print dialog, choose Save as PDF.",
       }
     : {
-        eyebrow: "CẨM NANG THÀNH VIÊN", title: "Hướng dẫn sử dụng LoyaltyOS", intro: "Tra cứu mục đích, luồng thông thường, tình huống sử dụng và cách xử lý khi thao tác không như mong đợi.", searchLabel: "Tìm trong hướng dẫn", searchPlaceholder: "Tìm: claim điểm, giao dịch, dự án...", contents: "Mục lục", navLabel: "Mục lục hướng dẫn", profile: "Mở hồ sơ", illustrationNotice: "Hình minh họa dùng dữ liệu giả. Số dư, giới hạn và thao tác khả dụng phụ thuộc cấu hình chương trình.", empty: "Không tìm thấy nội dung phù hợp. Thử từ khóa khác nhé.", purpose: "Tính năng này để làm gì?", steps: "Luồng chính", result: "Kết quả mong đợi", notes: "Lưu ý", situations: "Tình huống sử dụng và xử lý", caseWhen: "Dùng luồng này khi", caseHelp: "Nếu vẫn chưa xử lý được", footer: "Tài liệu dành cho thành viên LoyaltyOS · Hình minh họa dùng dữ liệu mẫu.", home: "Về Trang chủ", exportPdf: "Xuất PDF", pdfHint: "Trong hộp thoại in, chọn Lưu thành PDF.",
+        eyebrow: "CẨM NANG THÀNH VIÊN", title: `Hướng dẫn sử dụng ${systemName}`, intro: "Tra cứu mục đích, luồng thông thường, tình huống sử dụng và cách xử lý khi thao tác không như mong đợi.", searchLabel: "Tìm trong hướng dẫn", searchPlaceholder: "Tìm: claim điểm, giao dịch, dự án...", contents: "Mục lục", navLabel: "Mục lục hướng dẫn", profile: "Mở hồ sơ", illustrationNotice: "Hình minh họa dùng dữ liệu giả. Số dư, giới hạn và thao tác khả dụng phụ thuộc cấu hình chương trình.", empty: "Không tìm thấy nội dung phù hợp. Thử từ khóa khác nhé.", purpose: "Tính năng này để làm gì?", steps: "Luồng chính", result: "Kết quả mong đợi", notes: "Lưu ý", situations: "Tình huống sử dụng và xử lý", caseWhen: "Dùng luồng này khi", caseHelp: "Nếu vẫn chưa xử lý được", footer: `Tài liệu dành cho thành viên ${systemName} · Hình minh họa dùng dữ liệu mẫu.`, home: "Về Trang chủ", exportPdf: "Xuất PDF", pdfHint: "Trong hộp thoại in, chọn Lưu thành PDF.",
       };
 
   const localizedTopics = useMemo(() => {
@@ -297,7 +299,7 @@ export default function CustomerDocumentPage(): JSX.Element {
             </div>
             {(topic.scenarios?.length ?? 0) > 0 && <section className="mt-5 border-t border-[var(--color-border)] pt-4"><h3 className="mb-3 text-sm font-bold">{copy.situations}</h3><div className="grid gap-3 lg:grid-cols-2">{topic.scenarios?.map((scenario, scenarioIndex) => <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4" key={`${scenarioIndex}-${scenario.title}`}><h4 className="font-semibold">{scenario.title}</h4><p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]"><strong>{copy.caseWhen}:</strong> {scenario.when}</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5">{scenario.steps.map((step, stepIndex) => <li key={`${stepIndex}-${step}`}>{step}</li>)}</ol>{scenario.expected && <p className="mt-2 text-xs leading-5"><strong>{copy.result}:</strong> {scenario.expected}</p>}{scenario.help && <p className="mt-2 rounded bg-amber-50 p-2 text-xs leading-5 text-amber-950"><strong>{copy.caseHelp}:</strong> {scenario.help}</p>}</div>)}</div></section>}
           </article></div>)}</div>}
-          <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-5 text-xs text-[var(--color-text-secondary)]"><span>{isEnglish ? "LoyaltyOS member guide · Screenshots are captured from the actual application." : "Hướng dẫn dành cho thành viên LoyaltyOS · Ảnh chụp được lấy từ giao diện thực tế của ứng dụng."}</span><Link className="no-print font-semibold text-[var(--color-primary)]" to="/">{copy.home}</Link></footer>
+          <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-5 text-xs text-[var(--color-text-secondary)]"><span>{isEnglish ? `${systemName} member guide · Screenshots are captured from the actual application.` : `Hướng dẫn dành cho thành viên ${systemName} · Ảnh chụp được lấy từ giao diện thực tế của ứng dụng.`}</span><Link className="no-print font-semibold text-[var(--color-primary)]" to="/">{copy.home}</Link></footer>
         </main>
       </div>
     </div>

@@ -156,7 +156,7 @@ export function CampaignBuilderPage(): JSX.Element {
           isActive: boolean;
           archivedAt: string | null;
         }[]
-      >("/admin/point-types"),
+      >("/point-types"),
   });
   const activePointTypes = useMemo(
     () => (pointTypes ?? []).filter((pointType) => pointType.isActive && !pointType.archivedAt),

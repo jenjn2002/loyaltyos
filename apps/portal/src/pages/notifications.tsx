@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchApi } from "../lib/api-client";
+import { useSystemBranding } from "../lib/system-branding";
 
 interface NotificationItem {
   id: string;
@@ -46,6 +47,7 @@ function NotificationBody({ body }: { body: string }) {
 
 export default function Notifications() {
   const copy = useCustomerCopy();
+  const systemName = useSystemBranding();
   const [page, setPage] = useState(1);
   const queryClient = useQueryClient();
   const notifications = useQuery({
@@ -142,7 +144,7 @@ export default function Notifications() {
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="flex items-center gap-2 font-semibold">
                       {unread && <span className="h-2 w-2 rounded-full bg-red-600" aria-label={ui("Unread")} />}
-                      {item.subject ?? "LoyaltyOS update"}
+                      {item.subject ?? copy(`${systemName} update`, `Cập nhật từ ${systemName}`)}
                     </h2>
                     <button
                       type="button"

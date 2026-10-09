@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { LoyaltyError } from "../../lib/errors.js";
+import { ledgerReasonForDisplay } from "../../lib/exchange-reason.js";
 import { translateLegacyText } from "@loyaltyos/i18n";
 
 const maxExportRows = 50_000;
@@ -200,7 +201,7 @@ function memberBase(member: { id: string; email: string | null; externalId: stri
   };
 }
 
-async function loadRows(dataset: string, programId: string, catalog: ExportDataset[]): Promise<ExportRow[]> {
+async function loadRows(dataset: string, programId: string, catalog: ExportDataset[], locale: "vi-VN" | "en-US"): Promise<ExportRow[]> {
   const selected = catalog.find((item) => item.key === dataset);
   if (!selected) throw new LoyaltyError("EXPORT_DATASET_NOT_FOUND", 404);
 
@@ -232,10 +233,10 @@ async function loadRows(dataset: string, programId: string, catalog: ExportDatas
     case "point_transactions": {
       const transactions = await prisma.customPointTransaction.findMany({
         where: { programId }, orderBy: { createdAt: "desc" }, take: maxExportRows + 1,
-        include: { member: { select: { id: true, email: true, firstName: true, lastName: true } }, pointType: { select: { code: true, name: true } }, categoryRef: { select: { name: true } } },
+        include: { member: { select: { id: true, email: true, firstName: true, lastName: true } }, pointType: { select: { code: true, name: true } }, categoryRef: { select: { name: true } }, exchangeRequest: { select: { documentNumber: true, payoutType: true } } },
       });
       const sources = await sourceLabels(programId, transactions.map((item) => item.source));
-      return transactions.map((item) => ({ transactionId: item.id, memberId: item.memberId, memberName: memberName(item.member), memberEmail: item.member.email, pointType: `${item.pointType.name} (${item.pointType.code})`, action: item.action, amount: item.amount, balanceAfter: item.balanceAfter, source: sources.get(item.source) ?? item.source, category: item.categoryRef?.name ?? item.category, reason: item.reason, message: item.message, expiresAt: item.expiresAt, createdAt: item.createdAt }));
+      return transactions.map((item) => ({ transactionId: item.id, memberId: item.memberId, memberName: memberName(item.member), memberEmail: item.member.email, pointType: `${item.pointType.name} (${item.pointType.code})`, action: item.action, amount: item.amount, balanceAfter: item.balanceAfter, source: sources.get(item.source) ?? item.source, category: item.categoryRef?.name ?? item.category, reason: ledgerReasonForDisplay(item, locale), message: item.message, expiresAt: item.expiresAt, createdAt: item.createdAt }));
     }
     case "credit_transactions": {
       const transactions = await prisma.creditTransaction.findMany({
@@ -444,7 +445,7 @@ export function adminExportsRoutes(app: FastifyInstance, _opts: unknown, done: (
       throw new LoyaltyError("EXPORT_FIELDS_INVALID", 400);
     }
 
-    const rows = await loadRows(dataset.key, request.programId, catalog);
+    const rows = await loadRows(dataset.key, request.programId, catalog, body.locale);
     if (rows.length > maxExportRows) throw new LoyaltyError("EXPORT_ROW_LIMIT_EXCEEDED", 413);
     const selectedFields = body.fields.map((key) => dataset.fields.find((field) => field.key === key)!);
     const header = selectedFields.map((field) => translateLegacyText(field.label, body.locale));

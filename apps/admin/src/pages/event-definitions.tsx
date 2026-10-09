@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminPermissions } from "@/lib/admin-permissions";
 import { memberFieldLabel, ui } from "@/lib/ui-text";
 
 interface Automation {
@@ -88,6 +89,8 @@ function preview(automation: Automation, fields: MemberField[]): string {
 }
 
 export function EventDefinitionsPage(): JSX.Element {
+  const permissions = useAdminPermissions();
+  const canManage = permissions.can("event.manage");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [editing, setEditing] = useState<string | null>(null);
@@ -105,6 +108,7 @@ export function EventDefinitionsPage(): JSX.Element {
   const fields = useQuery({
     queryKey: ["member-fields", "occasions"],
     queryFn: () => fetchApi<MemberField[]>("/admin/member-fields"),
+    enabled: canManage,
   });
   const activeDateFields = (fields.data ?? []).filter((field) => field.type === "DATE" && field.isActive);
   const set = (patch: Partial<Automation>) => setAutomation((current) => ({ ...current, ...patch }));
@@ -158,10 +162,10 @@ export function EventDefinitionsPage(): JSX.Element {
         </p>
         <p className="text-xs text-muted-foreground">{ui("Created by")}: {definition.createdBy ? `${definition.createdBy.name}${definition.createdBy.email ? ` · ${definition.createdBy.email}` : ""}` : ui("System / legacy")}</p>
       </div>
-      <div className="flex gap-2">
+      {canManage && <div className="flex gap-2">
         <Button variant="outline" onClick={() => { setEditing(definition.id); setKey(definition.key); setName(definition.name); setDescription(definition.description ?? ""); setAutomation({ ...defaults(), ...definition.automation, mode: definition.automation.mode === "ANNIVERSARY" ? "MEMBER_DATE_ANNUAL" : definition.automation.mode }); }}>{ui("Edit")}</Button>
         <Button variant="outline" disabled={toggle.isPending} onClick={() => toggle.mutate(definition)}>{ui(definition.isActive ? "Deactivate" : "Activate")}</Button>
-      </div>
+      </div>}
     </div>
   );
 
@@ -175,7 +179,7 @@ export function EventDefinitionsPage(): JSX.Element {
       </div>
       {(notice || definitions.error) && <p role="status" className="rounded-md border p-3">{notice || definitions.error?.message}</p>}
 
-      <Card>
+      {canManage && <Card>
         <CardHeader>
           <CardTitle>{ui(editing ? "Edit event" : "Create event definition")}</CardTitle>
           <CardDescription>{ui("Choose a schedule, member action or external integration source.")}</CardDescription>
@@ -248,7 +252,7 @@ export function EventDefinitionsPage(): JSX.Element {
             {automation.mode === "EXTERNAL" && <p className="mt-1 font-mono text-xs text-muted-foreground">POST /api/v1/events · type: {key || "your.event.key"}</p>}
           </div>
 
-          {annualMemberModes.includes(automation.mode) && !activeDateFields.length && (
+          {permissions.can("member.manage") && annualMemberModes.includes(automation.mode) && !activeDateFields.length && (
             <Button type="button" variant="link" className="h-auto p-0" onClick={() => navigate("/member-fields")}>
               {ui("Open member fields")}
             </Button>
@@ -260,7 +264,7 @@ export function EventDefinitionsPage(): JSX.Element {
             {editing && <Button variant="outline" onClick={reset}>{ui("Cancel")}</Button>}
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       {definitions.isLoading && <Card><CardContent className="pt-6"><p>{ui("Loading...")}</p></CardContent></Card>}
       {!definitions.isLoading && (

@@ -17,6 +17,7 @@ import { prisma } from "./db.js";
 import { getBusinessMetricsRegistry } from "./lib/business-metrics.js";
 import { errorHandler } from "./lib/error-handler.js";
 import { authPlugin } from "./plugins/auth.js";
+import { adminApiAccessRoutes } from "./routes/admin/api-access.js";
 import { adminApprovalsRoutes } from "./routes/admin/approvals.js";
 import { adminAuthRoutes } from "./routes/admin/auth.js";
 import { adminDashboardRoutes } from "./routes/admin/dashboard.js";
@@ -41,6 +42,7 @@ import { adminSettingsRoutes } from "./routes/admin/settings.js";
 import { adminTiersRoutes } from "./routes/admin/tiers.js";
 import { adminWorkflowsRoutes } from "./routes/admin/workflows.js";
 import { authRoutes } from "./routes/auth.js";
+import { publicBrandingRoutes, programBrandingRoutes } from "./routes/branding.js";
 import { campaignClaimsRoutes } from "./routes/campaign-claims.js";
 import { checkInRoutes } from "./routes/check-ins.js";
 import { coalitionRoutes } from "./routes/coalition.js";
@@ -74,7 +76,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
       ? {
           level: process.env.LOG_LEVEL ?? "info",
           redact: {
-            paths: ["req.body.code", "req.body.giftCardCode", "*.code"],
+            paths: ["req.body.code", "req.body.giftCardCode", "*.code", "req.headers.authorization", "req.headers.cookie", "req.headers['x-api-key']"],
             censor: "[REDACTED]",
           },
         }
@@ -180,6 +182,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   // Public routes (before auth plugin)
   await app.register(authRoutes, { prefix: "/api/v1" });
+  await app.register(publicBrandingRoutes, { prefix: "/api/v1" });
 
   // Public documentation contains only published customer-facing articles.
   await app.register(publicDocumentationRoutes, { prefix: "/api/v1" });
@@ -191,6 +194,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   // Login/logout are explicitly allow-listed by the auth plugin; /admin/me and
   // permission endpoints now receive the authenticated request context.
   await app.register(adminAuthRoutes, { prefix: "/api/v1" });
+  await app.register(programBrandingRoutes, { prefix: "/api/v1" });
   await app.register(adminDashboardRoutes, { prefix: "/api/v1" });
   await app.register(adminDocumentationRoutes, { prefix: "/api/v1" });
   await app.register(healthRoutes, { prefix: "/" });
@@ -203,6 +207,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(statsRoutes, { prefix: "/api/v1" });
   await app.register(adminSegmentsRoutes, { prefix: "/api/v1" });
   await app.register(adminSettingsRoutes, { prefix: "/api/v1" });
+  await app.register(adminApiAccessRoutes, { prefix: "/api/v1" });
   await app.register(adminBadgesRoutes, { prefix: "/api/v1" });
   await app.register(adminTiersRoutes, { prefix: "/api/v1" });
   await app.register(adminCouponsRoutes, { prefix: "/api/v1" });

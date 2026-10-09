@@ -12,6 +12,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { ExchangeApprovalSummary } from "@/components/exchange-approval-summary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminPermissions } from "@/lib/admin-permissions";
+import { isAutomaticExchangeCompletion, type ExchangeAdminIdentity, type ExchangeApprovalRequest } from "@/lib/exchange-approval";
 import i18n from "@/i18n";
 
 interface PointType {
@@ -72,6 +75,8 @@ interface LedgerItem {
   sourceLabel?: string;
   expiresAt?: string | null;
   exchangeRequestId?: string | null;
+  exchangeRequest?: Pick<ExchangeRequest, "id" | "documentNumber" | "payoutType" | "valueMinor" | "currency" | "payoutMechanism" | "status"> | null;
+  metadata?: Record<string, unknown> | null;
   reversedFromId?: string | null;
   reversedById?: string | null;
   counterparty?: LedgerItem["member"];
@@ -103,6 +108,7 @@ interface Rate {
   maxPoints: number | null;
   periodLimitPoints: number | null;
   periodDays: number;
+  expiresAt: string | null;
   isActive: boolean;
   pointType: { code: string; name: string; unitLabel: string };
   createdBy?: { id: string; name: string; email: string | null } | null;
@@ -121,13 +127,16 @@ interface ExchangeRequest {
   requestedAt: string;
   approvedAt: string | null;
   approvedBy: string | null;
+  approvedByAdmin: ExchangeAdminIdentity | null;
   approvalNote: string | null;
   completedAt: string | null;
   completedBy: string | null;
+  completedByAdmin: ExchangeAdminIdentity | null;
   completionReference: string | null;
   completionNote: string | null;
   cancellationReason: string | null;
   exchangeRate: { version: number; valueMinorPerPoint: number };
+  approvalRequest: ExchangeApprovalRequest | null;
 }
 interface Category {
   id: string;
@@ -305,8 +314,42 @@ function displayName(member: ExchangeRequest["member"] | LedgerItem["member"]): 
   return member.email ?? "Unknown member";
 }
 
+function exchangeAdminLabel(admin: ExchangeAdminIdentity | null): string {
+  return admin?.name || admin?.email || ui("System / legacy");
+}
+
+function exchangeCompletionNote(note: string): string {
+  const prefix = "Automatically completed after final workflow approval.";
+  if (i18n.language.startsWith("vi") && note.startsWith(prefix)) {
+    return `Tự động hoàn tất sau lượt phê duyệt cuối cùng của quy trình.${note.slice(prefix.length)}`;
+  }
+  return note;
+}
+
 function isBankTransaction(item: LedgerItem | BankTransaction): item is BankTransaction {
   return "cycle" in item && "type" in item;
+}
+
+function transactionReasonLabel(item: LedgerItem | BankTransaction): string {
+  if (isBankTransaction(item) || item.action !== "EXCHANGE") return item.reason ?? "—";
+
+  const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+    ? item.metadata
+    : {};
+  const documentNumber = item.exchangeRequest?.documentNumber?.trim()
+    || (typeof metadata.documentNumber === "string" ? metadata.documentNumber.trim() : "");
+  const payoutType = item.exchangeRequest?.payoutType ?? metadata.payoutType;
+  const generatedReason = documentNumber && (payoutType === "CASH" || payoutType === "NON_CASH")
+    ? `Point exchange: ${documentNumber} · ${payoutType === "CASH" ? "Cash" : "Non-cash"}`
+    : null;
+  if (item.reason?.trim() && item.reason !== generatedReason) return item.reason;
+
+  const vietnamese = i18n.language.startsWith("vi");
+  const title = vietnamese ? "Đổi điểm" : "Point exchange";
+  const payoutLabel = payoutType === "CASH"
+    ? (vietnamese ? "Tiền mặt" : "Cash")
+    : payoutType === "NON_CASH" ? (vietnamese ? "Phi tiền mặt" : "Non-cash") : null;
+  return `${title}${documentNumber ? `: ${documentNumber}` : ""}${payoutLabel ? ` · ${payoutLabel}` : ""}`;
 }
 
 function actorLabel(item: LedgerItem | BankTransaction): string {
@@ -350,6 +393,17 @@ export function CreditsManagementPage({
 }: {
   section?: CreditsSection;
 }): JSX.Element {
+  const permissions = useAdminPermissions();
+  const canBankManage = permissions.can("bank.manage");
+  const canBankView = permissions.can("bank.view");
+  const canExchangeManage = permissions.can("exchange.manage");
+  const canExchangeApprove = permissions.can("exchange.approve");
+  const canExchangeComplete = permissions.can("exchange.complete");
+  const canWorkflowView = permissions.can("workflow.view");
+  const canReviewApprovalInbox = permissions.can("approval.inbox");
+  const canViewApproval = permissions.can("approval.view");
+  const canRecognitionManage = permissions.can("recognition.manage");
+  const canAdjustWallets = permissions.can("wallet.adjust");
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [exchangeTab, setExchangeTab] = useState<"requests" | "rates">("requests");
@@ -381,6 +435,9 @@ export function CreditsManagementPage({
   const [rateMax, setRateMax] = useState("");
   const [ratePeriodLimit, setRatePeriodLimit] = useState("");
   const [ratePeriodDays, setRatePeriodDays] = useState("30");
+  const [rateLimitMode, setRateLimitMode] = useState<"NONE" | "ROLLING">("NONE");
+  const [rateExpiryMode, setRateExpiryMode] = useState<"NEVER" | "DATE">("NEVER");
+  const [rateExpiryDate, setRateExpiryDate] = useState("");
   const [sourceRate, setSourceRate] = useState<Rate | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
@@ -397,8 +454,9 @@ export function CreditsManagementPage({
   const [bulkResult, setBulkResult] = useState<BulkBatch | null>(null);
 
   const pointTypes = useQuery({
-    queryKey: ["point-types", "admin"],
-    queryFn: () => fetchApi<PointType[]>("/admin/point-types"),
+    queryKey: ["point-types", "credits", permissions.can("point_type.view")],
+    queryFn: () => fetchApi<PointType[]>(permissions.can("point_type.view") ? "/admin/point-types" : "/point-types"),
+    enabled: permissions.isSuccess,
   });
   const activeTypes = useMemo(
     () => (pointTypes.data ?? []).filter((type) => type.isActive && !type.archivedAt),
@@ -418,13 +476,13 @@ export function CreditsManagementPage({
       ...BULK_REQUIRED_FIELDS.map((key) => ({ key, mandatory: true })),
       ...BULK_OPTIONAL_MEMBER_FIELDS.map((key) => ({ key, mandatory: false })),
       ...activeMemberFields.map((field) => ({ key: `custom:${field.key}`, mandatory: field.required })),
-      ...activeTypes.flatMap((type) => [
+      ...(canAdjustWallets ? activeTypes : []).flatMap((type) => [
         { key: `point_${type.code}`, mandatory: false },
         { key: `balance_${type.code}`, mandatory: false },
         ...(type.expiryMode === "PER_GRANT" ? [{ key: `expiry_${type.code}`, mandatory: false }] : []),
       ]),
     ],
-    [activeTypes, activeMemberFields],
+    [activeTypes, activeMemberFields, canAdjustWallets],
   );
   useEffect(() => {
     const requiredCustom = activeMemberFields.filter((field) => field.required).map((field) => `custom:${field.key}`);
@@ -581,8 +639,11 @@ export function CreditsManagementPage({
           payoutType: ratePayout,
           minPoints: Number(rateMin),
           ...(rateMax ? { maxPoints: Number(rateMax) } : {}),
-          ...(ratePeriodLimit ? { periodLimitPoints: Number(ratePeriodLimit) } : {}),
-          periodDays: Number(ratePeriodDays),
+          ...(rateLimitMode === "ROLLING" ? { periodLimitPoints: Number(ratePeriodLimit) } : {}),
+          periodDays: rateLimitMode === "ROLLING" ? Number(ratePeriodDays) : 30,
+          expiresAt: rateExpiryMode === "DATE"
+            ? new Date(`${rateExpiryDate}T23:59:59.999`).toISOString()
+            : null,
         }),
       }),
     onSuccess: async () => {
@@ -608,6 +669,18 @@ export function CreditsManagementPage({
       rate.periodLimitPoints == null ? "" : String(rate.periodLimitPoints),
     );
     setRatePeriodDays(String(rate.periodDays));
+    setRateLimitMode(rate.periodLimitPoints == null ? "NONE" : "ROLLING");
+    setRateExpiryMode(rate.expiresAt ? "DATE" : "NEVER");
+    if (rate.expiresAt) {
+      const expiry = new Date(rate.expiresAt);
+      setRateExpiryDate([
+        String(expiry.getFullYear()),
+        String(expiry.getMonth() + 1).padStart(2, "0"),
+        String(expiry.getDate()).padStart(2, "0"),
+      ].join("-"));
+    } else {
+      setRateExpiryDate("");
+    }
     setNotice(
       `${ui("Version")} ${String(rate.version)} ${ui("loaded. Saving will create a new version and preserve voucher history.")}`,
     );
@@ -845,7 +918,7 @@ export function CreditsManagementPage({
                     </div>
                   ))}
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
+                {canBankManage && <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="bank-type"
                     label={ui("Point type")}
@@ -903,7 +976,7 @@ export function CreditsManagementPage({
                       issueBank.mutate();
                     }}
                   >{ui("Fund bank")}</Button>
-                </div>
+                </div>}
               </CardContent>
             </Card>
           )}
@@ -1052,7 +1125,7 @@ export function CreditsManagementPage({
                   }}
                 >
                   <option value="wallet">{ui("Member wallet")}</option>
-                  <option value="bank">{ui("Bank funding")}</option>
+                  {canBankView && <option value="bank">{ui("Bank funding")}</option>}
                 </select>
               </Field>
               <Field id="ledger-type" label={ui("Point type")} help={ui("Limit results to one wallet type.")}>
@@ -1151,7 +1224,7 @@ export function CreditsManagementPage({
                       <td className="p-2 text-sm text-muted-foreground">
                         {isBankTransaction(item) ? "—" : item.member?.email ?? "—"}
                       </td>
-                      <td className="p-2 text-sm">{item.reason ?? "—"}</td>
+                      <td className="p-2 text-sm">{transactionReasonLabel(item)}</td>
                       <td className="p-2">{item.pointType.code}</td>
                       <td className="min-w-48 p-2 text-xs">
                         {!isBankTransaction(item) && <p>{transactionSourceLabel(item)}</p>}
@@ -1159,7 +1232,7 @@ export function CreditsManagementPage({
                           <dl className="mt-2 space-y-2 break-all">
                             <div><dt>{ui("Transaction ID")}</dt><dd>{item.id}</dd></div>
                             <div><dt>{ui("Actor ID")}</dt><dd>{item.actorId ?? "—"}</dd></div>
-                            <div><dt>{ui("Reason")}</dt><dd>{item.reason ?? "—"}</dd></div>
+                            <div><dt>{ui("Reason")}</dt><dd>{transactionReasonLabel(item)}</dd></div>
                             {isBankTransaction(item) ? <div><dt>{ui("Bank cycle")}</dt><dd>{item.cycle ? `${formatAdminDate(item.cycle.startsAt)} – ${formatAdminDate(item.cycle.endsAt)} · ${ui(item.cycle.status)}` : "—"}</dd></div> : <>
                               <div><dt>{ui("Source")}</dt><dd>{item.source ?? "—"}</dd></div>
                               <div><dt>{ui("Exchange request ID")}</dt><dd>{item.exchangeRequestId ?? "—"}</dd></div>
@@ -1222,9 +1295,11 @@ export function CreditsManagementPage({
                 <ArrowRightLeft />{ui("Exchange rates")}</CardTitle>
               <CardDescription>
                 {ui("Saving creates a version and deactivates only the prior rate for the same payout type.")}
+                {" "}{ui("If any POINT_EXCHANGE workflow is active, its scopes must cover every enabled rate, payout type, and allowed amount; unmatched member exchanges are blocked.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {canExchangeManage && <>
               {sourceRate && (
                 <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                   {ui("Editing from")} {sourceRate.pointType.name} · {sourceRate.payoutType} · v
@@ -1347,35 +1422,90 @@ export function CreditsManagementPage({
                   />
                 </Field>
                 <Field
-                  id="rate-period-limit"
-                  label={ui("Period limit")}
-                  help={ui("Optional cumulative member limit during the rolling period.")}
+                  id="rate-expiry-mode"
+                  label={ui("Rate expiry")}
+                  help={ui("Choose whether this rate stays active until replaced or expires on a specific date.")}
                 >
-                  <Input
-                    id="rate-period-limit"
-                    type="number"
-                    min="1"
-                    value={ratePeriodLimit}
+                  <select
+                    id="rate-expiry-mode"
+                    className={selectClass}
+                    value={rateExpiryMode}
                     onChange={(event) => {
-                      setRatePeriodLimit(event.target.value);
+                      setRateExpiryMode(event.target.value as "NEVER" | "DATE");
                     }}
-                  />
+                  >
+                    <option value="NEVER">{ui("No expiry")}</option>
+                    <option value="DATE">{ui("Specific expiry date")}</option>
+                  </select>
                 </Field>
+                {rateExpiryMode === "DATE" && (
+                  <Field
+                    id="rate-expiry-date"
+                    label={ui("Expiry date")}
+                    help={ui("The rate remains available through the selected date in your local time zone.")}
+                  >
+                    <Input
+                      id="rate-expiry-date"
+                      type="date"
+                      value={rateExpiryDate}
+                      onChange={(event) => {
+                        setRateExpiryDate(event.target.value);
+                      }}
+                    />
+                  </Field>
+                )}
                 <Field
-                  id="rate-period-days"
-                  label={ui("Period days")}
-                  help={ui("Rolling window used by the cumulative exchange limit.")}
+                  id="rate-limit-mode"
+                  label={ui("Cumulative exchange limit")}
+                  help={ui("This optional member limit does not set an expiry date for the rate.")}
                 >
-                  <Input
-                    id="rate-period-days"
-                    type="number"
-                    min="1"
-                    value={ratePeriodDays}
+                  <select
+                    id="rate-limit-mode"
+                    className={selectClass}
+                    value={rateLimitMode}
                     onChange={(event) => {
-                      setRatePeriodDays(event.target.value);
+                      setRateLimitMode(event.target.value as "NONE" | "ROLLING");
                     }}
-                  />
+                  >
+                    <option value="NONE">{ui("No cumulative limit")}</option>
+                    <option value="ROLLING">{ui("Limit over a rolling period")}</option>
+                  </select>
                 </Field>
+                {rateLimitMode === "ROLLING" && (
+                  <Field
+                    id="rate-period-limit"
+                    label={ui("Maximum points per member")}
+                    help={ui("Maximum total for each member, point type and payout type during the rolling period. Requests using earlier rate versions also count.")}
+                  >
+                    <Input
+                      id="rate-period-limit"
+                      type="number"
+                      min="1"
+                      value={ratePeriodLimit}
+                      onChange={(event) => {
+                        setRatePeriodLimit(event.target.value);
+                      }}
+                    />
+                  </Field>
+                )}
+                {rateLimitMode === "ROLLING" && (
+                  <Field
+                    id="rate-period-days"
+                    label={ui("Rolling limit window (days)")}
+                    help={ui("Only used to calculate the cumulative member limit; it is not a rate expiry date.")}
+                  >
+                    <Input
+                      id="rate-period-days"
+                      type="number"
+                      min="1"
+                      max="3660"
+                      value={ratePeriodDays}
+                      onChange={(event) => {
+                        setRatePeriodDays(event.target.value);
+                      }}
+                    />
+                  </Field>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -1384,6 +1514,13 @@ export function CreditsManagementPage({
                     !rateMechanism ||
                     !Number.isFinite(Number(rateValue)) ||
                     Number(rateValue) < 0.01 ||
+                    (rateExpiryMode === "DATE" &&
+                      (!rateExpiryDate ||
+                        !Number.isFinite(new Date(`${rateExpiryDate}T23:59:59.999`).getTime()) ||
+                        new Date(`${rateExpiryDate}T23:59:59.999`).getTime() <= Date.now())) ||
+                    (rateLimitMode === "ROLLING" &&
+                      (!Number.isInteger(Number(ratePeriodLimit)) || Number(ratePeriodLimit) <= 0 ||
+                        !Number.isInteger(Number(ratePeriodDays)) || Number(ratePeriodDays) < 1 || Number(ratePeriodDays) > 3660)) ||
                     createRate.isPending
                   }
                   onClick={() => {
@@ -1402,25 +1539,39 @@ export function CreditsManagementPage({
                   >{ui("Cancel editing")}</Button>
                 )}
               </div>
+              </>}
               <div className="space-y-2">
                 {(rates.data ?? []).map((rate) => (
                   <div
                     key={rate.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${rate.isActive ? "" : "bg-muted/40 text-muted-foreground"}`}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${rate.isActive && (!rate.expiresAt || new Date(rate.expiresAt).getTime() > Date.now()) ? "" : "bg-muted/40 text-muted-foreground"}`}
                   >
                     <div>
                       <span>
                         {rate.pointType.name} · {rate.payoutType === "CASH" ? ui("Cash") : ui("Non-cash")} · v{rate.version}
                       </span>
                       <span className="ml-2 rounded-full border px-2 py-0.5 text-xs">
-                        {rate.isActive ? ui("Active") : ui("Historical")}
+                        {rate.isActive
+                          ? rate.expiresAt && new Date(rate.expiresAt).getTime() <= Date.now()
+                            ? ui("Expired")
+                            : ui("Active")
+                          : ui("Historical")}
                       </span>
                       <p className="mt-1 text-xs">
                         {(rate.valueMinorPerPoint / 100).toFixed(2)} {rate.currency} / {rate.pointType.unitLabel} · {rate.payoutMechanism}
                       </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {rate.expiresAt
+                          ? `${ui("Expires")}: ${new Date(rate.expiresAt).toLocaleDateString()}`
+                          : ui("No expiry")}
+                        {" · "}
+                        {rate.periodLimitPoints == null
+                          ? ui("No cumulative limit")
+                          : `${ui("Maximum points per member")}: ${rate.periodLimitPoints.toLocaleString()} / ${rate.periodDays} ${ui("days")}`}
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">{ui("Created by")}: {rate.createdBy ? `${rate.createdBy.name}${rate.createdBy.email ? ` · ${rate.createdBy.email}` : ""}` : ui("System / legacy")}</p>
                     </div>
-                    <Button
+                    {canExchangeManage && <Button
                       type="button"
                       size="sm"
                       variant="outline"
@@ -1428,7 +1579,7 @@ export function CreditsManagementPage({
                         editRateAsNewVersion(rate);
                       }}
                     >
-                      <Pencil className="h-4 w-4" />{ui("Edit as new version")}</Button>
+                      <Pencil className="h-4 w-4" />{ui("Edit as new version")}</Button>}
                   </div>
                 ))}
               </div>
@@ -1439,7 +1590,11 @@ export function CreditsManagementPage({
             <CardHeader>
               <CardTitle>{ui("Accounting exchange vouchers")}</CardTitle>
               <CardDescription>
-                {ui("Stored accounting documents with strict transitions: Pending → Approved → Completed. Cancellation before completion automatically refunds the member wallet.")}
+                {ui("Final workflow approval automatically completes the voucher. Older approved vouchers can still be marked completed manually.")}
+                {" "}{ui("Cancellation before completion automatically refunds the member wallet.")}
+                {" "}{ui("Configure POINT_EXCHANGE in Approval workflows to route new vouchers through custom approval steps.")}{" "}
+                {ui("Once active, every new exchange must match a workflow; unmatched requests are blocked.")}{" "}
+                {canWorkflowView && <Link to="/workflows" className="font-medium text-primary underline underline-offset-2">{ui("Configure approval workflow")}</Link>}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1487,26 +1642,38 @@ export function CreditsManagementPage({
                     <p>{ui("Requested:")} {new Date(item.requestedAt).toLocaleString()}</p>
                     {item.approvedAt && (
                       <p>
-                        {ui("Approved:")} {new Date(item.approvedAt).toLocaleString()} · {item.approvedBy}
+                        {ui("Approved:")} {new Date(item.approvedAt).toLocaleString()} · {exchangeAdminLabel(item.approvedByAdmin)}
                       </p>
                     )}
                     {item.completedAt && (
                       <p>
                         {ui("Completed:")} {new Date(item.completedAt).toLocaleString()} ·{" "}
-                        {item.completedBy}
+                        {isAutomaticExchangeCompletion(item.completionReference, item.approvalRequest)
+                          ? ui("Automatic workflow completion")
+                          : exchangeAdminLabel(item.completedByAdmin)}
                       </p>
                     )}
-                    {item.completionReference && <p>{ui("Reference:")} {item.completionReference}</p>}
+                    {item.completionReference && !isAutomaticExchangeCompletion(item.completionReference, item.approvalRequest) && <p>{ui("Reference:")} {item.completionReference}</p>}
                   </div>
                   {item.approvalNote && <p className="mt-2">{ui("Approval note:")} {item.approvalNote}</p>}
                   {item.completionNote && (
-                    <p className="mt-2">{ui("Completion note:")} {item.completionNote}</p>
+                    <p className="mt-2 whitespace-pre-wrap break-words">{ui("Completion note:")} {exchangeCompletionNote(item.completionNote)}</p>
                   )}
                   {item.cancellationReason && (
                     <p className="mt-2 text-destructive">{ui("Cancellation:")} {item.cancellationReason}</p>
                   )}
+                  {item.approvalRequest ? (
+                    <ExchangeApprovalSummary
+                      request={item.approvalRequest}
+                      canViewApproval={canViewApproval}
+                      canReviewInbox={canReviewApprovalInbox}
+                      currentAdminId={permissions.data?.id}
+                    />
+                  ) : item.status === "PENDING" ? (
+                    <p className="mt-3 text-xs text-muted-foreground">{ui("Direct approval (created without a matching workflow).")}</p>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {item.status === "PENDING" && (
+                    {item.status === "PENDING" && !item.approvalRequest && canExchangeApprove && (
                       <Button
                         size="sm"
                         disabled={transitionExchange.isPending}
@@ -1515,7 +1682,7 @@ export function CreditsManagementPage({
                         }}
                       >{ui("Approve")}</Button>
                     )}
-                    {item.status === "APPROVED" && (
+                    {item.status === "APPROVED" && canExchangeComplete && (
                       <Button
                         size="sm"
                         disabled={transitionExchange.isPending}
@@ -1524,7 +1691,7 @@ export function CreditsManagementPage({
                         }}
                       >{ui("Mark completed")}</Button>
                     )}
-                    {["PENDING", "APPROVED"].includes(item.status) && (
+                    {["PENDING", "APPROVED"].includes(item.status) && canExchangeManage && (
                       <Button
                         size="sm"
                         disabled={transitionExchange.isPending}
@@ -1561,7 +1728,7 @@ export function CreditsManagementPage({
                 <CardDescription>{ui("Track allocation windows without deleting unused bank value when a cycle closes.")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                {canBankManage && <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="cycle-type"
                     label={ui("Point type")}
@@ -1625,13 +1792,13 @@ export function CreditsManagementPage({
                       }}
                     />
                   </Field>
-                </div>
-                <Button
+                </div>}
+                {canBankManage && <Button
                   disabled={!cycleTypeId || openCycle.isPending}
                   onClick={() => {
                     openCycle.mutate();
                   }}
-                >{ui("Open cycle")}</Button>
+                >{ui("Open cycle")}</Button>}
                 <div className="space-y-2">
                   {(cycles.data ?? []).map((cycle) => {
                     return (
@@ -1651,7 +1818,7 @@ export function CreditsManagementPage({
                                   setCycleDetailPage(1);
                                 }}
                               >{ui("View details")}</Button>
-                              {cycle.status === "OPEN" && (
+                              {cycle.status === "OPEN" && canBankManage && (
                                 <Button size="sm" variant="outline" onClick={() => clearCycle.mutate(cycle.id)}>
                                   {ui("Close cycle")}
                                 </Button>
@@ -1772,7 +1939,7 @@ export function CreditsManagementPage({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                {canRecognitionManage && <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     id="category-name"
                     label={ui("Category name")}
@@ -1799,13 +1966,13 @@ export function CreditsManagementPage({
                       }}
                     />
                   </Field>
-                </div>
-                <Button
+                </div>}
+                {canRecognitionManage && <Button
                   disabled={!categoryName || createCategory.isPending}
                   onClick={() => {
                     createCategory.mutate();
                   }}
-                >{ui("Create category")}</Button>
+                >{ui("Create category")}</Button>}
                 <div className="space-y-2">
                   {(categories.data ?? []).map((category) => (
                     <div
@@ -1817,7 +1984,7 @@ export function CreditsManagementPage({
                         <span className="ml-2 text-muted-foreground">{category.description}</span>
                         <span className="ml-2 text-xs text-muted-foreground">{ui("Created by")}: {category.createdBy ? `${category.createdBy.name}${category.createdBy.email ? ` · ${category.createdBy.email}` : ""}` : ui("System / legacy")}</span>
                       </span>
-                      <div className="flex gap-2">
+                      {canRecognitionManage && <div className="flex gap-2">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1834,7 +2001,7 @@ export function CreditsManagementPage({
                             updateCategory.mutate({ category, remove: true });
                           }}
                         >{ui("Delete")}</Button>
-                      </div>
+                      </div>}
                     </div>
                   ))}
                 </div>

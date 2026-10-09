@@ -113,16 +113,30 @@ export const pointExchangeApprovalHook: ApprovalDecisionHook = async (
     return;
   }
   if (request.actionKey === "POINT_EXCHANGE" && request.subjectType === "PointExchangeRequest") {
+    const actor = { type: "ADMIN_USER", id: actorId };
     await walletService.updateExchangeRequestWithTransaction(
       tx,
       request.programId,
       request.subjectId,
       decision === "APPROVE" ? "APPROVED" : "REJECTED",
-      { type: "ADMIN_USER", id: actorId },
+      actor,
       decision === "APPROVE"
         ? { note: comment }
         : { reason: comment ?? "Rejected by approval workflow" },
     );
+    if (decision === "APPROVE") {
+      await walletService.updateExchangeRequestWithTransaction(
+        tx,
+        request.programId,
+        request.subjectId,
+        "COMPLETED",
+        actor,
+        {
+          reference: `approval:${request.id}`,
+          note: `Automatically completed after final workflow approval.${comment ? ` ${comment}` : ""}`,
+        },
+      );
+    }
     return;
   }
   if (request.actionKey === "REWARD_REDEMPTION" && request.subjectType === "RewardRedemption") {

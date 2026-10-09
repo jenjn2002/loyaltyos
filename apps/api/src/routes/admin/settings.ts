@@ -14,6 +14,16 @@ import {
 } from "../../lib/microsoft-auth.js";
 import { requireCapability } from "../../lib/permissions.js";
 import { adminMicrosoftRedirectUri, microsoftRedirectUri } from "../../lib/public-urls.js";
+import { isSystemLogoImage, MAX_SYSTEM_LOGO_LENGTH, systemBrandingAudit, systemBrandingResponse } from "../../lib/system-branding.js";
+
+const brandingSettingsSchema = z.object({
+  systemName: z.string().trim().min(1).max(80).refine(
+    (name) => !/[\u0000-\u001f\u007f]/.test(name),
+    "System name cannot contain control characters",
+  ),
+  // Omitted preserves the existing logo; explicit null removes it.
+  logoUrl: z.string().max(MAX_SYSTEM_LOGO_LENGTH).refine(isSystemLogoImage, "Logo must be a PNG, JPEG, GIF or WebP image").nullable().optional(),
+});
 
 const microsoftSettingsSchema = z.object({
   enabled: z.boolean().default(false),
@@ -55,6 +65,36 @@ function settingsResponse(config: {
 }
 
 export function adminSettingsRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
+  app.get("/admin/settings/branding", { preHandler: [requireCapability("settings.view")] }, async (request, reply) => {
+    const program = await prisma.program.findUnique({
+      where: { id: request.programId }, select: { systemName: true, logoUrl: true },
+    });
+    if (!program) throw new LoyaltyError("PROGRAM_NOT_FOUND", 404);
+    return reply.send({ data: systemBrandingResponse(program) });
+  });
+
+  app.put("/admin/settings/branding", { preHandler: [requireCapability("settings.manage")] }, async (request, reply) => {
+    const body = brandingSettingsSchema.parse(request.body);
+    const program = await prisma.$transaction(async (tx) => {
+      const current = await tx.program.findUnique({ where: { id: request.programId }, select: { systemName: true, logoUrl: true } });
+      if (!current) throw new LoyaltyError("PROGRAM_NOT_FOUND", 404);
+      const logoChanged = body.logoUrl !== undefined && body.logoUrl !== (current.logoUrl ?? null);
+      if (current.systemName === body.systemName && !logoChanged) return current;
+      const updated = await tx.program.update({
+        where: { id: request.programId },
+        data: { systemName: body.systemName, ...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}) },
+        select: { systemName: true, logoUrl: true },
+      });
+      await audit(request.programId, request.actor, "CONFIG_CHANGE", "program_branding", request.programId, {
+        operation: logoChanged ? "UPDATE_SYSTEM_BRANDING" : "UPDATE_SYSTEM_NAME",
+        before: systemBrandingAudit(current),
+        after: systemBrandingAudit(updated),
+      }, undefined, tx);
+      return updated;
+    });
+    return reply.send({ data: systemBrandingResponse(program) });
+  });
+
   app.get(
     "/admin/settings/microsoft",
     { preHandler: [requireCapability("settings.view")] },

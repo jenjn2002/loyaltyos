@@ -4,10 +4,11 @@ import fp from "fastify-plugin";
 
 import { prisma } from "../db.js";
 import type { AuditActor } from "../lib/audit.js";
+import { hashApiKeySecret } from "../lib/api-keys.js";
 import { adminLucia } from "../lib/auth/admin-lucia.js";
 import { lucia } from "../lib/auth/lucia.js";
 import { LoyaltyError } from "../lib/errors.js";
-import { assertCapability, capabilityForAdminRequest } from "../lib/permissions.js";
+import { assertAnyCapability, assertCapability, capabilityForAdminRequest } from "../lib/permissions.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -115,13 +116,16 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
 
     // The demo seed key is public by design and must never authenticate a
     // production request, even if an old database still contains that row.
-    if (process.env.NODE_ENV === "production" && apiKey === "dev-key") {
+    if (apiKey.startsWith("sha256:") || (process.env.NODE_ENV === "production" && apiKey === "dev-key")) {
       throw Object.assign(new Error("Invalid API key"), { statusCode: 401 });
     }
 
-    const key = await prisma.apiKey.findUnique({
-      where: { key: apiKey },
+    // New credentials are stored as digests. Keep existing legacy keys working
+    // until explicitly rotated, but never accept a database digest as a secret.
+    const hashedKey = await prisma.apiKey.findUnique({
+      where: { key: hashApiKeySecret(apiKey) },
     });
+    const key = hashedKey ?? await prisma.apiKey.findUnique({ where: { key: apiKey } });
 
     if (!key?.isActive) {
       throw Object.assign(new Error("Invalid API key"), { statusCode: 401 });
@@ -170,7 +174,11 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
       (request.method === "GET" || request.method === "PATCH");
     if (!capability && !isSelfProfileRequest && !isDatasetExport && !isMemberFieldDefinitionsRequest)
       throw Object.assign(new Error("Admin permission denied"), { statusCode: 403 });
-    if (capability) await assertCapability(request, capability);
+    if (
+      profilePath === "/api/v1/admin/settings/api-keys" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) await assertAnyCapability(request, ["api_key.view", "api_key.manage"]);
+    else if (capability) await assertCapability(request, capability);
   });
 }
 

@@ -48,6 +48,7 @@
     "invalidCredentials": "Invalid credentials",
     "signingIn": "Signing in…",
     "loginTitle": "LoyaltyOS",
+    "brandedLoginTitle": "{{systemName}} Admin",
     "loginDescription": "Sign in to the admin dashboard",
     "microsoftAdminApproval": "Microsoft 365 accounts must be approved by an Owner before Admin access is granted.",
     "networkError": "Network error. Is the API running?"
@@ -169,13 +170,37 @@
   },
   "settings": {
     "title": "Settings",
+    "languageSaveFailed": "Could not save the language preference. The previous language was kept.",
+    "branding": {
+      "title": "System branding",
+      "description": "Choose the name and logo shown across the admin and member portal, including browser tabs.",
+      "systemName": "System name",
+      "systemNameHelp": "Use 1–80 characters. Leading and trailing spaces are removed.",
+      "logo": "System logo",
+      "logoHelp": "PNG, JPEG, WebP or GIF, up to 5 MB. Used in the browser tab, sidebar and login page.",
+      "logoPreview": "System logo preview",
+      "removeLogo": "Remove logo",
+      "noLogo": "No logo configured",
+      "processingLogo": "Preparing logo…",
+      "logoInvalidType": "Choose a PNG, JPEG, WebP or GIF image.",
+      "logoTooLarge": "Choose an image no larger than 5 MB.",
+      "logoError": "Unable to process this image. Choose another image.",
+      "save": "Save branding",
+      "saving": "Saving…",
+      "saved": "Branding saved.",
+      "required": "Enter a system name.",
+      "tooLong": "System name must be 80 characters or fewer.",
+      "loadError": "Unable to load the system branding. Try again.",
+      "saveError": "Unable to save the system branding.",
+      "readOnly": "You can view this setting. Managing settings permission is required to change it."
+    },
     "language": "Language",
     "languages": {
       "english": "English",
       "vietnamese": "Vietnamese"
     },
     "microsoft": {
-      "pageDescription": "Configure optional sign-in providers for this program.",
+      "pageDescription": "Configure system branding, API access, and optional sign-in providers for this program.",
       "title": "Microsoft 365 sign-in",
       "description": "Microsoft sign-in can link an existing member or provision a new one on first login when auto-provisioning is enabled.",
       "enabled": "Enabled",
@@ -440,6 +465,10 @@
     "confirmCancelDesc": "Are you sure you want to cancel batch \"{{name}}\" with {{count}} cards? This will cancel all remaining active cards."
   },
   "errors": {
+    "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "No approval workflow matches this exchange. Ask an administrator to update the exchange workflow before trying again.",
+    "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "This exchange must be reviewed through its approval workflow.",
+    "POINT_EXCHANGE_REJECT_VIA_WORKFLOW": "Reject this exchange through its approval workflow, or cancel it to refund the member.",
+    "POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING": "An exchange approver needs Inbox, View, and Decide permissions. Ask an administrator to update the approval role.",
     "INVALID_INPUT": "Invalid input",
     "UNAUTHORIZED": "Unauthorized",
     "FORBIDDEN": "Forbidden",

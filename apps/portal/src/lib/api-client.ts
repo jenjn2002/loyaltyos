@@ -8,6 +8,7 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -46,7 +47,7 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
     window.dispatchEvent(new CustomEvent("loyaltyos:auth-required"));
   }
   if (!response.ok) {
-    throw new ApiError(response.status, body.error?.message ?? `Request failed`);
+    throw new ApiError(response.status, body.error?.message ?? `Request failed`, body.error?.code);
   }
 
   return body.data as T;

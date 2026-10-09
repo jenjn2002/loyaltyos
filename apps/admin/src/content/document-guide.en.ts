@@ -15,7 +15,7 @@ export const adminGuideEnglish: Record<AdminGuideTopic["id"], EnglishTopic> = {
     title: "Roles & permissions", group: "Overview and administration",
     purpose: "Create custom admin roles and assign permissions by feature so each administrator has only the access needed for their work.",
     prerequisites: "You need permission-management access. Admin sign-in access and feature-level capabilities are checked separately.",
-    steps: ["Open Roles & permissions and select a role to inspect or edit.", "Create a role with a name that describes its responsibility, such as Campaign approver.", "Open each taskbar-style feature group and enable the required view or manage capabilities.", "Save the role, assign it to the appropriate admin account, and verify access with a least-privileged account."],
+    steps: ["Open Roles & permissions and select a role to inspect or edit.", "Create a role with a name that describes its responsibility, such as Campaign approver.", "Enable individual capabilities or use Select all/Clear all for a group or the entire role; review the result before saving.", "Save the role, assign it to the appropriate admin account, and verify access with a least-privileged account."],
     result: "Menus and actions are controlled by the role's capabilities. Changes may apply immediately or after the session is refreshed.",
     notes: ["Grant only the minimum access required; manage permissions usually allow data changes.", "Do not remove or downgrade the last administrator before confirming another administrator can manage the system."],
   },
@@ -150,7 +150,7 @@ export const adminGuideEnglish: Record<AdminGuideTopic["id"], EnglishTopic> = {
   exchange: {
     title: "Exchange vouchers", group: "Campaigns, rewards, and exchange",
     purpose: "Manage versioned point-exchange rates and member requests through pending, approved, completed, rejected, or cancelled states.",
-    steps: ["Configure a new exchange rate; each saved rate is versioned.", "Open request history, filter by status, and inspect the member, point amount, and rate snapshot.", "Approve or reject according to policy. When the external process is actually complete, select Complete and enter its completion reference.", "Verify the final status and related Ledger/notification records."],
+    steps: ["Configure a new exchange rate, choose a specific expiry date or No expiry, and either disable the cumulative limit or set its rolling window. Each saved rate is versioned.", "Open request history, filter by status, and inspect the member, point amount, and rate snapshot.", "If the request has a POINT_EXCHANGE workflow, decide it in Approval inbox using its configured steps and approvers. When the external process is actually complete, select Complete and enter its completion reference.", "Verify the final status and related Ledger/notification records."],
     result: "Each request preserves the exchange-rate snapshot from submission. Rejected or cancelled requests can be refunded through the configured flow.",
     notes: ["An exchange voucher is an internal accounting record; it does not prove that an external payment or transfer occurred.", "Do not complete a request until the actual business process is confirmed and the required reference is available."],
   },

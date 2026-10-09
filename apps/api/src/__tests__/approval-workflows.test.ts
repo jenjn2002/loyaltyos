@@ -98,6 +98,10 @@ describe("approval workflow definition", () => {
       workflows[0],
     );
     expect(workflowMatchesScope("POINT_EXCHANGE", workflows[1].scope, { pointTypeId: "pt-1", amount: 99 })).toBe(false);
+    expect(workflowMatchesScope("POINT_EXCHANGE", { payoutTypes: ["CASH"] }, { payoutType: "CASH" })).toBe(true);
+    expect(workflowMatchesScope("POINT_EXCHANGE", { payoutTypes: ["CASH"] }, { payoutType: "NON_CASH" })).toBe(false);
+    expect(workflowMatchesScope("POINT_EXCHANGE", { payoutTypes: ["CASH"] }, {})).toBe(false);
+    expect(workflowScopesMayOverlap("POINT_EXCHANGE", { payoutTypes: ["CASH"] }, { payoutTypes: ["NON_CASH"] })).toBe(false);
   });
 
   it("matches reward IDs/categories, rejects equal-priority ambiguity, and allows disjoint scopes", () => {
@@ -154,6 +158,10 @@ describe("approval workflow definition", () => {
       workflow,
       steps: createdSteps,
     };
+    const approverPermissions = ["OPERATOR", "ANALYST"].flatMap((role) =>
+      ["approval.inbox", "approval.view", "approval.decide"].map((capability) => ({ role, capability, allowed: true })),
+    );
+    const findPermissions = vi.fn().mockResolvedValue([]);
     const tx = {
       approvalWorkflow: { findMany: vi.fn().mockResolvedValue([workflow]) },
       adminUser: {
@@ -161,6 +169,7 @@ describe("approval workflow definition", () => {
           Promise.resolve(query.where.id?.in.includes("admin-1") ? [{ id: "admin-1", email: "one@example.com", name: "One", role: "OPERATOR" }] : [{ id: "admin-2", email: "two@example.com", name: "Two", role: "ANALYST" }]),
         ),
       },
+      adminRolePermission: { findMany: findPermissions },
       approvalRequest: {
         findFirst: vi.fn().mockImplementation((query: { where: { id?: string } }) =>
           Promise.resolve(query.where.id ? detail : null),
@@ -178,7 +187,7 @@ describe("approval workflow definition", () => {
       },
     } as unknown as Prisma.TransactionClient;
 
-    await createApprovalRequestWithClient(tx, {
+    const input = {
       programId: "program-1",
       actionKey: "POINT_EXCHANGE",
       requestedByType: "MEMBER",
@@ -187,7 +196,14 @@ describe("approval workflow definition", () => {
       subjectId: "exchange-1",
       scopeContext: { pointTypeId: "pt-1", amount: 150, valueMinor: 15000 },
       idempotencyKey: "point-exchange:exchange-1",
+    };
+    await expect(createApprovalRequestWithClient(tx, input)).rejects.toMatchObject({
+      code: "POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING",
     });
+    expect(createdRequests).toHaveLength(0);
+
+    findPermissions.mockResolvedValue(approverPermissions);
+    await createApprovalRequestWithClient(tx, input);
 
     expect(createdSteps.map((step) => step.status)).toEqual(["PENDING", "WAITING"]);
     expect(createdSteps[1]?.requiredApprovalCount).toBe(1);

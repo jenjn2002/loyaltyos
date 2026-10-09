@@ -1,5 +1,5 @@
 import { ui } from "@/lib/ui-text";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Award,
   BarChart3,
@@ -37,9 +37,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { persistLocale } from "@/i18n";
-import { adminLogout, fetchApi, isAdminAuthenticated } from "@/lib/api-client";
+import { adminLogout, fetchApi, isAdminAuthenticated, updateAdminLocale } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { useSystemBranding } from "@/lib/system-branding";
 import { useAdminNotifications } from "./admin-notification-context";
 
 const EXPORTABLE_CAPABILITIES = [
@@ -135,8 +135,12 @@ function SidebarDropdown({
 }
 
 export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Element {
+  const { systemName, logoUrl } = useSystemBranding();
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const location = useLocation();
+  const [localeSaveFailed, setLocaleSaveFailed] = useState(false);
+  const [localeSaving, setLocaleSaving] = useState(false);
   const [membersOpen, setMembersOpen] = useState(
     () =>
       location.pathname.startsWith("/members") ||
@@ -167,17 +171,21 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
       location.pathname.startsWith("/issuance-rules"),
   );
   const authenticated = isAdminAuthenticated();
-  const { unreadCount: pendingApprovalCount } = useAdminNotifications();
+  const { pendingApprovalCount } = useAdminNotifications();
   const admin = useQuery({
     queryKey: ["admin-me"],
-    queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
+    queryFn: () => fetchApi<{ id: string; locale: string; capabilities: Record<string, boolean> }>("/admin/me"),
     enabled: authenticated,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
   });
   const canSee = ({ capability }: SidebarItem): boolean => {
-    if (!authenticated || admin.isLoading) return true;
+    if (!authenticated || !admin.data) return false;
     if (capability === "exports.view") {
       return EXPORTABLE_CAPABILITIES.some((item) => admin.data?.capabilities[item] === true);
+    }
+    if (capability === "approval.inbox") {
+      return admin.data.capabilities["approval.inbox"] === true || admin.data.capabilities["approval.view"] === true;
     }
     return admin.data?.capabilities[capability] === true;
   };
@@ -241,12 +249,12 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
       label: t("navigation.approvalInbox"),
       icon: ShieldCheck,
       capability: "approval.inbox",
-      badgeCount: pendingApprovalCount,
+      badgeCount: admin.data?.capabilities["approval.inbox"] === true ? pendingApprovalCount : 0,
     },
     { to: "/credits/exchange", label: ui("Exchange vouchers"), capability: "exchange.view" },
   ]);
   const creditLinks = filterLinks([
-    { to: "/credits/wallets", label: ui("Wallet adjustments"), capability: "wallet.view" },
+    { to: "/credits/wallets", label: ui("Wallet adjustments"), capability: "wallet.adjust" },
     { to: "/credits/banks", label: ui("Banks & cycles"), capability: "bank.view" },
     { to: "/credits/ledger", label: "Ledger", capability: "wallet.view" },
     { to: "/point-types", label: ui("Point type registry"), capability: "point_type.view", end: true },
@@ -274,15 +282,37 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
     location.pathname.startsWith("/point-types") ||
     location.pathname.startsWith("/issuance-rules");
 
-  function handleLocaleChange(locale: string): void {
-    void i18n.changeLanguage(locale);
-    persistLocale(locale);
+  async function handleLocaleChange(locale: string): Promise<void> {
+    if (locale !== "vi-VN" && locale !== "en-US") return;
+    if (!admin.data?.id) {
+      setLocaleSaveFailed(true);
+      return;
+    }
+    setLocaleSaveFailed(false);
+    setLocaleSaving(true);
+    try {
+      await updateAdminLocale(locale, admin.data.id);
+      queryClient.setQueryData<{ id: string; locale: string; capabilities: Record<string, boolean> }>(["admin-me"], (current) =>
+        current ? { ...current, locale } : current,
+      );
+      queryClient.setQueryData<{ id: string; locale: string; capabilities?: Record<string, boolean> }>(["admin", "me"], (current) =>
+        current ? { ...current, locale } : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["admin", "notifications", "activity"] });
+      setLocaleSaving(false);
+      await i18n.changeLanguage(locale);
+    } catch (error) {
+      console.error("Could not save admin locale preference.", error);
+      setLocaleSaveFailed(true);
+      setLocaleSaving(false);
+    }
   }
 
   return (
     <aside className={cn("flex flex-col bg-background", embedded ? "h-full min-h-0 w-full" : "fixed left-0 top-0 z-40 h-dvh w-64 border-r")}>
-      <div className="flex h-14 items-center border-b px-6">
-        <span className="text-lg font-semibold">{ui("LoyaltyOS")}</span>
+      <div className="flex h-14 items-center gap-2 border-b px-6">
+        {logoUrl && <img src={logoUrl} alt="" className="h-8 w-8 shrink-0 object-contain" />}
+        <span className="min-w-0 truncate text-lg font-semibold" title={systemName}>{systemName}</span>
       </div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {links
@@ -357,8 +387,14 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
         </NavLink>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">{t("settings.language")}</label>
-          <Select value={i18n.language} onValueChange={handleLocaleChange}>
-            <SelectTrigger className="w-full h-8 text-xs">
+          <Select value={i18n.language} onValueChange={(locale) => { void handleLocaleChange(locale); }}>
+            <SelectTrigger
+              className="w-full h-8 text-xs"
+              disabled={localeSaving}
+              data-help={i18n.language.startsWith("vi")
+                ? "Chọn ngôn ngữ hiển thị của giao diện Admin và ngôn ngữ dùng cho các thông báo Admin trong tương lai."
+                : "Choose the language for the Admin interface and future Admin notifications."}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -366,6 +402,7 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
               <SelectItem value="en-US">{t("settings.languages.english")}</SelectItem>
             </SelectContent>
           </Select>
+          {localeSaveFailed && <p role="alert" className="text-xs text-destructive">{t("settings.languageSaveFailed", { defaultValue: "Could not save the language preference. The previous language was kept." })}</p>}
         </div>
         {authenticated && (
           <Button

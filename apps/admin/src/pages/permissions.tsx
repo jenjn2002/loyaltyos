@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { fetchApi } from "@/lib/api-client";
+import { useSystemBranding } from "@/lib/system-branding";
 
 type Role = string;
 type ConfigurableRole = string;
@@ -46,7 +47,7 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "member.view": {
     label: "View members",
-    description: "See member profiles, wallet balances and history.",
+    description: "See member profiles. Wallet balances and transactions additionally require View wallet ledger.",
   },
   "member.manage": {
     label: "Manage members",
@@ -58,7 +59,7 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "wallet.view": {
     label: "View wallet ledger",
-    description: "Read wallet transactions and recognition categories.",
+    description: "Read member wallet balances and transactions. Recognition categories have a separate permission.",
   },
   "wallet.adjust": {
     label: "Adjust wallets",
@@ -216,7 +217,7 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "permission.manage": {
     label: "Manage permissions",
-    description: "Change the Operator and Auditor capability matrix.",
+    description: "Create roles, assign administrator accounts, and change each role's capability matrix.",
   },
   "workflow.view": {
     label: "View workflows",
@@ -245,6 +246,14 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   "settings.manage": {
     label: "Manage settings",
     description: "Configure and test Microsoft 365 sign-in for the program.",
+  },
+  "api_key.view": {
+    label: "View API keys",
+    description: "View integration key metadata without revealing secrets.",
+  },
+  "api_key.manage": {
+    label: "Manage API keys",
+    description: "Create and revoke integration keys. SERVER keys have full program access.",
   },
   "documentation.view": {
     label: "View documentation",
@@ -308,6 +317,8 @@ const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[]
       "notification.manage",
       "settings.view",
       "settings.manage",
+      "api_key.view",
+      "api_key.manage",
     ],
   },
   {
@@ -333,6 +344,7 @@ const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[]
 
 export function PermissionsPage(): JSX.Element {
   const { i18n } = useTranslation();
+  const { systemName } = useSystemBranding();
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, Record<string, boolean>>>({});
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
@@ -392,7 +404,11 @@ export function PermissionsPage(): JSX.Element {
       }),
     onSuccess: async () => {
       setNotice(ui("Role permissions saved and audit logged."));
-      await queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "permissions"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-me"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "me"] }),
+      ]);
     },
     onError: (error: Error) => {
       setNotice(error.message);
@@ -595,7 +611,9 @@ export function PermissionsPage(): JSX.Element {
             <div>
               <Label
                 htmlFor="admin-password"
-                data-help={ui("Temporary password with at least 12 characters. Share it outside LoyaltyOS.")}
+                data-help={(i18n.resolvedLanguage ?? i18n.language).startsWith("en")
+                  ? `Temporary password with at least 12 characters. Share it outside ${systemName}.`
+                  : `Mật khẩu tạm thời có ít nhất 12 ký tự. Chia sẻ mật khẩu bên ngoài ${systemName}.`}
               >{ui("Temporary password")}</Label>
               <Input
                 id="admin-password"
@@ -750,9 +768,17 @@ export function PermissionsPage(): JSX.Element {
         {permissionRole && (() => {
           const immutable = permissionRole.role === "SUPER_ADMIN";
           const rolePermissions = drafts[permissionRole.role] ?? permissionRole.permissions;
-          const enabledCount = Object.values(rolePermissions).filter(Boolean).length;
+          const allCapabilities = permissions.data?.capabilities ?? [];
+          const enabledCount = allCapabilities.filter((capability) => rolePermissions[capability]).length;
+          const updateCapabilities = (capabilities: string[], enabled: boolean) => {
+            setDrafts((current) => {
+              const nextRolePermissions = { ...(current[permissionRole.role] ?? permissionRole.permissions) };
+              for (const capability of capabilities) nextRolePermissions[capability] = enabled;
+              return { ...current, [permissionRole.role]: nextRolePermissions };
+            });
+          };
           const groupedCapabilities = new Set(CAPABILITY_GROUPS.flatMap((group) => group.capabilities));
-          const otherCapabilities = (permissions.data?.capabilities ?? []).filter(
+          const otherCapabilities = allCapabilities.filter(
             (capability) => !groupedCapabilities.has(capability),
           );
           const capabilityGroups = otherCapabilities.length > 0
@@ -771,9 +797,24 @@ export function PermissionsPage(): JSX.Element {
                         ? ui("Read-only oversight by default.")
                         : ui("Custom role. Capabilities are denied until enabled here.")}
                 </CardDescription>
-                <p className="text-sm text-muted-foreground">
-                  {enabledCount} / {permissions.data?.capabilities.length ?? 0} {ui("permissions enabled")}
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    {enabledCount} / {allCapabilities.length} {ui("permissions enabled")}
+                  </p>
+                  {!immutable && allCapabilities.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={save.isPending}
+                      onClick={() => updateCapabilities(allCapabilities, enabledCount !== allCapabilities.length)}
+                    >
+                      {enabledCount === allCapabilities.length
+                        ? ui("Clear all permissions")
+                        : ui("Select all permissions")}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {permissionRole.role.startsWith("CUSTOM_") && (
@@ -790,7 +831,7 @@ export function PermissionsPage(): JSX.Element {
                   className="space-y-2"
                 >
                   {capabilityGroups.map((group) => {
-                    const capabilities = (permissions.data?.capabilities ?? []).filter((capability) =>
+                    const capabilities = allCapabilities.filter((capability) =>
                       group.capabilities.includes(capability),
                     );
                     if (capabilities.length === 0) return null;
@@ -799,14 +840,31 @@ export function PermissionsPage(): JSX.Element {
                     ).length;
                     return (
                       <AccordionItem key={group.id} value={group.id} className="rounded-md border px-4">
-                        <AccordionTrigger className="hover:no-underline">
-                          <span className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left">
-                            <span>{ui(group.label)}</span>
-                            <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                              {groupEnabledCount}/{capabilities.length} {ui("enabled")}
-                            </span>
-                          </span>
-                        </AccordionTrigger>
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <AccordionTrigger className="hover:no-underline">
+                              <span className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left">
+                                <span>{ui(group.label)}</span>
+                                <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                                  {groupEnabledCount}/{capabilities.length} {ui("enabled")}
+                                </span>
+                              </span>
+                            </AccordionTrigger>
+                          </div>
+                          {!immutable && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="shrink-0"
+                              disabled={save.isPending}
+                              aria-label={`${groupEnabledCount === capabilities.length ? ui("Clear all") : ui("Select all")} ${ui(group.label)}`}
+                              onClick={() => updateCapabilities(capabilities, groupEnabledCount !== capabilities.length)}
+                            >
+                              {groupEnabledCount === capabilities.length ? ui("Clear all") : ui("Select all")}
+                            </Button>
+                          )}
+                        </div>
                         <AccordionContent>
                           <div className="grid gap-2 md:grid-cols-2">
                             {capabilities.map((capability) => {
@@ -827,15 +885,7 @@ export function PermissionsPage(): JSX.Element {
                                     id={id}
                                     checked={rolePermissions[capability] ?? false}
                                     disabled={immutable}
-                                    onCheckedChange={(checked) => {
-                                      setDrafts((current) => ({
-                                        ...current,
-                                        [permissionRole.role]: {
-                                          ...(current[permissionRole.role] ?? permissionRole.permissions),
-                                          [capability]: checked,
-                                        },
-                                      }));
-                                    }}
+                                    onCheckedChange={(checked) => updateCapabilities([capability], checked)}
                                   />
                                 </div>
                               );

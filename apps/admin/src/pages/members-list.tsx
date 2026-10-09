@@ -1,8 +1,8 @@
-import { ui } from "@/lib/ui-text";
+import { memberFieldLabel, ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, Eye, Plus } from "lucide-react";
 import type { FormEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -30,6 +30,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminPermissions } from "@/lib/admin-permissions";
+import { memberPhotoFileToDataUrl } from "@/lib/member-photo";
 import type { Member, PaginatedResponse } from "@/types";
 
 interface NewMemberForm {
@@ -69,9 +71,39 @@ const MEMBER_EXPORT_PROFILE_COLUMNS = [
   "username",
 ] as const;
 
-export function csvCell(value: string | number | null | undefined): string {
+interface MemberExportFieldDefinition {
+  id: string;
+  key: string;
+  label: string;
+  type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT";
+  isActive: boolean;
+}
+
+interface MemberExportFieldOption {
+  key: string;
+  label: string;
+  group: "Profile" | "Custom fields" | "Point balances";
+}
+
+const MEMBER_EXPORT_PROFILE_LABELS: Record<(typeof MEMBER_EXPORT_PROFILE_COLUMNS)[number], string> = {
+  memberId: "Member ID",
+  email: "Email",
+  externalId: "External ID",
+  phone: "Phone",
+  firstName: "First name",
+  lastName: "Last name",
+  department: "Department",
+  photoUrl: "Photo URL",
+  status: "Member status",
+  username: "Username",
+};
+
+export function csvCell(value: unknown): string {
   let text = value == null ? "" : String(value);
-  if (/^[\s\u0000]*[=+\-@]/.test(text) || /^[\t\r]/.test(text)) text = `'${text}`;
+  // Formula protection is needed for untrusted text, not numeric values such as -100.
+  if (typeof value === "string" && (/^[\s\u0000]*[=+\-@]/.test(text) || /^[\t\r]/.test(text))) {
+    text = `'${text}`;
+  }
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
@@ -92,6 +124,9 @@ function memberExportValue(
 }
 
 export function MembersListPage(): JSX.Element {
+  const permissions = useAdminPermissions();
+  const canManage = permissions.can("member.manage");
+  const canManageCredentials = permissions.can("member.credentials.manage");
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -101,6 +136,10 @@ export function MembersListPage(): JSX.Element {
   const [department, setDepartment] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [selectedExportFields, setSelectedExportFields] = useState<string[]>([]);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [newMember, setNewMember] = useState<NewMemberForm>(emptyMemberForm);
   const [selectedMembers, setSelectedMembers] = useState<Record<string, Member>>({});
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -135,6 +174,11 @@ export function MembersListPage(): JSX.Element {
     },
   });
 
+  const memberFieldDefinitions = useQuery({
+    queryKey: ["member-fields", "member-export"],
+    queryFn: () => fetchApi<MemberExportFieldDefinition[]>("/admin/member-fields"),
+  });
+
   const createMutation = useMutation({
     mutationFn: (form: NewMemberForm) =>
       fetchApi<Member>("/members", {
@@ -154,17 +198,43 @@ export function MembersListPage(): JSX.Element {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["members"] });
       setNewMember(emptyMemberForm);
+      setPhotoUploadError(null);
       setCreateOpen(false);
     },
   });
 
   function handleCreate(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    if (photoUploading) return;
     createMutation.mutate(newMember);
   }
 
   const visibleMembers = data?.items ?? [];
-  const selectedMemberList = Object.values(selectedMembers);
+  const selectedMemberList = useMemo(() => Object.values(selectedMembers), [selectedMembers]);
+  const exportFieldOptions = useMemo<MemberExportFieldOption[]>(() => {
+    const profileFields = MEMBER_EXPORT_PROFILE_COLUMNS.map((key) => ({
+      key,
+      label: ui(MEMBER_EXPORT_PROFILE_LABELS[key]),
+      group: "Profile" as const,
+    }));
+    const customFields = (memberFieldDefinitions.data ?? []).filter((field) => field.isActive).map((field) => ({
+      key: `custom:${field.key}`,
+      label: memberFieldLabel(field),
+      group: "Custom fields" as const,
+    }));
+    const walletsByCode = new Map<string, NonNullable<Member["pointWallets"]>[number]>();
+    for (const member of selectedMemberList) {
+      for (const wallet of member.pointWallets ?? []) {
+        if (!walletsByCode.has(wallet.code)) walletsByCode.set(wallet.code, wallet);
+      }
+    }
+    const balances = [...walletsByCode.values()].map((wallet) => ({
+      key: `balance_${wallet.code}`,
+      label: `${ui("Point balance")} · ${wallet.name} (${wallet.code})`,
+      group: "Point balances" as const,
+    }));
+    return [...profileFields, ...customFields, ...balances];
+  }, [memberFieldDefinitions.data, selectedMemberList]);
   const allVisibleSelected =
     visibleMembers.length > 0 && visibleMembers.every((member) => Boolean(selectedMembers[member.id]));
   const someVisibleSelected = visibleMembers.some((member) => Boolean(selectedMembers[member.id]));
@@ -189,31 +259,36 @@ export function MembersListPage(): JSX.Element {
     });
   }
 
+  function openExportDialog(): void {
+    setSelectedExportFields(exportFieldOptions.map((field) => field.key));
+    setExportOpen(true);
+  }
+
   function exportSelectedMembers(): void {
     if (selectedMemberList.length === 0) return;
-    const exportWallets = (() => {
-      const byCode = new Map<string, NonNullable<Member["pointWallets"]>[number]>();
-      for (const member of selectedMemberList) {
-        for (const wallet of member.pointWallets ?? []) {
-          if (!byCode.has(wallet.code)) byCode.set(wallet.code, wallet);
-        }
-      }
-      return [...byCode.values()];
-    })();
-    const exportColumns = [
-      ...MEMBER_EXPORT_PROFILE_COLUMNS,
-      ...exportWallets.map((wallet) => `balance_${wallet.code}`),
-      ...exportWallets
-        .filter((wallet) => wallet.expiryMode === "PER_GRANT")
-        .map((wallet) => `expiry_${wallet.code}`),
-    ];
+    const exportColumns = exportFieldOptions
+      .filter((field) => selectedExportFields.includes(field.key) || field.key === "email")
+      .map((field) => field.key);
+    if (exportColumns.length === 0) return;
+    const memberFieldTypes = new Map((memberFieldDefinitions.data ?? []).map((field) => [field.key, field.type]));
     const rows = selectedMemberList.map((member) =>
       exportColumns.map((column) => {
         if (column.startsWith("balance_")) {
           const code = column.slice("balance_".length);
-          return csvCell(member.pointWallets?.find((wallet) => wallet.code === code)?.balance ?? 0);
+          const wallet = member.pointWallets?.find((item) => item.code === code);
+          return csvCell(wallet?.balance ?? "");
         }
-        if (column.startsWith("expiry_")) return "";
+        if (column.startsWith("custom:")) {
+          const fieldKey = column.slice("custom:".length);
+          const metadata = member.metadata && typeof member.metadata === "object" && !Array.isArray(member.metadata)
+            ? member.metadata as Record<string, unknown>
+            : {};
+          const value = metadata[fieldKey];
+          if (memberFieldTypes.get(fieldKey) === "DATE" && typeof value === "string") {
+            return csvCell(value.slice(0, 10));
+          }
+          return csvCell(value);
+        }
         return csvCell(memberExportValue(member, column as (typeof MEMBER_EXPORT_PROFILE_COLUMNS)[number]));
       }).join(","),
     );
@@ -225,6 +300,7 @@ export function MembersListPage(): JSX.Element {
     anchor.download = "loyaltyos-selected-members.csv";
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setExportOpen(false);
   }
 
   return (
@@ -235,21 +311,22 @@ export function MembersListPage(): JSX.Element {
           <Button
             type="button"
             variant="outline"
-            disabled={selectedMemberList.length === 0}
-            onClick={exportSelectedMembers}
+            disabled={selectedMemberList.length === 0 || memberFieldDefinitions.isLoading}
+            onClick={openExportDialog}
           >
             <Download className="mr-2 h-4 w-4" />
             {ui("Export selected")} ({selectedMemberList.length})
           </Button>
-          <Button
+          {canManage && <Button
             onClick={() => {
               createMutation.reset();
+              setPhotoUploadError(null);
               setCreateOpen(true);
             }}
           >
             <Plus className="mr-2 h-4 w-4" />
             {t("members.addMember")}
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -500,7 +577,74 @@ export function MembersListPage(): JSX.Element {
         </CardContent>
       </Card>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{ui("Export selected members")}</DialogTitle>
+            <DialogDescription>
+              {ui("Choose the fields to include. CSV headers stay in import-compatible format; email is always included. Point balances are target balances if imported later.")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] space-y-5 overflow-y-auto pr-2">
+            {(["Profile", "Custom fields", "Point balances"] as const).map((group) => {
+              const fields = exportFieldOptions.filter((field) => field.group === group);
+              if (fields.length === 0) return null;
+              return (
+                <fieldset key={group} className="space-y-2">
+                  <legend className="mb-2 text-sm font-semibold">{ui(group)}</legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {fields.map((field) => {
+                      const required = field.key === "email";
+                      const id = `member-export-${field.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                      return (
+                        <label key={field.key} htmlFor={id} className="flex min-w-0 items-start gap-2 rounded-md border p-2.5">
+                          <Checkbox
+                            id={id}
+                            checked={required || selectedExportFields.includes(field.key)}
+                            disabled={required}
+                            onCheckedChange={(checked) => {
+                              if (required) return;
+                              setSelectedExportFields((current) => checked === true
+                                ? [...new Set([...current, field.key])]
+                                : current.filter((key) => key !== field.key));
+                            }}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm">
+                              {field.label}{required ? ` · ${ui("required")}` : ""}
+                            </span>
+                            <code className="block truncate text-xs text-muted-foreground" title={field.key}>{field.key}</code>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              );
+            })}
+            {memberFieldDefinitions.isLoading && (
+              <p className="text-sm text-muted-foreground">{ui("Loading custom member fields…")}</p>
+            )}
+            {memberFieldDefinitions.isError && (
+              <p className="text-sm text-destructive">{ui("Unable to load custom member fields. You can still export profile fields and balances.")}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setExportOpen(false)}>{ui("Cancel")}</Button>
+            <Button type="button" onClick={exportSelectedMembers} disabled={memberFieldDefinitions.isLoading}>
+              <Download className="mr-2 h-4 w-4" />{ui("Export CSV")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={canManage && createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setPhotoUploadError(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("members.createTitle")}</DialogTitle>
@@ -577,15 +721,49 @@ export function MembersListPage(): JSX.Element {
               <Label htmlFor="member-photo-url">{ui("Photo URL (optional)")}</Label>
               <Input
                 id="member-photo-url"
-                type="url"
-                value={newMember.photoUrl}
+                type="text"
+                value={newMember.photoUrl.startsWith("data:image/") ? "" : newMember.photoUrl}
                 onChange={(event) => {
+                  setPhotoUploadError(null);
                   setNewMember((current) => ({ ...current, photoUrl: event.target.value }));
                 }}
                 placeholder="https://"
               />
+              <div className="space-y-2">
+                <Label htmlFor="member-photo-file">{ui("Or upload a photo")}</Label>
+                <Input
+                  id="member-photo-file"
+                  type="file"
+                  accept="image/*"
+                  disabled={photoUploading}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (!file) return;
+                    const input = event.currentTarget;
+                    setPhotoUploadError(null);
+                    setPhotoUploading(true);
+                    void memberPhotoFileToDataUrl(file)
+                      .then((photoUrl) => {
+                        setNewMember((current) => ({ ...current, photoUrl }));
+                      })
+                      .catch((uploadError: unknown) => {
+                        setPhotoUploadError(uploadError instanceof Error ? ui(uploadError.message) : ui("Unable to upload image"));
+                      })
+                      .finally(() => {
+                        setPhotoUploading(false);
+                        input.value = "";
+                      });
+                  }}
+                />
+                {newMember.photoUrl.startsWith("data:image/") && <p className="text-xs text-muted-foreground">{ui("Uploaded photo selected")}</p>}
+                <p className="text-xs text-muted-foreground">{ui("Images are resized automatically. Maximum file size: 5 MB.")}</p>
+                {photoUploadError && <p className="text-sm text-destructive">{photoUploadError}</p>}
+                {newMember.photoUrl.startsWith("data:image/") && (
+                  <img src={newMember.photoUrl} alt={ui("Member photo preview")} className="h-16 w-16 rounded-full border object-cover" />
+                )}
+              </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {canManageCredentials && <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="member-username">{t("members.username")}</Label>
@@ -620,7 +798,7 @@ export function MembersListPage(): JSX.Element {
                   }}
                 />
               </div>
-            </div>
+            </div>}
             {createMutation.isError && (
               <p className="text-sm text-destructive">
                 {createMutation.error instanceof Error
@@ -634,12 +812,13 @@ export function MembersListPage(): JSX.Element {
                 variant="outline"
                 onClick={() => {
                   setCreateOpen(false);
+                  setPhotoUploadError(null);
                 }}
               >
                 {t("common.cancel")}
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? t("common.loading") : t("common.create")}
+              <Button type="submit" disabled={createMutation.isPending || photoUploading}>
+                {createMutation.isPending || photoUploading ? t("common.loading") : t("common.create")}
               </Button>
             </DialogFooter>
           </form>

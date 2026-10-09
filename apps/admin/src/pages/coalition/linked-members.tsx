@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface CoalitionAccount {
   id: string;
@@ -41,6 +42,7 @@ interface CoalitionAccount {
 }
 
 export function CoalitionLinkedMembersPage(): JSX.Element {
+  const canManage = useAdminCapability("coalition.manage");
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -134,14 +136,14 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
                     {format(new Date(acc.createdAt), "MMM d, yyyy")}
                   </TableCell>
                   <TableCell>
-                    <Button
+                    {canManage && <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
                         setUnlinkTarget(acc);
                       }}
                     >
-                      <Unlink className="mr-1 h-3 w-3" />{ui("Unlink")}</Button>
+                      <Unlink className="mr-1 h-3 w-3" />{ui("Unlink")}</Button>}
                   </TableCell>
                 </TableRow>
               ))}
@@ -181,7 +183,7 @@ export function CoalitionLinkedMembersPage(): JSX.Element {
 
       {/* Unlink Confirmation Dialog */}
       <Dialog
-        open={unlinkTarget !== null}
+        open={canManage && unlinkTarget !== null}
         onOpenChange={(open) => {
           if (!open) setUnlinkTarget(null);
         }}

@@ -32,9 +32,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 import type { PaginatedResponse, Segment, SegmentMember } from "@/types";
 
 export function SegmentsListPage(): JSX.Element {
+  const canManage = useAdminCapability("segment.manage");
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -78,14 +80,14 @@ export function SegmentsListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("segments.title")}</h1>
-        <Button
+        {canManage && <Button
           onClick={() => {
             navigate("/segments/new");
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           {t("segments.createSegment")}
-        </Button>
+        </Button>}
       </div>
 
       <Card>
@@ -167,7 +169,7 @@ export function SegmentsListPage(): JSX.Element {
                           >
                             <Users className="h-4 w-4" />
                           </Button>
-                          <Button
+                          {canManage && <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => {
@@ -175,12 +177,12 @@ export function SegmentsListPage(): JSX.Element {
                             }}
                           >
                             <Pencil className="h-4 w-4" />
-                          </Button>
-                          {s.isActive ? (
+                          </Button>}
+                          {canManage && (s.isActive ? (
                             <Button variant="ghost" size="sm" className="text-destructive" title={ui("Deactivate")} onClick={() => { void handleDelete(s.id); }}><Trash2 className="h-4 w-4" /></Button>
                           ) : (
                             <Button variant="ghost" size="sm" title={ui("Reactivate")} onClick={() => { void handleReactivate(s.id); }}><Check className="h-4 w-4" /></Button>
-                          )}
+                          ))}
                         </div>
                       </TableCell>
                     </TableRow>

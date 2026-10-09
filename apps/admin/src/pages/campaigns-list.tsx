@@ -48,7 +48,8 @@ export function CampaignsListPage(): JSX.Element {
     queryFn: () => fetchApi<{ capabilities: Record<string, boolean> }>("/admin/me"),
     staleTime: 30_000,
   });
-  const canExecute = admin.data?.capabilities["campaign.execute"] !== false;
+  const canExecute = admin.data?.capabilities["campaign.execute"] === true;
+  const canManage = admin.data?.capabilities["campaign.manage"] === true;
   const propose = async (id: string) => {
     setSubmitting(true);
     try {
@@ -104,14 +105,14 @@ export function CampaignsListPage(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">{t("campaigns.title")}</h1>
-        <Button
+        {canManage && <Button
           onClick={() => {
             navigate("/campaigns/new");
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
           {t("campaigns.createCampaign")}
-        </Button>
+        </Button>}
       </div>
 
       {notice && <p role="status" className="rounded-md border p-3">{notice}</p>}
@@ -203,13 +204,13 @@ export function CampaignsListPage(): JSX.Element {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
+                            {canManage && <DropdownMenuItem
                               onClick={() => {
                                 navigate(`/campaigns/${c.id}/edit`);
                               }}
                             >
                               {t("common.edit")}
-                            </DropdownMenuItem>
+                            </DropdownMenuItem>}
                             <DropdownMenuItem
                               onClick={() => {
                                 setIssuancePage(1);
@@ -218,16 +219,16 @@ export function CampaignsListPage(): JSX.Element {
                             >
                               {ui("View issuance status")}
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              disabled={submitting || !canExecute || !c.isActive || !["NOT_REQUIRED", "APPROVED"].includes(c.approvalStatus)}
+                            {canExecute && <DropdownMenuItem
+                              disabled={submitting || !c.isActive || !["NOT_REQUIRED", "APPROVED"].includes(c.approvalStatus)}
                               onClick={() => {
                                 void runNow(c);
                               }}
                             >
                               {ui("Run campaign now")}
-                            </DropdownMenuItem>
-                            {["DRAFT", "REJECTED"].includes(c.approvalStatus) && <DropdownMenuItem disabled={submitting} onClick={() => void propose(c.id)}>{ui("Submit for approval")}</DropdownMenuItem>}
-                            {!c.isActive && ["NOT_REQUIRED", "APPROVED"].includes(c.approvalStatus) && (
+                            </DropdownMenuItem>}
+                            {canManage && ["DRAFT", "REJECTED"].includes(c.approvalStatus) && <DropdownMenuItem disabled={submitting} onClick={() => void propose(c.id)}>{ui("Submit for approval")}</DropdownMenuItem>}
+                            {canManage && !c.isActive && ["NOT_REQUIRED", "APPROVED"].includes(c.approvalStatus) && (
                               <DropdownMenuItem
                                 onClick={() => {
                                   void handleLifecycle(c.id, "activate");
@@ -235,7 +236,7 @@ export function CampaignsListPage(): JSX.Element {
                               >
                                 {ui("Activate")}</DropdownMenuItem>
                             )}
-                            {c.isActive && (
+                            {canManage && c.isActive && (
                               <DropdownMenuItem
                                 onClick={() => {
                                   void handleLifecycle(c.id, "pause");
@@ -243,13 +244,13 @@ export function CampaignsListPage(): JSX.Element {
                               >
                                 {ui("Pause")}</DropdownMenuItem>
                             )}
-                            <DropdownMenuItem
+                            {canManage && <DropdownMenuItem
                               className="text-destructive"
                               onClick={() => {
                                 void handleLifecycle(c.id, "archive");
                               }}
                             >
-                              {ui("Archive")}</DropdownMenuItem>
+                              {ui("Archive")}</DropdownMenuItem>}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

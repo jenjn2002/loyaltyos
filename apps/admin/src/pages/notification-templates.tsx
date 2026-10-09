@@ -1,7 +1,7 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Eye, Pencil, Plus, Save, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
+import { DEFAULT_SYSTEM_NAME, useSystemBranding } from "@/lib/system-branding";
 
 type Channel = "EMAIL" | "SMS" | "PUSH" | "IN_APP" | "WEBHOOK";
 
@@ -68,6 +69,26 @@ const POINT_TYPE: VariableInfo[] = [
 ];
 
 const TRIGGERS: TriggerOption[] = [
+  {
+    key: "admin.exchange.pending",
+    label: "Direct exchange voucher awaiting approval",
+    description: "Sent to admins allowed to approve exchange vouchers when no POINT_EXCHANGE workflow is active.",
+    variables: [
+      { path: "voucher.documentNumber", description: "Accounting voucher number." },
+      { path: "documentNumber", description: "Accounting voucher number, also available without the voucher prefix." },
+    ],
+  },
+  {
+    key: "admin.approval.resolved",
+    label: "Admin approval resolved",
+    description: "Sent to the requester after an approval decision. The copy is rendered in the admin profile language.",
+    variables: [
+      { path: "approval.actionLabel", description: "Human-readable action, for example Campaign or Project plan." },
+      { path: "approval.subjectName", description: "Name of the campaign, project, member, or other affected record." },
+      { path: "approval.statusLabel", description: "Localized decision status, such as approved or rejected." },
+      { path: "approval.comment", description: "Decision comment or relevant completion note, when provided." },
+    ],
+  },
   {
     key: "registration",
     label: "New member registration",
@@ -390,13 +411,13 @@ function triggerKey(draft: TemplateDraft): string {
   return draft.triggerChoice === CUSTOM_TRIGGER ? draft.customTrigger.trim() : draft.triggerChoice;
 }
 
-function sampleVariables(): string {
+function sampleVariables(systemName = DEFAULT_SYSTEM_NAME): string {
   return JSON.stringify({
     member: {
       id: "member-001", email: "member@example.com", phone: "+84123456789",
       firstName: "Nguyễn Tiến", lastName: "Hưng", currentTier: "Gold",
     },
-    program: { name: "LoyaltyOS" },
+    program: { name: systemName },
     campaign: { name: "Welcome Onboard" },
     reward: { id: "reward-001", name: "Chill day" },
     project: { id: "project-001", name: "Recognition" },
@@ -444,14 +465,22 @@ function getTemplateByLocale(group: TemplateGroup, locale: string): Notification
 
 export function NotificationTemplatesPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { systemName } = useSystemBranding();
+  const sampleName = useRef(systemName);
   const [draft, setDraft] = useState<TemplateDraft>(emptyDraft);
   const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
   const [filterTrigger, setFilterTrigger] = useState("");
   const [templatePage, setTemplatePage] = useState(1);
   const [notice, setNotice] = useState<string | null>(null);
-  const [variables, setVariables] = useState(sampleVariables);
+  const [variables, setVariables] = useState(() => sampleVariables(systemName));
   const [preview, setPreview] = useState<{ subject: string | null; bodyHtml: string | null; bodyText: string | null } | null>(null);
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const previousName = sampleName.current;
+    setVariables((current) => current === sampleVariables(previousName) ? sampleVariables(systemName) : current);
+    sampleName.current = systemName;
+  }, [systemName]);
 
   const admin = useQuery({
     queryKey: ["admin-me-notification-templates"],

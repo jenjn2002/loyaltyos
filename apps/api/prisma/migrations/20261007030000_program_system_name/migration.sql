@@ -1,0 +1,1 @@
+ALTER TABLE "Program" ADD COLUMN "systemName" TEXT NOT NULL DEFAULT 'LoyaltyOS';

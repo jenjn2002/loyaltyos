@@ -21,6 +21,7 @@ import { fetchApi, patchApi, postApi } from "../lib/api-client";
 import { appUrl } from "../lib/app-url";
 import { clearSession, getSession, isAuthenticated } from "../lib/auth";
 import { setUserLocale } from "../lib/i18n";
+import { useProgramBranding } from "../lib/system-branding";
 import { applyTheme } from "../lib/theme";
 import type { MemberProfile } from "../types";
 
@@ -71,6 +72,7 @@ function imageFileToDataUrl(file: File): Promise<string> {
 
 export default function Profile() {
   const { t, i18n } = useTranslation();
+  const { systemName, logoUrl } = useProgramBranding();
   const authed = isAuthenticated();
   const session = getSession();
 
@@ -166,6 +168,10 @@ export default function Profile() {
 
       {!authed ? (
         <div className="space-y-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+          <div className="flex min-w-0 items-center gap-3">
+            {logoUrl && <img src={logoUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-contain" />}
+            <p className="min-w-0 break-words text-xl font-bold text-[var(--color-primary)]">{systemName}</p>
+          </div>
           <h2 className="text-lg font-semibold">{t("login")}</h2>
           <MemberLoginForm />
         </div>

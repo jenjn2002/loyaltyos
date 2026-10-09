@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface Redemption {
   id: string;
@@ -39,6 +40,7 @@ interface RedemptionsMetrics {
 }
 
 export function RewardsRedemptionsPage(): JSX.Element {
+  const canManage = useAdminCapability("reward.manage");
   const { id } = useParams<{ id: string }>();
 
   const rewardId = id ?? "";
@@ -198,7 +200,7 @@ export function RewardsRedemptionsPage(): JSX.Element {
                         >
                           {r.fulfillmentStatus}
                         </Badge>
-                        {r.fulfillmentStatus === "PENDING" && (
+                        {canManage && r.fulfillmentStatus === "PENDING" && (
                           <>
                             <Button
                               size="sm"

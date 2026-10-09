@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AutoFieldHelp } from "./components/auto-field-help";
 import AppLayout from "./components/layout/app-layout";
 import { bootstrapSession, isAuthenticated } from "./lib/auth";
+import { useBrandingFavicon, useProgramBranding } from "./lib/system-branding";
 import Badges from "./pages/badges";
 import Credits from "./pages/credits";
 import CustomerDocumentPage from "./pages/document";
@@ -38,7 +39,13 @@ function AuthGuard({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const { systemName, logoUrl } = useProgramBranding();
+  useBrandingFavicon(logoUrl);
   const [authReady, setAuthReady] = useState(isAuthenticated);
+
+  useEffect(() => {
+    document.title = `${systemName} — Rewards Portal`;
+  }, [systemName]);
 
   useEffect(() => {
     if (isAuthenticated()) {

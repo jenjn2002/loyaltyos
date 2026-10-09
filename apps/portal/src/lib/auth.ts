@@ -24,12 +24,14 @@ export function setSession(session: AuthSession): void {
   else sessionStorage.removeItem("auth-token");
   sessionStorage.setItem("member-id", session.memberId);
   sessionStorage.setItem("program-id", session.programId);
+  window.dispatchEvent(new CustomEvent("loyaltyos:auth-changed"));
 }
 
 export function clearSession(): void {
   sessionStorage.removeItem("auth-token");
   sessionStorage.removeItem("member-id");
   sessionStorage.removeItem("program-id");
+  window.dispatchEvent(new CustomEvent("loyaltyos:auth-changed"));
 }
 
 /** Consume a short-lived cross-environment ticket before the app bootstraps its session. */

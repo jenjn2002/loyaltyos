@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/ui-text", () => ({ ui: (value: string) => value }));
 vi.mock("@/lib/api-client", () => ({
   fetchApi: async (path: string) => {
+    if (path === "/branding") return { systemName: "Member Hub" };
     if (path === "/admin/me") return { capabilities: { "notification.manage": true } };
     if (path === "/admin/notification-templates/triggers") {
       return ["integration.member_anniversary", "credit.admin_issued", "reward.redemption.rejected"];
@@ -66,6 +67,16 @@ describe("notification template trigger catalog", () => {
 
     fireEvent.change(triggerSelect, { target: { value: "credit.admin_issued" } });
     expect(screen.getByText("{{reason}}")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const previewData = await screen.findByLabelText("Preview data (JSON)") as HTMLTextAreaElement;
+    expect(JSON.parse(previewData.value).program.name).toBe("Member Hub");
+    act(() => client.setQueryData(["system-branding", "authenticated"], { systemName: "Rewards Center" }));
+    await waitFor(() => expect(JSON.parse(previewData.value).program.name).toBe("Rewards Center"));
+    const customData = JSON.stringify({ program: { name: "My custom preview" } });
+    fireEvent.change(previewData, { target: { value: customData } });
+    act(() => client.setQueryData(["system-branding", "authenticated"], { systemName: "Team Rewards" }));
+    await waitFor(() => expect(previewData.value).toBe(customData));
     client.clear();
   });
 });

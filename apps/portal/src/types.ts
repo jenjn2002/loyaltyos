@@ -109,6 +109,7 @@ export interface CreditExchangeRate {
   maxPoints: number | null;
   periodLimitPoints: number | null;
   periodDays: number;
+  expiresAt: string | null;
   isActive: boolean;
   pointType: {
     id: string;

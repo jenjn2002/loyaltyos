@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { SystemBrandingTitle } from "@/components/system-branding-title";
 
 import { ui } from "@/lib/ui-text";
 
@@ -15,6 +16,7 @@ import { Sidebar } from "./sidebar";
 export function AppLayout(): JSX.Element {
   return (
     <AdminNotificationsProvider>
+      <SystemBrandingTitle />
       <AdminLayoutContent />
     </AdminNotificationsProvider>
   );
@@ -101,8 +103,9 @@ function AdminLayoutContent(): JSX.Element {
                           navigate("/approvals?request=" + encodeURIComponent(request.id));
                         }}
                       >
-                        <p className="font-medium">{request.workflow.name}</p>
-                        <p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}{request.status !== "PENDING" ? ` · ${ui(request.status)}` : ""}</p>
+                        <p className="font-medium">{request.notification?.title ?? request.workflow.name}</p>
+                        {request.notification?.body && <p className="mt-1 text-sm text-muted-foreground">{request.notification.body}</p>}
+                        <p className="text-xs text-muted-foreground">{request.actionKey} · {request.subjectType}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{new Date(request.requestedAt).toLocaleString()}</p>
                       </button>
                       <div className="mt-2 flex justify-end">

@@ -55,6 +55,8 @@ export const ADMIN_CAPABILITIES = [
   "permission.manage",
   "settings.view",
   "settings.manage",
+  "api_key.view",
+  "api_key.manage",
   "documentation.view",
   "documentation.manage",
 ] as const;
@@ -88,7 +90,7 @@ export function defaultCapability(role: string, capability: AdminCapability): bo
   // Project finance is deliberately excluded from the generic read capability
   // default, which would otherwise grant it to ANALYST roles because it ends
   // in `.view`.
-  if (capability === "project.finance.view") return false;
+  if (capability === "project.finance.view" || capability.startsWith("api_key.")) return false;
   if (role === "ANALYST") return readCapabilities.has(capability);
   if (role === "OPERATOR") return !ownerOnlyByDefault.has(capability);
   return false;
@@ -153,6 +155,21 @@ export function requireCapability(capability: AdminCapability): preHandlerAsyncH
   };
 }
 
+export async function assertAnyCapability(
+  request: FastifyRequest,
+  capabilities: readonly AdminCapability[],
+): Promise<void> {
+  for (const capability of capabilities) {
+    try {
+      await assertCapability(request, capability);
+      return;
+    } catch (error) {
+      if (!(error instanceof LoyaltyError) || error.code !== "FORBIDDEN") throw error;
+    }
+  }
+  throw new LoyaltyError("FORBIDDEN", 403);
+}
+
 export function capabilityForAdminRequest(method: string, url: string): AdminCapability | null {
   url = url.split("?")[0] ?? url;
   const write = method !== "GET" && method !== "HEAD";
@@ -173,11 +190,17 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
     url.startsWith("/api/v1/admin/users")
   )
     return "permission.manage";
+  if (url.startsWith("/api/v1/admin/settings/api-keys"))
+    return write ? "api_key.manage" : "api_key.view";
   if (url.startsWith("/api/v1/admin/settings")) return write ? "settings.manage" : "settings.view";
   if (url.startsWith("/api/v1/admin/documentation"))
     return write ? "documentation.manage" : "documentation.view";
+  // Adjusting a member's balance is a wallet operation, not point-type configuration.
+  if (/^\/api\/v1\/admin\/point-types\/[^/]+\/adjust$/.test(url)) return "wallet.adjust";
   if (url.startsWith("/api/v1/admin/point-types"))
     return write ? "point_type.manage" : "point_type.view";
+  // Layout changes are personal dashboard preferences, not a shared configuration edit.
+  if (url.startsWith("/api/v1/admin/dashboard-layout")) return "dashboard.view";
   if (url.startsWith("/api/v1/admin/issuance-rules"))
     return write ? "issuance.manage" : "issuance.view";
   if (url.startsWith("/api/v1/admin/issuance-proposals")) return "wallet.adjust";
@@ -188,7 +211,10 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.startsWith("/api/v1/admin/logs")) return "audit.view";
   if (url.startsWith("/api/v1/admin/event-definitions"))
     return write ? "event.manage" : "event.view";
+  if (/^\/api\/v1\/admin\/members\/[^/]+\/(credentials|microsoft-identities)(\/[^/]+)?$/.test(url))
+    return "member.credentials.manage";
   if (url.startsWith("/api/v1/admin/members")) return write ? "member.manage" : "member.view";
+  if (url === "/api/v1/admin/credits/config") return "point_type.view";
   if (url.includes("/credits/audit")) return "audit.view";
   if (url.includes("/credits/bank")) return write ? "bank.manage" : "bank.view";
   if (url.includes("/credits/exchange-requests/") && url.endsWith("/approve"))

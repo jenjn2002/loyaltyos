@@ -7,10 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SystemBrandingTitle } from "@/components/system-branding-title";
 import { adminLogin, isAdminAuthenticated, startMicrosoftLogin } from "@/lib/api-client";
+import { useSystemBranding } from "@/lib/system-branding";
 
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
+  const { systemName, logoUrl } = useSystemBranding(true);
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -50,9 +53,11 @@ export function LoginPage(): JSX.Element {
 
   return (
     <div className="flex h-screen items-center justify-center bg-muted">
+      <SystemBrandingTitle publicBranding />
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">{t("auth.loginTitle")}</CardTitle>
+          {logoUrl && <img src={logoUrl} alt="" className="mx-auto mb-2 h-16 w-16 object-contain" />}
+          <CardTitle className="break-words text-2xl [overflow-wrap:anywhere]" title={systemName}>{t("auth.brandedLoginTitle", { systemName })}</CardTitle>
           <CardDescription>{t("auth.loginDescription")}</CardDescription>
         </CardHeader>
         <CardContent>

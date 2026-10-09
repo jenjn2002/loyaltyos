@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchApi, postApi } from "../lib/api-client";
+import { ApiError, fetchApi, postApi } from "../lib/api-client";
 import { PointTypeIcon } from "../components/point-type-icon";
 import type {
   CreditBalance,
@@ -288,7 +288,9 @@ export default function Credits(): JSX.Element {
       setExchangeAmount("");
     },
     onError: (error: Error) => {
-      setNotice(error.message);
+      setNotice(error instanceof ApiError && error.code === "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED"
+        ? ui("This exchange is not covered by an approval workflow. Please ask an administrator to configure one for this point type, payout type and amount.")
+        : error.message);
     },
   });
 
@@ -773,7 +775,7 @@ export default function Credits(): JSX.Element {
                 ? formatExchangeValue(exchangeValueMinor / 100, activeRate.currency)
                 : ui("Rate not configured")}
               {activeRate?.periodLimitPoints
-                ? ` · Limit ${activeRate.periodLimitPoints.toLocaleString()} every ${String(activeRate.periodDays)} days`
+                ? ` · ${ui("Maximum per member:")} ${activeRate.periodLimitPoints.toLocaleString()} / ${String(activeRate.periodDays)} ${ui("days")}`
                 : ""}
             </p>
             <p className="text-xs text-[var(--color-text-secondary)]">

@@ -3,6 +3,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { prisma } from "../../db.js";
+import {
+  approvalResolutionNotificationCopy,
+  approvalSubjectName,
+  findLegacyApprovalResolutionCandidate,
+} from "../../lib/approval-display.js";
 import { audit } from "../../lib/audit.js";
 import { createdByForEntities } from "../../lib/created-by.js";
 import { LoyaltyError } from "../../lib/errors.js";
@@ -77,6 +82,14 @@ function getProgramId(request: {
   return request.programId || (request.headers["x-program-id"] as string) || "";
 }
 
+function approvalRequestIdFromActionUrl(actionUrl: string): string | null {
+  try {
+    return new URL(actionUrl, "https://loyaltyos.invalid").searchParams.get("request");
+  } catch {
+    return null;
+  }
+}
+
 // ── Routes ───────────────────────────────────────────────────
 
 export function adminNotificationsRoutes(
@@ -87,14 +100,73 @@ export function adminNotificationsRoutes(
   app.get("/admin/notifications/activity", { preHandler: [requireCapability("notification.view")] }, async (request, reply) => {
     if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
     const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).parse(request.query);
-    const where = { programId: request.programId, adminUserId: request.adminId };
-    const [items, unreadCount] = await Promise.all([
+    // Pending approvals are presented by the approval inbox itself. The
+    // activity row still exists for email delivery and its audit trail.
+    const where = {
+      programId: request.programId,
+      adminUserId: request.adminId,
+      triggerEvent: { not: "admin.approval.pending" },
+    };
+    const [items, unreadCount, admin] = await Promise.all([
       prisma.adminNotification.findMany({ where, orderBy: { createdAt: "desc" }, take: query.limit }),
       prisma.adminNotification.count({ where: { ...where, readAt: null } }),
+      prisma.adminUser.findFirst({ where: { id: request.adminId, programId: request.programId }, select: { locale: true } }),
     ]);
+    const resolutionItems = items.filter((item) => item.triggerEvent === "admin.approval.resolved" && item.actionUrl);
+    const approvalRequestIds = resolutionItems.flatMap((item) => {
+      if (item.triggerEvent !== "admin.approval.resolved" || !item.actionUrl) return [];
+      const requestId = approvalRequestIdFromActionUrl(item.actionUrl);
+      return requestId ? [requestId] : [];
+    });
+    const entityLinks = resolutionItems.flatMap((item) =>
+      !approvalRequestIdFromActionUrl(item.actionUrl!) && item.entityType && item.entityId
+        ? [{ subjectType: item.entityType, subjectId: item.entityId }]
+        : [],
+    );
+    const approvalLinks = [
+      ...(approvalRequestIds.length ? [{ id: { in: [...new Set(approvalRequestIds)] } }] : []),
+      ...entityLinks.map((link) => ({ subjectType: link.subjectType, subjectId: link.subjectId })),
+    ];
+    const approvalRequests = approvalLinks.length ? await prisma.approvalRequest.findMany({
+      where: {
+        programId: request.programId,
+        status: { in: ["APPROVED", "REJECTED", "CANCELLED"] },
+        OR: [
+          { requesterAdminId: request.adminId },
+          { requestedByType: "ADMIN_USER", requestedById: request.adminId },
+        ],
+        AND: [{ OR: approvalLinks }],
+      },
+      select: { id: true, actionKey: true, status: true, subjectType: true, subjectId: true, resolutionComment: true, resolvedAt: true, payload: true },
+    }) : [];
+    const locale = admin?.locale === "en-US" ? "en-US" : "vi-VN";
+    const localizedItems = await Promise.all(items.map(async (item) => {
+      if (item.triggerEvent !== "admin.approval.resolved" || !item.actionUrl) return item;
+      const approval = findLegacyApprovalResolutionCandidate({
+        requestId: approvalRequestIdFromActionUrl(item.actionUrl),
+        entityType: item.entityType,
+        entityId: item.entityId,
+        title: item.title,
+        body: item.body,
+        createdAt: item.createdAt,
+      }, approvalRequests);
+      if (!approval) return item;
+      const subjectName = await approvalSubjectName(request.programId, approval.subjectType, approval.subjectId, approval.payload);
+      return {
+        ...item,
+        ...approvalResolutionNotificationCopy({
+          actionKey: approval.actionKey,
+          subjectType: approval.subjectType,
+          subjectName,
+          status: approval.status,
+          comment: approval.resolutionComment,
+          locale,
+        }),
+      };
+    }));
     return reply.send({
       data: {
-        items: items.map(({ emailBody: _emailBody, emailSubject: _emailSubject, emailError: _emailError, ...item }) => item),
+        items: localizedItems.map(({ emailBody: _emailBody, emailSubject: _emailSubject, emailError: _emailError, ...item }) => item),
         unreadCount,
       },
     });
