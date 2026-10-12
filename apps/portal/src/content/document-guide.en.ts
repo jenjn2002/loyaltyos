@@ -83,17 +83,17 @@ export const customerGuideEnglish: Record<CustomerGuideTopic["id"], EnglishTopic
     notes: ["Read notifications remain in the list; only their read status and unread count change.", "Email or SMS delivery depends on the program's configured notification channels."],
   },
   projects: {
-    title: "Group projects and tasks",
+    title: "Group projects",
     area: "Account",
-    purpose: "Review project invitations, join a project, and update your assigned tasks. Project budgets and point allocations are restricted administrative information.",
+    purpose: "Review project invitations, join a project, see basic project details, and view your team. Project budgets and point allocations are restricted administrative information.",
     steps: [
       "Open Projects and review the invitations, active projects, and history tabs.",
       "Open an invitation, review the information shared with you, then Accept or Decline.",
-      "For an accepted project, open your assigned tasks and update them from TODO to IN_PROGRESS to DONE as you work.",
-      "Follow the project status. Once the PM completes the project, it is marked Complete and member actions are disabled.",
+      "For an accepted project, view its Project team roster; the You label identifies your account.",
+      "Follow the project status. Completed projects remain available in History as read-only records.",
     ],
     result: "The PM confirms project completion after the work is finished. Any point award follows a separate approval process.",
-    notes: ["Members cannot see the project budget, escrow, or individual point allocations.", "If an invitation has expired or is unavailable, ask the PM to invite you again."],
+    notes: ["Members cannot see the project budget, escrow, private distribution information, or individual point allocations.", "The PM can confirm project completion without an in-app task list or checklist.", "If an invitation has expired or is unavailable, ask the PM to invite you again."],
   },
   rewards: {
     title: "Redeem Rewards",

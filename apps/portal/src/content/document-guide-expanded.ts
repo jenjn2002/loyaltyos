@@ -1,6 +1,6 @@
 /**
  * Focused, bilingual customer procedures. These entries deliberately keep one
- * member task per article so each article can receive its own real UI capture.
+ * member journey per article so each article can receive its own real UI capture.
  * The admin documentation editor currently owns publication and uploaded images.
  */
 
@@ -507,7 +507,7 @@ export const customerGuideExpanded: GuideArticle[] = [
       "Mở chuông góc trên phải hoặc Thêm → Thông báo nếu bạn đi tới project từ một thông báo có View project.",
     ],
     result: "Phản hồi được lưu vào membership; lời mời được chấp nhận chuyển sang Active, từ chối được lưu trong History.",
-    notes: ["Không thể chấp nhận invitation khi project đã kết thúc/đóng.", "Việc Accept chỉ xác nhận tham gia; không tự tạo task hay đảm bảo nhận điểm."],
+    notes: ["Không thể chấp nhận invitation khi project đã kết thúc/đóng.", "Việc Accept chỉ xác nhận tham gia; không đảm bảo nhận điểm."],
     scenarios: [
       { title: "Invitation đã đóng", when: "Project báo invitation closed hoặc nút Accept/Decline không còn.", steps: ["Kiểm tra trạng thái trong chi tiết project.", "Liên hệ PM để hỏi liệu dự án có thể được mở lại hoặc gửi lời mời mới không."], expected: "Invitation kết thúc không bị hiểu nhầm là lỗi nút.", help: "Thành viên không thể tự mở lại project từ trang này." },
       { title: "Project không xuất hiện", when: "Tab Invitations trống dù bạn nhận được thông báo.", steps: ["Chọn đúng tab Invitations, xóa cụm Search và tải lại danh sách.", "Mở lại từ nút View project trong notification nếu có.", "Nếu vẫn không thấy, gửi tên project/thời gian thông báo cho PM hoặc admin."], expected: "Bạn loại trừ filter tìm kiếm và kiểm tra membership hiện tại.", help: "Nếu membership chưa được tạo hoặc đã xóa, PM/admin cần xác nhận lời mời." },
@@ -525,7 +525,7 @@ export const customerGuideExpanded: GuideArticle[] = [
       "If you opened the project from a notification, use View project on the notice from the top-right bell or More → Notifications when available.",
     ],
     result: "Your response is saved to the membership; an accepted invitation moves to Active and a declined one remains in History.",
-    notes: ["An invitation cannot be accepted after its project has ended or closed.", "Accepting confirms participation; it does not create tasks or guarantee a point award."],
+    notes: ["An invitation cannot be accepted after its project has ended or closed.", "Accepting confirms participation; it does not guarantee a point award."],
     scenarios: [
       { title: "The invitation is closed", when: "The project says the invitation is closed or no Accept/Decline actions are available.", steps: ["Check the project status in its details.", "Ask the project manager whether it can be reopened or a new invitation can be sent."], expected: "An ended invitation is recognized as unavailable rather than a broken button.", help: "A member cannot reopen a project from this page." },
       { title: "The project is missing", when: "Invitations is empty although you received a notice.", steps: ["Choose Invitations, clear Search, and refresh the list.", "Reopen from View project in the notification if that link is available.", "If it is still missing, send the project name and notice time to the PM or administrator."], expected: "You rule out a search filter and check the current membership list.", help: "If the membership was not created or has been removed, the PM/administrator must confirm the invitation." },
@@ -533,43 +533,41 @@ export const customerGuideExpanded: GuideArticle[] = [
     imageAlt: "Project invitation with Accept and Decline buttons",
   }),
 
-  // screenshot target: Accepted active project with assigned tasks, due date/status selector; completed project showing read-only status.
-  article("how-project-tasks-completion", 1340, "projects", {
-    title: "Cập nhật task và xem project đã hoàn tất", section: "Projects", route: "/projects",
-    purpose: "Theo dõi công việc được giao trong từng dự án đã chấp nhận và biết khi nào dự án chuyển sang chỉ đọc.",
-    prerequisites: "Bạn đã Accept invitation và project đang Active. Chỉ task được giao cho bạn mới hiện ở My tasks.",
+  // screenshot target: accepted active project with a team roster, and a completed project in read-only history.
+  article("how-project-team", 1340, "projects", {
+    title: "Xem nhóm và trạng thái dự án", section: "Projects", route: "/projects",
+    purpose: "Xem đồng đội của project đã chấp nhận và theo dõi trạng thái dự án trong vòng đời của nó.",
+    prerequisites: "Bạn đã Accept lời mời để xem roster. Chỉ participant đang hoạt động và chưa bị xóa được hiển thị.",
     steps: [
-      "Mở Projects → Active, chọn project cần làm; dùng Search projects nếu cần.",
-      "Đọc tên task, mô tả và hạn chót nếu có. Thanh tiến độ thể hiện số task Done trên tổng số task của bạn.",
-      "Khi bắt đầu làm, đổi task từ To do sang In progress; khi hoàn thành, đổi sang Done.",
-      "Sau mỗi lần đổi trạng thái, chờ thông báo Task status updated và kiểm tra trạng thái mới.",
-      "Khi PM đánh dấu project hoàn tất/đóng hoặc luồng issue đã sang trạng thái kết thúc, tìm project trong History; task sẽ ở chế độ read-only.",
+      "Mở Projects → Active và chọn project đã tham gia; dùng Search projects nếu cần.",
+      "Trong Project team, xem tên, phòng ban và ảnh đại diện nếu có; nhãn Bạn đánh dấu tài khoản hiện tại.",
+      "Lời mời chưa được chấp nhận không hiển thị như thành viên của roster.",
+      "Khi PM hoàn tất hoặc đóng project, tìm project trong History để xem thông tin cơ bản ở chế độ chỉ đọc.",
     ],
-    result: "Tiến độ task của bạn được lưu; project hoàn tất vẫn xem được trong History nhưng không còn cho cập nhật task.",
-    notes: ["Thành viên chỉ thấy task được giao cho mình; không thể tự tạo hoặc phân công task từ trang Customer.", "Trạng thái trong menu chỉ đi tới phía trước. Nếu lỡ chọn Done, liên hệ PM để được hướng dẫn thay vì kỳ vọng có nút hoàn tác."],
+    result: "Bạn xem được roster của những người đang tham gia mà không cần tra cứu member ID hoặc email.",
+    notes: ["Trang Customer không hiển thị budget, escrow, số điểm cá nhân, mô tả phân phối nội bộ hay bằng chứng.", "PM xác nhận hoàn tất dựa trên công việc thực tế; không có danh sách task/checklist trong portal."],
     scenarios: [
-      { title: "Không có task được giao", when: "My tasks trống hoặc báo chưa có task.", steps: ["Xác nhận project nằm trong Active và membership được chấp nhận.", "Kiểm tra xem PM đã phân công task cho tài khoản hiện tại chưa.", "Hỏi PM về task; thành viên không thể tự thêm task ở Customer."], expected: "Danh sách chỉ hiện công việc đã được PM giao cho bạn.", help: "Nếu PM xác nhận giao task nhưng danh sách chưa cập nhật, refresh project rồi báo project name cho admin." },
-      { title: "Task hoặc project không còn chỉnh sửa được", when: "Dropdown status biến mất hoặc báo project tasks are read-only after completion.", steps: ["Đọc project status và kiểm tra History.", "Nếu status đã Completed/Closed/Issue pending/Issued, chỉ xem dữ liệu từ trang này.", "Nếu trạng thái hoàn tất do nhầm lẫn, liên hệ PM/admin; member không thể mở khóa task."], expected: "Bạn hiểu trạng thái read-only là do vòng đời project chứ không phải thao tác sai.", help: "Gửi project name và task title cho PM để họ xác nhận bước xử lý tiếp theo." },
+      { title: "Roster trống", when: "Project team chưa liệt kê thành viên nào.", steps: ["Xác nhận membership của bạn đã ACCEPTED.", "Tải lại project để cập nhật danh sách.", "Nếu roster vẫn trống, hỏi PM xem có participant nào đang hoạt động trong project không."], expected: "Chỉ thành viên đã accept và còn hoạt động xuất hiện trong roster.", help: "Lời mời pending không được tính là người tham gia." },
+      { title: "Không thấy thông tin tài chính", when: "Bạn chỉ thấy mô tả chung và roster, không thấy budget hay phân bổ điểm.", steps: ["Đây là hành vi bảo vệ thông tin project nội bộ.", "Liên hệ PM/admin nếu cần thông tin phục vụ công việc."], expected: "Trang Customer chỉ hiển thị thông tin project dành cho thành viên.", help: "Không dùng ảnh chụp hoặc endpoint admin để truy cập dữ liệu tài chính." },
     ],
-    imageAlt: "Assigned project task status and read-only project after completion",
+    imageAlt: "Project team roster with the current member marked as You",
   }, {
-    title: "Update tasks and view completed projects", section: "Projects", route: "/projects",
-    purpose: "Track work assigned to you in accepted projects and understand when a project becomes read-only.",
-    prerequisites: "You accepted the invitation and the project is Active. My tasks shows only tasks assigned to you.",
+    title: "View a project team and its status", section: "Projects", route: "/projects",
+    purpose: "See the team on a project you joined and follow the project through its lifecycle.",
+    prerequisites: "Accept the invitation to view the roster. Only active, non-deleted participants are shown.",
     steps: [
-      "Open Projects → Active and select the project. Use Search projects if needed.",
-      "Read each task title, description, and due date when shown. Progress counts your Done tasks over your assigned tasks.",
-      "When you start work, change a task from To do to In progress; when finished, change it to Done.",
-      "After each change, wait for Task status updated and confirm its new status.",
-      "When the PM completes/closes the project or the issue workflow reaches a terminal state, find it under History; tasks become read-only.",
+      "Open Projects → Active and select a project you joined. Use Search projects if needed.",
+      "In Project team, see each member's name, department, and photo when available; You identifies your account.",
+      "Invitations that have not been accepted are not shown as roster members.",
+      "When the PM completes or closes a project, find it in History to review its basic read-only details.",
     ],
-    result: "Your task progress is saved; completed projects remain viewable in History but no longer allow task updates.",
-    notes: ["Members see only tasks assigned to them and cannot create or assign tasks from Customer.", "The menu only moves statuses forward. If you set Done by mistake, ask the PM what to do rather than expecting an undo control."],
+    result: "You can see current participants without looking up member IDs or email addresses.",
+    notes: ["The customer page does not show the budget, escrow, individual point amounts, private distribution description, or evidence.", "The PM confirms completion based on the real work; there is no in-app task list or checklist in the portal."],
     scenarios: [
-      { title: "No tasks are assigned", when: "My tasks is empty or says there are no tasks.", steps: ["Confirm the project is Active and your membership is accepted.", "Check with the PM whether a task has been assigned to your account.", "Ask the PM about the task; members cannot add a task from Customer."], expected: "The list contains only work assigned to you by the PM.", help: "If the PM confirms an assignment but it is missing, refresh the project and tell the administrator its name." },
-      { title: "A task or project is no longer editable", when: "The status dropdown is gone or the app says project tasks are read-only after completion.", steps: ["Read the project status and check History.", "If the status is Completed/Closed/Issue pending/Issued, this page is view-only.", "If it was completed by mistake, contact the PM/administrator; members cannot unlock tasks."], expected: "You understand that read-only follows the project lifecycle rather than a failed action.", help: "Give the PM the project name and task title so they can confirm the next step." },
+      { title: "The roster is empty", when: "Project team does not list any members.", steps: ["Confirm your membership is ACCEPTED.", "Refresh the project to update its roster.", "If it remains empty, ask the PM whether any active participants are enrolled."], expected: "Only members who accepted and remain active appear in the roster.", help: "Pending invitations do not count as participants." },
+      { title: "Financial details are not shown", when: "You see the shared project description and roster but no budget or point allocations.", steps: ["This protects internal project information.", "Contact the PM/administrator if you need information for your work."], expected: "The customer page displays only information intended for project members.", help: "Do not use screenshots or admin endpoints to access financial data." },
     ],
-    imageAlt: "Assigned task statuses and a read-only completed project",
+    imageAlt: "Project team roster with the current member marked as You",
   }),
 
   // screenshot target: Rewards category chips, wishlist heart and active wishlist view, including an unavailable/out-of-stock example.

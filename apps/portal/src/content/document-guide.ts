@@ -103,18 +103,18 @@ export const customerGuide: CustomerGuideTopic[] = [
   },
   {
     id: "projects",
-    title: "Dự án nhóm và nhiệm vụ",
+    title: "Dự án nhóm",
     area: "Tài khoản",
     image: "projects",
-    purpose: "Trang Projects cho thành viên xem lời mời, tham gia dự án và cập nhật các nhiệm vụ được giao. Ngân sách và phân bổ điểm là thông tin quản trị riêng.",
+    purpose: "Trang Projects cho thành viên xem lời mời, tham gia dự án, thông tin cơ bản và danh sách đồng đội. Ngân sách và thông tin phân bổ điểm là dữ liệu quản trị riêng.",
     steps: [
       "Mở Projects, xem các tab lời mời, đang tham gia và lịch sử.",
       "Mở lời mời để xem tên dự án, nội dung và các thông tin được chia sẻ; chọn Chấp nhận hoặc Từ chối.",
-      "Với dự án đã tham gia, mở nhiệm vụ của bạn và cập nhật TODO → IN_PROGRESS → DONE khi thực hiện.",
-      "Theo dõi trạng thái dự án. Khi PM hoàn tất dự án, dự án hiển thị Complete và các thao tác cập nhật bị khóa.",
+      "Với dự án đã tham gia, xem danh sách thành viên trong Project team; nhãn Bạn giúp nhận biết tài khoản của mình.",
+      "Theo dõi trạng thái dự án. Khi PM hoàn tất dự án, dự án hiển thị trong History ở chế độ chỉ đọc.",
     ],
     result: "PM xác nhận hoàn thành dự án sau khi công việc xong; việc ghi nhận điểm cho thành viên thuộc luồng phê duyệt riêng.",
-    notes: ["Thành viên không xem được ngân sách, escrow hay số điểm chia cho từng người.", "Nếu lời mời hết hiệu lực hoặc không còn tồn tại, liên hệ PM để được mời lại."],
+    notes: ["Thành viên không xem được ngân sách, escrow, thông tin phân phối nội bộ hay số điểm chia cho từng người.", "Không cần task/checklist trong ứng dụng để PM xác nhận hoàn tất dự án.", "Nếu lời mời hết hiệu lực hoặc không còn tồn tại, liên hệ PM để được mời lại."],
   },
   {
     id: "rewards",
