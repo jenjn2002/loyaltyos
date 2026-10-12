@@ -6,6 +6,7 @@ import { prisma } from "../../db.js";
 import { createApprovalRequestWithClient } from "../../lib/approval-workflows.js";
 import { audit } from "../../lib/audit.js";
 import { createAdminActivityNotification, notifyApprovalAssignees } from "../../lib/admin-notifications.js";
+import { adminRole, configuredVisibleValues, validateConfiguredValues } from "../../lib/customization.js";
 import { LoyaltyError } from "../../lib/errors.js";
 import { notificationsService } from "../../lib/notifications-setup.js";
 import { assertCapability, requireCapability, type AdminCapability } from "../../lib/permissions.js";
@@ -32,6 +33,26 @@ const allocationSchema = z.object({
   mode: z.enum(["AMOUNT", "PERCENT"]),
   value: z.number().positive(),
 });
+const evidenceItemSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("LINK"),
+    url: z.string().trim().min(1).max(2048).url().refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return (parsed.protocol === "http:" || parsed.protocol === "https:") && !parsed.username && !parsed.password;
+      } catch {
+        return false;
+      }
+    }),
+    name: z.string().trim().min(1).max(160).optional(),
+  }),
+  z.object({
+    kind: z.literal("FILE"),
+    attachmentId: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(160).optional(),
+  }),
+]);
+const issueEvidenceSchema = z.array(evidenceItemSchema).max(10).default([]);
 
 function json(value: Record<string, unknown>): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -228,7 +249,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     ]);
     const data = await prisma.project.findMany({
       where: { programId: request.programId },
-      include: { createdBy: { select: { id: true, name: true, email: true } }, budgets: { include: { pointType: { select: { code: true, name: true } } } }, _count: { select: { members: true, tasks: true } } },
+      include: { createdBy: { select: { id: true, name: true, email: true } }, budgets: { include: { pointType: { select: { code: true, name: true } } } }, _count: { select: { members: true } } },
       orderBy: { updatedAt: "desc" },
     });
     return reply.send({ data: data.map((project) => {
@@ -273,12 +294,20 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
         createdBy: { select: { id: true, name: true, email: true } },
         budgets: flags.canViewBudget ? { include: { pointType: { select: { code: true, name: true, unitLabel: true } } } } : false,
         members: { include: { member: { select: { id: true, email: true, firstName: true, lastName: true, department: true } } }, orderBy: { invitedAt: "desc" } },
-        tasks: { include: { assignee: { select: { id: true, email: true, firstName: true, lastName: true } } }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
         issueBatches: flags.canViewBudget ? { include: { allocations: { include: { member: { select: { id: true, email: true, firstName: true, lastName: true } }, pointType: { select: { code: true, name: true } } } } }, orderBy: { createdAt: "desc" } } : false,
         budgetTransactions: flags.canViewBudget ? { include: { pointType: { select: { code: true, name: true } } }, orderBy: { createdAt: "desc" } } : false,
       },
     });
     if (!project) throw new LoyaltyError("PROJECT_NOT_FOUND", 404);
+    const issueBatches = flags.canViewBudget && project.issueBatches.length
+      ? await (async () => {
+          const role = await adminRole(request);
+          return Promise.all(project.issueBatches.map(async (batch) => ({
+            ...batch,
+            fieldValues: await configuredVisibleValues(request.programId, "PROJECT_DISTRIBUTION", batch.fieldValues, role),
+          })));
+        })()
+      : flags.canViewBudget ? project.issueBatches : [];
     const projectApprovalSummary = flags.canViewBudget
       ? await (async () => {
           const batchIds = project.issueBatches.map((batch) => batch.id);
@@ -313,7 +342,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       ...project,
       fieldValues: flags.canViewBudget ? project.fieldValues : {},
       budgets: flags.canViewBudget ? project.budgets : [],
-      issueBatches: flags.canViewBudget ? project.issueBatches : [],
+      issueBatches,
       budgetTransactions: flags.canViewBudget ? project.budgetTransactions : [],
       ...flags,
       approvalSummary: projectApprovalSummary,
@@ -395,77 +424,10 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "INVITE_MEMBERS", name: project.name, memberCount: invited, memberIds: invitedMemberIds });
     return reply.status(201).send({ data: { invited } });
   });
-  app.post("/admin/projects/:id/tasks", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
-    const body = z.object({ title: z.string().trim().min(1).max(160), description: z.string().trim().max(3000).optional(), assigneeId: z.string().nullable().optional(), dueAt: z.string().datetime().nullable().optional() }).parse(request.body);
-    const project = await ownedProject(request.programId, currentAdmin(request), id);
-    if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
-    if (body.assigneeId) {
-      const accepted = await prisma.projectMember.findFirst({ where: { projectId: id, memberId: body.assigneeId, status: "ACCEPTED" } });
-      if (!accepted) throw new LoyaltyError("PROJECT_MEMBER_MUST_ACCEPT_FIRST", 409);
-    }
-    const task = await prisma.projectTask.create({ data: { projectId: id, title: body.title, description: body.description, assigneeId: body.assigneeId ?? null, dueAt: body.dueAt ? new Date(body.dueAt) : null } });
-    if (task.assigneeId) {
-      const member = await prisma.member.findFirst({
-        where: { id: task.assigneeId, programId: request.programId },
-        select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } },
-      });
-      if (member) await notificationsService.sendTrigger(request.programId, "project.task.assigned", member.id, {
-        member,
-        project: { id, name: project.name },
-        task: { title: task.title, dueAt: task.dueAt?.toISOString() ?? "—" },
-        _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
-      }).catch((error: unknown) => request.log.warn({ err: error, taskId: task.id }, "Failed to notify project task assignment"));
-    }
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "CREATE", projectId: id, title: task.title });
-    return reply.status(201).send({ data: task });
-  });
-  app.patch("/admin/projects/:id/tasks/:taskId", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
-    const { id, taskId } = z.object({ id: z.string().min(1), taskId: z.string().min(1) }).parse(request.params);
-    const body = z.object({ title: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(3000).nullable().optional(), assigneeId: z.string().nullable().optional(), dueAt: z.string().datetime().nullable().optional(), status: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional() }).parse(request.body);
-    const project = await ownedProject(request.programId, currentAdmin(request), id);
-    if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
-    const current = await prisma.projectTask.findFirst({ where: { id: taskId, projectId: id } });
-    if (!current) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
-    if (body.assigneeId) {
-      const accepted = await prisma.projectMember.findFirst({ where: { projectId: id, memberId: body.assigneeId, status: "ACCEPTED" } });
-      if (!accepted) throw new LoyaltyError("PROJECT_MEMBER_MUST_ACCEPT_FIRST", 409);
-    }
-    const task = await prisma.projectTask.update({ where: { id: taskId }, data: { ...body, dueAt: body.dueAt === undefined ? undefined : body.dueAt ? new Date(body.dueAt) : null, completedAt: body.status ? body.status === "DONE" ? new Date() : null : undefined } });
-    if (task.assigneeId && task.assigneeId !== current.assigneeId) {
-      const member = await prisma.member.findFirst({
-        where: { id: task.assigneeId, programId: request.programId },
-        select: { id: true, email: true, phone: true, firstName: true, lastName: true, locale: true, program: { select: { defaultLocale: true } } },
-      });
-      if (member) await notificationsService.sendTrigger(request.programId, "project.task.assigned", member.id, {
-        member,
-        project: { id, name: project.name },
-        task: { title: task.title, dueAt: task.dueAt?.toISOString() ?? "—" },
-        _locale: member.locale ?? member.program.defaultLocale ?? "vi-VN",
-      }).catch((error: unknown) => request.log.warn({ err: error, taskId: task.id }, "Failed to notify project task assignment"));
-    }
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", task.id, { operation: "UPDATE", projectId: id, title: task.title,
-      before: { title: current.title, status: current.status, assigneeId: current.assigneeId, dueAt: current.dueAt?.toISOString() ?? null },
-      after: { title: task.title, status: task.status, assigneeId: task.assigneeId, dueAt: task.dueAt?.toISOString() ?? null },
-    });
-    return reply.send({ data: task });
-  });
-  app.delete("/admin/projects/:id/tasks/:taskId", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
-    const { id, taskId } = z.object({ id: z.string().min(1), taskId: z.string().min(1) }).parse(request.params);
-    const project = await ownedProject(request.programId, currentAdmin(request), id);
-    if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
-    const task = await prisma.projectTask.findFirst({ where: { id: taskId, projectId: id } });
-    const deleted = await prisma.projectTask.deleteMany({ where: { id: taskId, projectId: id } });
-    if (!deleted.count) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project_task", taskId, { operation: "DELETE", projectId: id, title: task?.title, before: task ? { title: task.title, status: task.status, assigneeId: task.assigneeId } : null });
-    return reply.status(204).send();
-  });
   app.post("/admin/projects/:id/complete", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
     const project = await ownedProject(request.programId, currentAdmin(request), id);
     if (project.status !== "ACTIVE") throw new LoyaltyError("PROJECT_NOT_ACTIVE", 409);
-    const incomplete = await prisma.projectTask.count({ where: { projectId: id, status: { not: "DONE" } } });
-    if (incomplete) throw new LoyaltyError("PROJECT_TASKS_INCOMPLETE", 409, { remaining: incomplete });
     const transition = await prisma.project.updateMany({
       where: { id, programId: request.programId, createdByAdminId: currentAdmin(request), status: "ACTIVE" },
       data: { status: "COMPLETED", completedAt: new Date() },
@@ -489,14 +451,33 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
   });
   app.post("/admin/projects/:id/submit-issuance", { preHandler: [requireCapability("project.manage")] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
-    const body = z.object({ allocations: z.array(allocationSchema).min(1).max(10000) }).parse(request.body);
+    const body = z.object({
+      allocations: z.array(allocationSchema).min(1).max(10000),
+      description: z.string().trim().max(5000).optional(),
+      evidence: issueEvidenceSchema,
+      fieldValues: z.record(z.unknown()).optional().default({}),
+    }).parse(request.body);
     const adminId = currentAdmin(request);
+    await ownedProject(request.programId, adminId, id);
+    const role = await adminRole(request);
+    const safeFieldValues = await validateConfiguredValues(request.programId, "PROJECT_DISTRIBUTION", body.fieldValues, { role, adminId, projectId: id });
+    const approvalFieldValues = await configuredVisibleValues(request.programId, "PROJECT_DISTRIBUTION", safeFieldValues, role, true);
     const result = await prisma.$transaction(async (tx) => {
       const project = await tx.project.findFirst({ where: { id, programId: request.programId, createdByAdminId: adminId }, include: { budgets: { include: { pointType: { select: { code: true, name: true } } } }, members: { where: { status: "ACCEPTED" }, include: { member: { select: { id: true, email: true, firstName: true, lastName: true } } } } } });
       if (!project) throw new LoyaltyError("PROJECT_NOT_FOUND", 404);
       if (!["COMPLETED", "ISSUE_REJECTED"].includes(project.status)) throw new LoyaltyError("PROJECT_NOT_COMPLETE", 409);
       const currentBatch = await tx.projectIssueBatch.findFirst({ where: { projectId: id, status: "PENDING" } });
       if (currentBatch) throw new LoyaltyError("PROJECT_ISSUANCE_PENDING", 409);
+      const attachmentIds = [...new Set(body.evidence.flatMap((item) => item.kind === "FILE" ? [item.attachmentId] : []))];
+      const attachmentNames = new Map<string, string>();
+      if (attachmentIds.length) {
+        const attachments = await tx.customAttachment.findMany({
+          where: { id: { in: attachmentIds }, programId: request.programId, contextType: "PROJECT", contextId: id, uploadedByAdminId: adminId },
+          select: { id: true, name: true },
+        });
+        if (attachments.length !== attachmentIds.length) throw new LoyaltyError("PROJECT_EVIDENCE_ATTACHMENT_INVALID", 400);
+        for (const attachment of attachments) attachmentNames.set(attachment.id, attachment.name);
+      }
       const membership = new Map(project.members.map((item) => [item.memberId, item.member]));
       const budgetByType = new Map(project.budgets.map((item) => [item.pointTypeId, item]));
       const seen = new Set<string>();
@@ -519,21 +500,42 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
         const budget = budgetByType.get(pointTypeId)!;
         if (amount > budget.remainingAmount) throw new LoyaltyError("PROJECT_ALLOCATION_EXCEEDS_REMAINING_BUDGET", 400, { pointType: budget.pointType.code, available: budget.remainingAmount, requested: amount });
       }
-      const batch = await tx.projectIssueBatch.create({ data: { projectId: id, status: "DRAFT", submittedByAdminId: adminId } });
+      const description = body.description?.trim() || null;
+      const evidenceReferences = body.evidence.map((item) => {
+        if (item.kind === "LINK") return { kind: item.kind, url: item.url, ...(item.name ? { name: item.name } : {}) };
+        const name = item.name ?? attachmentNames.get(item.attachmentId);
+        return { kind: item.kind, attachmentId: item.attachmentId, ...(name ? { name } : {}) };
+      });
+      const batch = await tx.projectIssueBatch.create({
+        data: {
+          projectId: id,
+          status: "DRAFT",
+          submittedByAdminId: adminId,
+          description,
+          evidence: evidenceReferences as Prisma.InputJsonValue,
+          fieldValues: json(safeFieldValues),
+        },
+      });
       await tx.projectGrantAllocation.createMany({ data: normalized.map((item) => ({ batchId: batch.id, projectId: id, budgetId: item.budgetId, memberId: item.memberId, pointTypeId: item.pointTypeId, amount: item.amount })) });
       const totalAmount = normalized.reduce((sum, item) => sum + item.amount, 0);
       const approval = await createApprovalRequestWithClient(tx, {
         programId: request.programId, actionKey: "PROJECT_POINT_ISSUANCE", requestedByType: "ADMIN_USER", requestedById: adminId, requesterAdminId: adminId,
         subjectType: "ProjectIssueBatch", subjectId: batch.id, idempotencyKey: `project-issue:${batch.id}`,
-        payload: { projectId: id, projectName: project.name, totalAmount, allocations: normalized.map((item) => ({ member: [item.member.firstName, item.member.lastName].filter(Boolean).join(" ") || item.member.email, email: item.member.email, pointType: item.name, pointTypeCode: item.code, amount: item.amount })) } as Prisma.InputJsonValue,
+        payload: { projectId: id, projectName: project.name, totalAmount, description, evidence: evidenceReferences, fieldValues: approvalFieldValues, allocations: normalized.map((item) => ({ member: [item.member.firstName, item.member.lastName].filter(Boolean).join(" ") || item.member.email, email: item.member.email, pointType: item.name, pointTypeCode: item.code, amount: item.amount })) } as Prisma.InputJsonValue,
         scopeContext: { amount: totalAmount },
       });
       if (!approval) throw new LoyaltyError("PROJECT_ISSUANCE_WORKFLOW_NOT_CONFIGURED", 409);
       await tx.projectIssueBatch.update({ where: { id: batch.id }, data: { approvalRequestId: approval.id, status: "PENDING" } });
       await tx.project.update({ where: { id }, data: { status: "ISSUE_PENDING" } });
-      return { approval, batchId: batch.id, totalAmount };
+      return { approval, batchId: batch.id, totalAmount, description, evidenceReferences };
     });
-    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, { operation: "SUBMIT_ISSUANCE", issueBatchId: result.batchId, totalAmount: result.totalAmount, approvalRequestId: result.approval.id });
+    await audit(request.programId, request.actor, "CONFIG_CHANGE", "project", id, {
+      operation: "SUBMIT_ISSUANCE",
+      issueBatchId: result.batchId,
+      totalAmount: result.totalAmount,
+      approvalRequestId: result.approval.id,
+      evidenceReferences: result.evidenceReferences,
+    });
     await notifyApprovalAssignees(request.programId, result.approval.id).catch((error: unknown) => request.log.warn({ err: error, approvalRequestId: result.approval.id }, "Failed to notify project-issuance approvers"));
     return reply.status(201).send({ data: result });
   });
@@ -582,19 +584,27 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
       },
       orderBy: { invitedAt: "desc" },
     });
-    const acceptedProjectIds = memberships.filter((membership) => membership.status === "ACCEPTED").map((membership) => membership.projectId);
-    const tasks = acceptedProjectIds.length
-      ? await prisma.projectTask.findMany({
-          where: { projectId: { in: acceptedProjectIds }, assigneeId: request.memberId },
-          select: { id: true, projectId: true, title: true, description: true, status: true, dueAt: true },
-          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    const acceptedProjectIds = [...new Set(memberships.filter((membership) => membership.status === "ACCEPTED").map((membership) => membership.projectId))];
+    const acceptedParticipants = acceptedProjectIds.length
+      ? await prisma.projectMember.findMany({
+          where: {
+            projectId: { in: acceptedProjectIds },
+            status: "ACCEPTED",
+            member: { programId: request.programId, deletedAt: null, status: "ACTIVE" },
+          },
+          select: { projectId: true, member: { select: { id: true, firstName: true, lastName: true, department: true, photoUrl: true } } },
         })
       : [];
-    const tasksByProject = new Map<string, typeof tasks>();
-    for (const task of tasks) {
-      const projectTasks = tasksByProject.get(task.projectId) ?? [];
-      projectTasks.push(task);
-      tasksByProject.set(task.projectId, projectTasks);
+    const participantsByProject = new Map<string, { memberId: string; name: string; department: string | null; photoUrl: string | null }[]>();
+    for (const { projectId, member } of acceptedParticipants) {
+      const participants = participantsByProject.get(projectId) ?? [];
+      participants.push({
+        memberId: member.id,
+        name: [member.firstName, member.lastName].filter(Boolean).join(" ") || "Member",
+        department: member.department,
+        photoUrl: member.photoUrl,
+      });
+      participantsByProject.set(projectId, participants);
     }
     return reply.send({ data: memberships.map((membership) => ({
       id: membership.id,
@@ -610,15 +620,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
         completedAt: membership.project.completedAt,
         closedAt: membership.project.closedAt,
         projectManager: membership.project.createdBy ? { name: membership.project.createdBy.name } : null,
-        tasks: membership.status === "ACCEPTED"
-          ? (tasksByProject.get(membership.projectId) ?? []).map((task) => ({
-              id: task.id,
-              title: task.title,
-              description: task.description,
-              status: task.status,
-              dueAt: task.dueAt,
-            }))
-          : [],
+        ...(membership.status === "ACCEPTED" ? { members: participantsByProject.get(membership.projectId) ?? [] } : {}),
       },
     })) });
   });
@@ -653,40 +655,5 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
     });
     return reply.send({ data: updated });
   });
-  app.patch("/members/me/projects/:projectId/tasks/:taskId", async (request, reply) => {
-    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
-    const { projectId, taskId } = z.object({ projectId: z.string().min(1), taskId: z.string().min(1) }).parse(request.params);
-    const { status } = z.object({ status: z.enum(["IN_PROGRESS", "DONE"]) }).parse(request.body);
-    const membership = await prisma.projectMember.findFirst({ where: { projectId, memberId: request.memberId, status: "ACCEPTED", project: { programId: request.programId, status: "ACTIVE" } }, include: { project: { select: { id: true, name: true, createdByAdminId: true } } } });
-    if (!membership) throw new LoyaltyError("PROJECT_MEMBERSHIP_REQUIRED", 403);
-    const task = await prisma.projectTask.findFirst({ where: { id: taskId, projectId, assigneeId: request.memberId } });
-    if (!task) throw new LoyaltyError("PROJECT_TASK_NOT_FOUND", 404);
-    const updated = await prisma.projectTask.update({ where: { id: taskId }, data: { status, completedAt: status === "DONE" ? new Date() : null } });
-    if (status === "DONE" && task.status !== "DONE") {
-      const member = await prisma.member.findUnique({ where: { id: request.memberId }, select: { email: true, firstName: true, lastName: true } });
-      await createAdminActivityNotification({
-        programId: request.programId,
-        adminUserId: membership.project.createdByAdminId,
-        triggerEvent: "admin.project.task_completed",
-        idempotencyKey: `project-task-completed:${updated.id}:${updated.completedAt?.toISOString() ?? updated.updatedAt.toISOString()}`,
-        title: "Project task completed",
-        body: `${[member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "A member"} completed “${task.title}” in ${membership.project.name}.`,
-        actionUrl: `/projects?project=${encodeURIComponent(projectId)}`,
-        entityType: "ProjectTask",
-        entityId: taskId,
-        context: {
-          member: { name: [member?.firstName, member?.lastName].filter(Boolean).join(" ") || member?.email || "Member", email: member?.email ?? "" },
-          project: { id: projectId, name: membership.project.name },
-          task: { id: taskId, title: task.title },
-        },
-      }).catch((error: unknown) => request.log.warn({ err: error, projectId, taskId }, "Failed to notify project manager of task completion"));
-    }
-    await audit(request.programId, { type: "MEMBER", id: request.memberId }, "CONFIG_CHANGE", "project_task", taskId, {
-      operation: "UPDATE_TASK_STATUS", projectId, memberId: request.memberId, title: task.title,
-      before: { status: task.status }, after: { status },
-    });
-    return reply.send({ data: updated });
-  });
-
   done();
 }

@@ -250,7 +250,7 @@ export async function ensureCreditNotificationTemplates(): Promise<void> {
     },
   ];
   for (const program of programs) {
-    for (const template of templates) {
+    for (const template of templates.filter(item => !["project.task.assigned", "admin.project.task_completed"].includes(item.triggerEvent))) {
       await prisma.notificationTemplate.upsert({
         where: {
           programId_name_locale: {

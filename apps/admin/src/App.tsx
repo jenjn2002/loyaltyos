@@ -39,6 +39,7 @@ import { IssuanceRulesPage } from "@/pages/issuance-rules";
 import { PermissionsPage } from "@/pages/permissions";
 import { PointTypesPage } from "@/pages/point-types";
 import { ProjectsPage } from "@/pages/projects";
+import { CustomizationPage } from "@/pages/customization";
 import { RewardsEditorPage } from "@/pages/rewards/rewards-editor";
 import { RewardsListPage } from "@/pages/rewards/rewards-list";
 import { RewardsRedemptionsPage } from "@/pages/rewards/rewards-redemptions";
@@ -92,6 +93,7 @@ function AdminHome(): JSX.Element {
   if (permissions.can("dashboard.view")) return <DashboardPage />;
   const firstAllowed = ([
     ["member.view", "/members"], ["project.view", "/projects"],
+    ["custom_document.view", "/customization"], ["customization.manage", "/customization"],
     ["wallet.adjust", "/credits/wallets"], ["wallet.view", "/credits/ledger"],
     ["bank.view", "/credits/banks"], ["exchange.view", "/credits/exchange"],
     ["point_type.view", "/point-types"], ["campaign.view", "/campaigns"],
@@ -125,6 +127,7 @@ export function App(): JSX.Element {
           <Route path="/document" element={permitted("documentation.view", <AdminDocumentPage />)} />
           <Route path="/members" element={permitted("member.view", <MembersListPage />)} />
           <Route path="/projects" element={permitted("project.view", <ProjectsPage />)} />
+          <Route path="/customization" element={permitted(["custom_document.view", "customization.manage"], <CustomizationPage />)} />
           <Route path="/exports" element={permitted(["member.view", "wallet.view", "bank.view", "exchange.view", "point_type.view", "issuance.view", "campaign.view", "event.view", "coupon.view", "reward.view", "segment.view", "tier.view", "badge.view", "approval.view", "workflow.view", "audit.view", "notification.view", "giftcard.view", "coalition.view", "project.view", "recognition.view"], <DataExportPage />)} />
           <Route path="/members/:id" element={permitted("member.view", <MemberDetailPage />)} />
           <Route path="/member-fields" element={permitted("member.manage", <MemberFieldsPage />)} />

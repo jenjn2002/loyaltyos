@@ -13,6 +13,7 @@ export const BUILTIN_WORKFLOW_ACTIONS = [
   "LEAVE_REQUEST",
   "REWARD_REDEMPTION",
   "CUSTOM",
+  "CUSTOM_DOCUMENT_APPROVAL",
 ] as const;
 
 export interface WorkflowAssignmentInput { adminUserId?: string; role?: string }
@@ -67,6 +68,8 @@ export interface ApprovalRequestInput {
   payload?: Prisma.InputJsonValue;
   idempotencyKey?: string;
   scopeContext?: WorkflowMatchContext;
+  /** Only custom-document transitions may pin a configured workflow. */
+  workflowId?: string;
 }
 
 export interface ApprovalRequestDecisionContext {
@@ -564,9 +567,10 @@ async function findMatchingWorkflow(
   programId: string,
   actionKey: string,
   context: WorkflowMatchContext = {},
+  selectedWorkflowId?: string,
 ) {
   const workflows = await tx.approvalWorkflow.findMany({
-    where: { programId, actionKey, isActive: true },
+    where: { programId, actionKey, isActive: true, ...(selectedWorkflowId ? { id: selectedWorkflowId } : {}) },
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }, { id: "asc" }],
     include: {
       steps: {
@@ -625,11 +629,13 @@ export async function createApprovalRequestWithClient(
   tx: Prisma.TransactionClient,
   input: ApprovalRequestInput,
 ): Promise<Awaited<ReturnType<typeof getApprovalRequest>> | null> {
+  if (input.workflowId && input.actionKey !== "CUSTOM_DOCUMENT_APPROVAL") throw new LoyaltyError("WORKFLOW_PIN_NOT_ALLOWED", 400);
   const workflow = await findMatchingWorkflow(
     tx,
     input.programId,
     input.actionKey,
     input.scopeContext,
+    input.workflowId,
   );
   if (!workflow) return null;
   if (!workflow.steps.length) throw new LoyaltyError("WORKFLOW_STEPS_REQUIRED", 409);
@@ -665,7 +671,7 @@ export async function createApprovalRequestWithClient(
     snapshots.push({ step, assignees, required });
   }
 
-  if (input.actionKey === "POINT_EXCHANGE") {
+  if (["POINT_EXCHANGE", "CUSTOM_DOCUMENT_APPROVAL"].includes(input.actionKey)) {
     const capabilities: AdminCapability[] = ["approval.inbox", "approval.view", "approval.decide"];
     const roles = [...new Set(snapshots.flatMap(({ assignees }) => assignees.map((assignee) => assignee.role)))];
     const overrides = await tx.adminRolePermission.findMany({

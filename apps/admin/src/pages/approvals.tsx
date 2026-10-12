@@ -37,12 +37,13 @@ function actionLabel(request: ApprovalRequest): string {
     PROJECT_POINT_ISSUANCE: tr("Project point distribution", "Phân bổ điểm dự án"),
     POINT_EXCHANGE: tr("Point exchange approval", "Phê duyệt đổi điểm"),
     REWARD_REDEMPTION: tr("Reward redemption approval", "Phê duyệt đổi phần thưởng"),
+    CUSTOM_DOCUMENT_APPROVAL: tr("Custom document approval", "Phê duyệt chứng từ tùy chỉnh"),
   };
   return labels[request.actionKey] ?? request.workflow.name;
 }
 function title(request: ApprovalRequest): string {
   const payload = request.payload ?? {};
-  return text(payload.projectName) || text(payload.name) || text(payload.documentNumber)
+  return text(payload.documentTitle) || text(payload.projectName) || text(payload.name) || text(payload.documentNumber)
     || request.display?.member?.name || actionLabel(request);
 }
 interface Identity { name: string; email: string | null }
@@ -75,7 +76,7 @@ function ProposalSummary({ request }: { request: ApprovalRequest }): JSX.Element
   const campaign = request.actionKey === "CAMPAIGN_ISSUANCE_PROPOSAL";
   const budgets = list(p.requestedBudgets);
   const allocations = list(p.allocations);
-  const fields = Object.entries(record(p.fieldValues));
+  const fields = Object.entries(record(p.fieldValues ?? p.fields));
   return <section className="space-y-4 rounded-lg border p-4" aria-label={tr("Request summary", "Tóm tắt yêu cầu")}>
     <div><h3 className="font-semibold">{tr("Request summary", "Tóm tắt yêu cầu")}</h3><p className="mt-1 text-xs text-muted-foreground">{tr("Amounts and conditions below are from the submitted request.", "Số điểm và điều kiện dưới đây được lưu tại thời điểm gửi yêu cầu.")}</p></div>
     <dl className="grid gap-4 sm:grid-cols-2">
@@ -94,6 +95,8 @@ function ProposalSummary({ request }: { request: ApprovalRequest }): JSX.Element
       {Boolean(p.expiresAt) && <Field label={tr("Expires at", "Hết hạn lúc")}>{date(p.expiresAt)}</Field>}
     </dl>
     {text(p.description) && <div><h4 className="text-sm font-medium">{tr("Description", "Mô tả")}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{text(p.description)}</p></div>}
+    {request.subjectType === "CustomDocument" && <div><p className="text-sm">{text(p.definitionName)} · {text(p.fromState)} → {text(p.toState)}</p><a className="text-sm text-primary underline" href={`/customization?record=${encodeURIComponent(request.subjectId)}`}>{tr("Open document", "Mở chứng từ")}</a></div>}
+    {list(p.evidence).length > 0 && <div><h4 className="mb-2 text-sm font-medium">{tr("Evidence", "Minh chứng")}</h4><ul className="space-y-2">{list(p.evidence).map((item, index) => <li key={index} className="text-sm">{item.kind === "LINK" && /^https?:\/\//i.test(text(item.url)) ? <a className="text-primary underline" href={text(item.url)} target="_blank" rel="noopener noreferrer">{text(item.name) || text(item.url)}</a> : item.kind === "FILE" ? <Button type="button" variant="outline" size="sm" onClick={() => { void fetch(`/api/v1/admin/attachments/${encodeURIComponent(text(item.attachmentId))}`, { credentials: "include" }).then(async response => { if (!response.ok) throw new Error(tr("File access denied", "Không có quyền tải file")); const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = text(item.name) || "evidence"; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }).catch(error => window.alert(error instanceof Error ? error.message : tr("Unable to download file", "Không thể tải file"))); }}>{text(item.name) || tr("Download evidence", "Tải minh chứng")}</Button> : "—"}</li>)}</ul></div>}
     {text(p.reason) && <div className="rounded-md bg-muted/50 p-3"><h4 className="text-sm font-medium">{tr("Justification", "Lý do đề xuất")}</h4><p className="mt-1 whitespace-pre-wrap text-sm">{text(p.reason)}</p></div>}
     {budgets.length > 0 && <div><h4 className="mb-2 text-sm font-medium">{tr("Requested project budget", "Ngân sách dự án đề nghị")}</h4><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="py-2">{tr("Point type", "Loại điểm")}</th><th className="py-2 text-right">{tr("Requested points", "Số điểm đề nghị")}</th></tr></thead><tbody>{budgets.map((budget, index) => <tr className="border-b" key={index}><td className="py-2">{text(budget.pointType) || text(budget.code) || unavailable()}</td><td className="py-2 text-right tabular-nums">{number(budget.amount)}</td></tr>)}</tbody></table></div></div>}
     {allocations.length > 0 && <div><h4 className="mb-2 text-sm font-medium">{tr("Proposed member allocations", "Phân bổ đề nghị cho thành viên")}</h4><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="py-2">{tr("Member", "Thành viên")}</th><th className="px-3 py-2">{tr("Point type", "Loại điểm")}</th><th className="py-2 text-right">{tr("Points", "Số điểm")}</th></tr></thead><tbody>{allocations.map((line, index) => <tr className="border-b" key={index}><td className="py-2">{text(line.member) || text(line.email) || unavailable()}<span className="block text-xs text-muted-foreground">{text(line.email)}</span></td><td className="px-3 py-2">{text(line.pointType) || text(line.pointTypeCode) || unavailable()}</td><td className="py-2 text-right tabular-nums">{number(line.amount)}</td></tr>)}</tbody></table></div><p className="mt-2 text-xs text-muted-foreground">{tr("Different point types remain separate; amounts are not combined.", "Các loại điểm được tính riêng, không cộng gộp số điểm khác loại.")}</p></div>}

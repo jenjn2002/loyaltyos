@@ -121,11 +121,11 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
   },
   "project.view": {
     label: "View projects",
-    description: "View project plans, accepted members, tasks and confidential budget or allocation details for projects you manage.",
+    description: "View project plans, accepted members and confidential budget or allocation details for projects you manage.",
   },
   "project.manage": {
     label: "Manage projects",
-    description: "Create project plans, request budget approval, invite members, manage tasks, submit point distributions and close projects.",
+    description: "Create project plans, request budget approval, invite members, confirm completion, submit point distributions and close projects.",
   },
   "project.finance.view": {
     label: "View confidential project finances",
@@ -207,6 +207,9 @@ const CAPABILITY_COPY: Record<string, { label: string; description: string }> = 
     label: "View notifications",
     description: "Read templates, deliveries and webhook configuration.",
   },
+  "customization.manage": { label: "Configure custom forms", description: "Define extra fields, custom document types, role access and state transitions without source-code changes." },
+  "custom_document.view": { label: "View custom documents", description: "Read custom documents allowed by their form roles; existing-feature permissions still apply." },
+  "custom_document.manage": { label: "Manage custom documents", description: "Create and edit allowed custom documents and request configured state transitions." },
   "notification.manage": {
     label: "Manage notifications",
     description: "Change templates, delivery settings and webhooks.",
@@ -302,6 +305,7 @@ const CAPABILITY_GROUPS: { id: string; label: string; capabilities: string[] }[]
     ],
   },
   { id: "projects", label: "Group projects", capabilities: ["project.view", "project.manage", "project.finance.view"] },
+  { id: "customization", label: "Custom forms & workflows", capabilities: ["customization.manage", "custom_document.view", "custom_document.manage"] },
   { id: "integrations", label: "Integrations", capabilities: ["coalition.view", "coalition.manage"] },
   {
     id: "automation",

@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import type { ApprovalDecisionHook } from "./approval-workflows.js";
 import { walletService } from "./wallets.js";
@@ -14,6 +14,13 @@ export const pointExchangeApprovalHook: ApprovalDecisionHook = async (
   actorId,
   comment,
 ) => {
+  if (request.actionKey === "CUSTOM_DOCUMENT_APPROVAL" && request.subjectType === "CustomDocument") {
+    const document = await tx.customDocument.findFirst({ where: { id: request.subjectId, programId: request.programId, approvalRequestId: request.id, archivedAt: null } });
+    const transition = document?.pendingTransition && typeof document.pendingTransition === "object" && !Array.isArray(document.pendingTransition) ? document.pendingTransition : {};
+    if (!document || transition.approvalRequestId !== request.id || transition.from !== document.status || typeof transition.to !== "string") throw new Error("Custom document transition is no longer pending");
+    await tx.customDocument.update({ where: { id: document.id }, data: { status: decision === "APPROVE" ? transition.to : document.status, pendingTransition: Prisma.DbNull, updatedByAdminId: actorId, version: { increment: 1 } } });
+    return;
+  }
   if (request.actionKey === "PROJECT_PLAN_APPROVAL" && request.subjectType === "Project") {
     const project = await tx.project.findFirst({
       where: { id: request.subjectId, programId: request.programId },

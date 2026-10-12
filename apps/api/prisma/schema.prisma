@@ -53,6 +53,9 @@ model Program {
   rewardPointPrices             RewardPointPrice[]
   adminRolePermissions          AdminRolePermission[]
   adminRoleDefinitions          AdminRoleDefinition[]
+  customFunctionDefinitions     CustomFunctionDefinition[]
+  customDocuments               CustomDocument[]
+  customAttachments             CustomAttachment[]
   creditCategories              CreditCategory[]
   creditBankCycles              CreditBankCycle[]
   creditBulkBatches             CreditBulkBatch[]
@@ -1302,6 +1305,9 @@ model ProjectIssueBatch {
   approvalRequestId  String?  @unique
   status             String   @default("DRAFT")
   submittedByAdminId String?
+  description        String?
+  evidence           Json     @default("[]")
+  fieldValues        Json     @default("{}")
   createdAt          DateTime @default(now())
   resolvedAt         DateTime?
 
@@ -1309,6 +1315,73 @@ model ProjectIssueBatch {
   allocations ProjectGrantAllocation[]
 
   @@index([projectId, createdAt])
+}
+
+// Configuration and document values are data, never executable source code.
+model CustomFunctionDefinition {
+  id               String   @id @default(cuid())
+  programId        String
+  key              String
+  name             String
+  description      String?
+  context          String   @default("CUSTOM")
+  fields           Json     @default("[]")
+  states           Json     @default("[]")
+  transitions      Json     @default("[]")
+  readRoles        String[] @default(["SUPER_ADMIN"])
+  writeRoles       String[] @default(["SUPER_ADMIN"])
+  isActive         Boolean  @default(true)
+  version          Int      @default(1)
+  createdByAdminId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  program   Program          @relation(fields: [programId], references: [id], onDelete: Restrict)
+  documents CustomDocument[]
+
+  @@unique([programId, key])
+  @@index([programId, context, isActive])
+}
+
+model CustomDocument {
+  id                String   @id @default(cuid())
+  programId         String
+  definitionId      String
+  recordId          String?
+  title             String
+  values            Json     @default("{}")
+  status            String   @default("DRAFT")
+  version           Int      @default(1)
+  approvalRequestId String?  @unique
+  pendingTransition Json?
+  createdByAdminId  String
+  updatedByAdminId  String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  archivedAt        DateTime?
+
+  program    Program                  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  definition CustomFunctionDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([definitionId, recordId])
+  @@index([programId, definitionId, archivedAt, updatedAt])
+}
+
+model CustomAttachment {
+  id                String   @id @default(cuid())
+  programId         String
+  contextType       String
+  contextId         String
+  name              String
+  mimeType          String
+  size              Int
+  base64            String   @db.Text
+  uploadedByAdminId String
+  createdAt         DateTime @default(now())
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  @@index([programId, contextType, contextId])
 }
 
 model ProjectGrantAllocation {

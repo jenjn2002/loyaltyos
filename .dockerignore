@@ -4,6 +4,11 @@
 output
 docs/qa
 **/*.orig
+# Untracked TypeScript emit artifacts must not shadow the current guide sources.
+apps/portal/src/content/document-guide*.js
+apps/portal/src/content/document-guide*.js.map
+apps/portal/src/content/document-guide*.d.ts
+apps/portal/src/content/document-guide*.d.ts.map
 **/.env
 **/.env.*
 !**/.env.example

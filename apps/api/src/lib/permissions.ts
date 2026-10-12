@@ -59,6 +59,9 @@ export const ADMIN_CAPABILITIES = [
   "api_key.manage",
   "documentation.view",
   "documentation.manage",
+  "customization.manage",
+  "custom_document.view",
+  "custom_document.manage",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -83,6 +86,7 @@ const ownerOnlyByDefault = new Set<AdminCapability>([
   "approval.decide",
   "settings.manage",
   "member.credentials.manage",
+  "customization.manage",
 ]);
 
 export function defaultCapability(role: string, capability: AdminCapability): boolean {

@@ -36,6 +36,8 @@ import { adminMemberFieldsRoutes } from "./routes/admin/member-fields.js";
 import { adminNotificationsRoutes } from "./routes/admin/notifications.js";
 import { adminProgramsRoutes } from "./routes/admin/programs.js";
 import { adminProjectsRoutes } from "./routes/admin/projects.js";
+import { adminCustomizationRoutes } from "./routes/admin/customization.js";
+import { adminAttachmentRoutes } from "./routes/admin/attachments.js";
 import { adminRewardsRoutes } from "./routes/admin/rewards.js";
 import { adminSegmentsRoutes } from "./routes/admin/segments.js";
 import { adminSettingsRoutes } from "./routes/admin/settings.js";
@@ -230,6 +232,8 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(adminCoalitionRoutes, { prefix: "/api/v1" });
   await app.register(adminProgramsRoutes, { prefix: "/api/v1" });
   await app.register(adminProjectsRoutes, { prefix: "/api/v1" });
+  await app.register(adminCustomizationRoutes, { prefix: "/api/v1" });
+  await app.register(adminAttachmentRoutes, { prefix: "/api/v1" });
 
   return app;
 }

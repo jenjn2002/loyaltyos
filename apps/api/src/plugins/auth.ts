@@ -164,7 +164,7 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     if (!request.adminId && request.apiKeyScope !== "SERVER")
       throw Object.assign(new Error("Admin access required"), { statusCode: 403 });
     const capability = capabilityForAdminRequest(request.method, request.url);
-    const profilePath = request.url.split("?")[0];
+    const profilePath = request.url.split("?")[0] ?? "";
     const isDatasetExport = request.url.startsWith("/api/v1/admin/exports");
     const isMemberFieldDefinitionsRequest =
       profilePath === "/api/v1/admin/member-fields" &&
@@ -172,7 +172,14 @@ async function authPluginImpl(app: FastifyInstance): Promise<void> {
     const isSelfProfileRequest =
       profilePath === "/api/v1/admin/me" &&
       (request.method === "GET" || request.method === "PATCH");
-    if (!capability && !isSelfProfileRequest && !isDatasetExport && !isMemberFieldDefinitionsRequest)
+    // These modules combine a module capability with configured document/field
+    // roles or private attachment-context access. Each registered handler checks
+    // its own policy and requires an actual admin session (not a server API key).
+    const isContextGuardedCustomModule =
+      profilePath.startsWith("/api/v1/admin/customization/") ||
+      profilePath === "/api/v1/admin/attachments" ||
+      profilePath.startsWith("/api/v1/admin/attachments/");
+    if (!capability && !isSelfProfileRequest && !isDatasetExport && !isMemberFieldDefinitionsRequest && !isContextGuardedCustomModule)
       throw Object.assign(new Error("Admin permission denied"), { statusCode: 403 });
     if (
       profilePath === "/api/v1/admin/settings/api-keys" &&

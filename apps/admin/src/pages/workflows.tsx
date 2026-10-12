@@ -65,6 +65,7 @@ interface ScopeCatalog {
 }
 
 const actionGroups = [
+  { label: "Custom documents", options: [{ value: "CUSTOM_DOCUMENT_APPROVAL", description: "Custom document transition approvals" }] },
   {
     label: "Point operations",
     options: [

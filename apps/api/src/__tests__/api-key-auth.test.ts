@@ -30,6 +30,7 @@ vi.mock("../lib/audit.js", () => ({ audit: mocks.audit }));
 import { runApiKeyCommand } from "../../prisma/manage-api-key.mjs";
 import { hashApiKeySecret } from "../lib/api-keys.js";
 import { LoyaltyError } from "../lib/errors.js";
+import { assertCapability } from "../lib/permissions.js";
 import { authPlugin } from "../plugins/auth.js";
 import { adminApiAccessRoutes } from "../routes/admin/api-access.js";
 
@@ -107,6 +108,14 @@ describe("API key authentication and admin guards", () => {
       adminId: request.adminId, memberId: request.memberId, actor: request.actor,
     } }));
     app.get("/api/v1/admin/members", async () => ({ data: [] }));
+    for (const path of ["/api/v1/admin/customization/catalog", "/api/v1/admin/attachments/private-file"]) {
+      app.get(path, async (request) => {
+        if (!request.adminId) throw new LoyaltyError("ADMIN_SESSION_REQUIRED", 403);
+        await assertCapability(request, "custom_document.view");
+        return { data: { guarded: true } };
+      });
+    }
+    app.get("/api/v1/admin/unmapped-new-module", async () => ({ data: [] }));
     await app.register(adminApiAccessRoutes, { prefix: "/api/v1" });
     await app.ready();
   });
@@ -180,6 +189,18 @@ describe("API key authentication and admin guards", () => {
     const response = await app.inject({ url: "/api/v1/admin/members", headers: { "x-api-key": MANAGED_SECRET } });
     expect(response.statusCode).toBe(200);
     expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it.each(["/api/v1/admin/customization/catalog", "/api/v1/admin/attachments/private-file"])("runs context-specific guards for %s without bypassing denied capabilities", async (url) => {
+    expect((await app.inject({ url, headers: { cookie: ADMIN_COOKIE } })).statusCode).toBe(200);
+    permissions.set("custom_document.view", false);
+    expect((await app.inject({ url, headers: { cookie: ADMIN_COOKIE } })).statusCode).toBe(403);
+    expect((await app.inject({ url, headers: { "x-api-key": MANAGED_SECRET } })).statusCode).toBe(403);
+    expect((await app.inject({ url })).statusCode).toBe(401);
+  });
+
+  it("keeps unrelated unmapped admin routes denied", async () => {
+    expect((await app.inject({ url: "/api/v1/admin/unmapped-new-module", headers: { cookie: ADMIN_COOKIE } })).statusCode).toBe(403);
   });
 
   it.each(["GET", "POST", "DELETE"] as const)("forbids SERVER API actors from key management through %s", async (method) => {

@@ -187,6 +187,7 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
     if (capability === "approval.inbox") {
       return admin.data.capabilities["approval.inbox"] === true || admin.data.capabilities["approval.view"] === true;
     }
+    if (capability === "customization.access") return admin.data.capabilities["custom_document.view"] === true || admin.data.capabilities["customization.manage"] === true;
     return admin.data?.capabilities[capability] === true;
   };
   const filterLinks = (items: SidebarItem[]): SidebarItem[] => items.filter(canSee);
@@ -217,6 +218,7 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
     { to: "/credits/import", label: ui("Member import"), capability: "member.manage" },
   ]);
   const automationLinks = filterLinks([
+    { to: "/customization", label: ui("Custom forms & workflows"), capability: "customization.access" },
     {
       to: "/settings",
       label: t("navigation.settings"),

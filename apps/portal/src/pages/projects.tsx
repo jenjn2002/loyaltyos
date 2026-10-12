@@ -6,17 +6,16 @@ import { useSearchParams } from "react-router-dom";
 import { ui } from "@/lib/ui-text";
 
 import { fetchApi } from "../lib/api-client";
+import { getSession } from "../lib/auth";
 
 type MembershipStatus = "INVITED" | "ACCEPTED" | "DECLINED";
-type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE";
 type ProjectView = "invitations" | "active" | "history";
 
-interface MemberProjectTask {
-  id: string;
-  title: string;
-  description: string | null;
-  status: TaskStatus;
-  dueAt: string | null;
+interface ProjectMemberSummary {
+  memberId: string;
+  name: string;
+  department: string | null;
+  photoUrl: string | null;
 }
 
 interface MemberProject {
@@ -33,17 +32,9 @@ interface MemberProject {
     completedAt?: string | null;
     closedAt?: string | null;
     projectManager?: { name: string } | null;
-    tasks: MemberProjectTask[];
+    members?: ProjectMemberSummary[];
   };
 }
-
-const COMPLETED_PROJECT_STATUSES = new Set([
-  "COMPLETED",
-  "ISSUE_PENDING",
-  "ISSUE_REJECTED",
-  "ISSUED",
-  "CLOSED",
-]);
 
 const viewLabels: Record<ProjectView, string> = {
   invitations: "Invitations",
@@ -67,12 +58,6 @@ function projectStatusLabel(item: MemberProject): string {
   return ui("Completed");
 }
 
-function taskStatusLabel(status: TaskStatus): string {
-  if (status === "DONE") return ui("Done");
-  if (status === "IN_PROGRESS") return ui("In progress");
-  return ui("To do");
-}
-
 function formatDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
@@ -80,36 +65,20 @@ function formatDate(value: string | null | undefined): string | null {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function taskProgress(tasks: MemberProjectTask[]): {
-  done: number;
-  total: number;
-  percent: number;
-} {
-  const done = tasks.filter((task) => task.status === "DONE").length;
-  return {
-    done,
-    total: tasks.length,
-    percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
-  };
-}
-
 function ProjectDetail({
   membership,
   pending,
   onRespond,
-  onUpdateTask,
   onBack,
+  currentMemberId,
 }: {
   membership: MemberProject;
   pending: boolean;
   onRespond: (response: "ACCEPTED" | "DECLINED") => void;
-  onUpdateTask: (taskId: string, status: "IN_PROGRESS" | "DONE") => void;
   onBack: () => void;
+  currentMemberId?: string;
 }) {
   const { project } = membership;
-  const progress = taskProgress(project.tasks);
-  const canUpdateTasks = membership.status === "ACCEPTED" && project.status === "ACTIVE";
-  const isFinished = COMPLETED_PROJECT_STATUSES.has(project.status);
   const invitedAt = formatDate(membership.invitedAt);
   const respondedAt = formatDate(membership.respondedAt);
   const startedAt = formatDate(project.activatedAt);
@@ -224,105 +193,62 @@ function ProjectDetail({
         </p>
       )}
 
-      {membership.status === "ACCEPTED" && (
+      {membership.status === "ACCEPTED" && Array.isArray(project.members) && (
         <section
           className="mt-6 border-t border-[var(--color-border)] pt-5"
-          aria-labelledby="my-tasks-title"
+          aria-labelledby="project-team-title"
         >
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h3 id="my-tasks-title" className="text-base font-semibold">
-                {ui("My tasks")}
-              </h3>
-              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-                {ui("Only tasks assigned to you are shown here.")}
-              </p>
-            </div>
-            {progress.total > 0 && (
-              <p className="text-sm font-medium">
-                {progress.done} / {progress.total} {ui("tasks complete")}
-              </p>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 id="project-team-title" className="text-base font-semibold">
+              {ui("Project team")}
+            </h3>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              {project.members.length} {ui("team members")}
+            </p>
           </div>
-
-          {progress.total > 0 && (
-            <div
-              className="mt-3 h-2.5 overflow-hidden rounded-full bg-[var(--color-border)]"
-              role="progressbar"
-              aria-label={ui("Your task progress")}
-              aria-valuemin={0}
-              aria-valuemax={progress.total}
-              aria-valuenow={progress.done}
-              aria-valuetext={`${String(progress.done)}/${String(progress.total)} ${ui("tasks complete")}`}
-            >
-              <div
-                className="h-full rounded-full bg-[var(--color-primary)] transition-[width]"
-                style={{ width: `${String(progress.percent)}%` }}
-              />
-            </div>
-          )}
-
-          {project.tasks.length === 0 ? (
+          {project.members.length === 0 ? (
             <p className="mt-4 rounded-xl bg-[var(--color-surface-secondary)] p-4 text-sm text-[var(--color-text-secondary)]">
-              {ui("No tasks assigned to you yet.")}
+              {ui("No active team members are listed yet.")}
             </p>
           ) : (
-            <ul className="mt-4 space-y-3">
-              {project.tasks.map((task) => {
-                const dueAt = formatDate(task.dueAt);
-                return (
-                  <li
-                    key={task.id}
-                    className="rounded-xl border border-[var(--color-border)] p-3 sm:p-4"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{task.title}</p>
-                          <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
-                            {taskStatusLabel(task.status)}
-                          </span>
-                        </div>
-                        {task.description && (
-                          <p className="mt-1 text-sm leading-5 text-[var(--color-text-secondary)]">
-                            {task.description}
-                          </p>
-                        )}
-                        {dueAt && (
-                          <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
-                            {ui("Due")} {dueAt}
-                          </p>
-                        )}
-                      </div>
-                      {canUpdateTasks ? (
-                        <select
-                          aria-label={`${ui("Update task")}: ${task.title}`}
-                          className="min-h-11 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm sm:w-auto"
-                          value={task.status}
-                          disabled={pending}
-                          onChange={(event) => {
-                            if (
-                              event.target.value === "IN_PROGRESS" ||
-                              event.target.value === "DONE"
-                            )
-                              onUpdateTask(task.id, event.target.value);
-                          }}
-                        >
-                          {task.status === "TODO" && <option value="TODO">{ui("To do")}</option>}
-                          <option value="IN_PROGRESS">{ui("In progress")}</option>
-                          <option value="DONE">{ui("Done")}</option>
-                        </select>
-                      ) : (
-                        <span className="text-sm text-[var(--color-text-secondary)]">
-                          {isFinished
-                            ? ui("Project tasks are read-only after completion.")
-                            : taskStatusLabel(task.status)}
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {project.members.map((member) => (
+                <li
+                  key={member.memberId}
+                  className="flex min-w-0 items-center gap-3 rounded-xl border border-[var(--color-border)] p-3"
+                >
+                  {member.photoUrl ? (
+                    <img
+                      src={member.photoUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface-secondary)] text-sm font-semibold text-[var(--color-text-secondary)]"
+                    >
+                      {member.name.trim().charAt(0).toLocaleUpperCase() || "?"}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium">{member.name}</span>
+                      {member.memberId === currentMemberId && (
+                        <span className="rounded-full bg-[var(--color-surface-secondary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                          {ui("You")}
                         </span>
                       )}
-                    </div>
-                  </li>
-                );
-              })}
+                    </span>
+                    {member.department && (
+                      <span className="mt-0.5 block truncate text-xs text-[var(--color-text-secondary)]">
+                        {member.department}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
             </ul>
           )}
         </section>
@@ -364,30 +290,8 @@ export default function Projects() {
     },
   });
 
-  const updateTask = useMutation({
-    mutationFn: ({
-      projectId,
-      taskId,
-      status,
-    }: {
-      projectId: string;
-      taskId: string;
-      status: "IN_PROGRESS" | "DONE";
-    }) =>
-      fetchApi(`/members/me/projects/${projectId}/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      }),
-    onSuccess: async () => {
-      setNotice({ message: ui("Task status updated."), isError: false });
-      await client.invalidateQueries({ queryKey: ["member-projects"] });
-    },
-    onError: (error: Error) => {
-      setNotice({ message: error.message, isError: true });
-    },
-  });
-
   const allProjects = projects.data ?? [];
+  const currentMemberId = getSession()?.memberId;
   const counts = useMemo(
     () => ({
       invitations: allProjects.filter((item) => projectView(item) === "invitations").length,
@@ -410,7 +314,7 @@ export default function Projects() {
     });
   }, [allProjects, search, view]);
   const selectedProject = allProjects.find((item) => item.project.id === selectedProjectId) ?? null;
-  const mutationPending = respond.isPending || updateTask.isPending;
+  const mutationPending = respond.isPending;
 
   const openProject = (projectId: string): void => {
     const next = new URLSearchParams(searchParams);
@@ -432,7 +336,7 @@ export default function Projects() {
         <p className="text-sm font-medium text-[var(--color-primary)]">{ui("Projects")}</p>
         <h1 className="mt-1 text-2xl font-bold sm:text-3xl">{ui("Your projects")}</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--color-text-secondary)]">
-          {ui("Review invitations, follow your tasks, and revisit completed projects.")}
+          {ui("Review invitations, see your project teams, and revisit completed projects.")}
         </p>
       </header>
 
@@ -523,7 +427,6 @@ export default function Projects() {
 
             <ul className="mt-3 space-y-2">
               {visibleProjects.map((item) => {
-                const progress = taskProgress(item.project.tasks);
                 const selected = selectedProjectId === item.project.id;
                 return (
                   <li key={item.id}>
@@ -546,9 +449,9 @@ export default function Projects() {
                           {item.project.description}
                         </p>
                       )}
-                      {item.status === "ACCEPTED" && progress.total > 0 && (
+                      {item.status === "ACCEPTED" && Array.isArray(item.project.members) && (
                         <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
-                          {progress.done} / {progress.total} {ui("tasks complete")}
+                          {item.project.members.length} {ui("team members")}
                         </p>
                       )}
                     </button>
@@ -573,10 +476,8 @@ export default function Projects() {
                 onRespond={(response) => {
                   respond.mutate({ projectId: selectedProject.project.id, response });
                 }}
-                onUpdateTask={(taskId, status) => {
-                  updateTask.mutate({ projectId: selectedProject.project.id, taskId, status });
-                }}
                 onBack={closeProject}
+                currentMemberId={currentMemberId}
               />
             ) : selectedProjectId ? (
               <section className="rounded-2xl border border-[var(--color-border)] p-5">
@@ -598,7 +499,7 @@ export default function Projects() {
               <section className="rounded-2xl border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-secondary)]">
                 <CheckCircle2 className="mx-auto h-7 w-7" aria-hidden="true" />
                 <p className="mt-3 font-medium">
-                  {ui("Choose a project to see its details and your tasks.")}
+                  {ui("Choose a project to see its details and team.")}
                 </p>
               </section>
             )}

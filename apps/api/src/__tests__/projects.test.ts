@@ -2,10 +2,14 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = vi.hoisted(() => ({
-  project: { findFirst: vi.fn(), findMany: vi.fn() },
+  project: { findFirst: vi.fn(), findFirstOrThrow: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
   projectMember: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  projectTask: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+  projectTask: { count: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+  member: { findUnique: vi.fn() },
   approvalRequest: { findMany: vi.fn() },
+  adminUser: { findFirst: vi.fn() },
+  customFunctionDefinition: { findMany: vi.fn() },
+  customAttachment: { count: vi.fn(), findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 const mockTx = vi.hoisted(() => ({
@@ -13,10 +17,17 @@ const mockTx = vi.hoisted(() => ({
   project: { findFirst: vi.fn(), update: vi.fn() },
   projectBudgetTransaction: { create: vi.fn() },
   projectPointBudget: { update: vi.fn() },
+  projectIssueBatch: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  projectGrantAllocation: { createMany: vi.fn() },
 }));
 
 vi.mock("../db.js", () => ({ prisma: mockPrisma }));
 vi.mock("../lib/audit.js", () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../lib/admin-notifications.js", () => ({
+  createAdminActivityNotification: vi.fn().mockResolvedValue(undefined),
+  notifyApprovalAssignees: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../lib/notifications-setup.js", () => ({ notificationsService: { sendTrigger: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("../lib/permissions.js", () => ({
   assertCapability: vi.fn().mockResolvedValue(undefined),
   requireCapability: vi.fn(() => async () => undefined),
@@ -26,6 +37,7 @@ vi.mock("../lib/approval-workflows.js", () => ({ createApprovalRequestWithClient
 
 import { LoyaltyError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { createApprovalRequestWithClient } from "../lib/approval-workflows.js";
 import { assertCapability } from "../lib/permissions.js";
 import { adminProjectsRoutes } from "../routes/admin/projects.js";
 
@@ -34,12 +46,20 @@ let app: FastifyInstance;
 beforeEach(async () => {
   vi.clearAllMocks();
   mockPrisma.project.findFirst.mockResolvedValue(null);
+  mockPrisma.project.findFirstOrThrow.mockResolvedValue(null);
   mockPrisma.project.findMany.mockResolvedValue([]);
+  mockPrisma.project.updateMany.mockResolvedValue({ count: 1 });
   mockPrisma.projectMember.findMany.mockResolvedValue([]);
   mockPrisma.projectMember.findFirst.mockResolvedValue(null);
+  mockPrisma.member.findUnique.mockResolvedValue(null);
+  mockPrisma.projectTask.count.mockResolvedValue(0);
   mockPrisma.projectTask.findMany.mockResolvedValue([]);
   mockPrisma.projectTask.findFirst.mockResolvedValue(null);
   mockPrisma.approvalRequest.findMany.mockResolvedValue([]);
+  mockPrisma.adminUser.findFirst.mockResolvedValue({ role: "SUPER_ADMIN" });
+  mockPrisma.customFunctionDefinition.findMany.mockResolvedValue([]);
+  mockPrisma.customAttachment.count.mockResolvedValue(0);
+  mockPrisma.customAttachment.findMany.mockResolvedValue([]);
   vi.mocked(assertCapability).mockResolvedValue(undefined);
   app = Fastify({ logger: false });
   app.decorateRequest("programId", "");
@@ -61,6 +81,10 @@ beforeEach(async () => {
   });
   mockPrisma.$transaction.mockImplementation((callback: (tx: typeof mockTx) => unknown) => callback(mockTx));
   mockTx.$queryRaw.mockResolvedValue([]);
+  mockTx.projectIssueBatch.findFirst.mockResolvedValue(null);
+  mockTx.projectIssueBatch.create.mockResolvedValue({ id: "batch-1" });
+  mockTx.projectIssueBatch.update.mockResolvedValue({ id: "batch-1" });
+  mockTx.projectGrantAllocation.createMany.mockResolvedValue({ count: 1 });
   app.register(adminProjectsRoutes);
   await app.ready();
 });
@@ -94,7 +118,6 @@ describe("admin project routes", () => {
         fieldValues: { internal_budget_note: "secret financial context" },
         createdBy: { id: "admin-2", name: "Other PM", email: "pm@example.test" },
         members: [],
-        tasks: [],
       });
 
     const response = await app.inject({ method: "GET", url: "/admin/projects/project-2" });
@@ -115,6 +138,36 @@ describe("admin project routes", () => {
     expect(mockPrisma.approvalRequest.findMany).not.toHaveBeenCalled();
   });
 
+  it("filters distribution field values by the viewing admin role", async () => {
+    mockPrisma.adminUser.findFirst.mockResolvedValue({ role: "FINANCE" });
+    mockPrisma.customFunctionDefinition.findMany.mockResolvedValue([{
+      readRoles: ["FINANCE"],
+      fields: [
+        { key: "public_summary", label: "Summary", type: "TEXT", required: false, options: [], sortOrder: 0, readRoles: [], isActive: true },
+        { key: "finance_note", label: "Finance note", type: "TEXT", required: false, options: [], sortOrder: 1, readRoles: ["SUPER_ADMIN"], isActive: true },
+      ],
+    }]);
+    mockPrisma.project.findFirst
+      .mockResolvedValueOnce({ id: "project-2", createdByAdminId: "admin-2" })
+      .mockResolvedValueOnce({
+        id: "project-2",
+        programId: "program-1",
+        createdByAdminId: "admin-2",
+        name: "Private project",
+        createdBy: { id: "admin-2", name: "Other PM", email: "pm@example.test" },
+        budgets: [],
+        members: [],
+        issueBatches: [{ id: "batch-1", fieldValues: { public_summary: "visible", finance_note: "do not disclose" }, allocations: [] }],
+        budgetTransactions: [],
+      });
+
+    const response = await app.inject({ method: "GET", url: "/admin/projects/project-2" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.issueBatches[0].fieldValues).toEqual({ public_summary: "visible" });
+    expect(JSON.stringify(response.json())).not.toContain("do not disclose");
+  });
+
   it("lets the project creator view finances and returns sanitized approval summaries", async () => {
     vi.mocked(assertCapability).mockImplementation(async (_request, capability) => {
       if (capability === "project.finance.view") throw new LoyaltyError("FORBIDDEN", 403);
@@ -130,7 +183,6 @@ describe("admin project routes", () => {
         createdBy: { id: "admin-1", name: "Current PM", email: "pm@example.test" },
         budgets: [{ id: "budget-1", approvedAmount: 100, pointType: { code: "PTS", name: "Points", unitLabel: "points" } }],
         members: [],
-        tasks: [],
         issueBatches: [{ id: "batch-1", status: "PENDING", allocations: [] }],
         budgetTransactions: [{ id: "tx-1", amount: 100 }],
       });
@@ -153,6 +205,7 @@ describe("admin project routes", () => {
         distribution: { id: "approval-2", status: "PENDING", decision: null, comment: null },
       },
     });
+    expect(response.json().data).not.toHaveProperty("tasks");
     expect(response.json().data.approvalSummary.plan).not.toHaveProperty("payload");
     const approvalQuery = mockPrisma.approvalRequest.findMany.mock.calls[0]?.[0];
     expect(approvalQuery.where).toEqual(expect.objectContaining({ programId: "program-1" }));
@@ -169,13 +222,15 @@ describe("admin project routes", () => {
       fieldValues: { contract_value: "secret financial context" },
       budgets: [{ id: "secret-budget", approvedAmount: 900 }],
       createdBy: { id: "admin-2", name: "Other PM", email: "pm@example.test" },
-      _count: { members: 2, tasks: 3 },
+      _count: { members: 2 },
     }]);
 
     const response = await app.inject({ method: "GET", url: "/admin/projects" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json().data[0]).toMatchObject({ canManage: false, canViewBudget: false, fieldValues: {}, budgets: [] });
+    expect(response.json().data[0]).not.toHaveProperty("tasks");
+    expect(response.json().data[0]._count).not.toHaveProperty("tasks");
     expect(JSON.stringify(response.json())).not.toContain("secret-budget");
     expect(JSON.stringify(response.json())).not.toContain("secret financial context");
   });
@@ -198,26 +253,78 @@ describe("admin project routes", () => {
       data: { remainingAmount: 0 },
     });
   });
+
+  it("completes an active project without consulting legacy task records", async () => {
+    mockPrisma.project.findFirst.mockResolvedValue({ id: "project-1", programId: "program-1", createdByAdminId: "admin-1", name: "Taskless project", status: "ACTIVE" });
+    mockPrisma.project.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.project.findFirstOrThrow.mockResolvedValue({ id: "project-1", status: "COMPLETED" });
+    mockPrisma.projectMember.findMany.mockResolvedValue([]);
+
+    const response = await app.inject({ method: "POST", url: "/admin/projects/project-1/complete" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.status).toBe("COMPLETED");
+    expect(mockPrisma.projectTask.count).not.toHaveBeenCalled();
+  });
+
+  it("persists private distribution fields but sends only public fields for approval", async () => {
+    const fields = [
+      { key: "public_summary", label: "Summary", type: "TEXT", required: false, options: [], sortOrder: 0, readRoles: [], isActive: true },
+      { key: "finance_note", label: "Finance note", type: "TEXT", required: false, options: [], sortOrder: 1, readRoles: ["FINANCE"], isActive: true },
+    ];
+    mockPrisma.project.findFirst.mockResolvedValueOnce({ id: "project-1", createdByAdminId: "admin-1" });
+    mockPrisma.customFunctionDefinition.findMany.mockResolvedValue([{ fields, readRoles: ["SUPER_ADMIN"] }]);
+    mockTx.project.findFirst.mockResolvedValue({
+      id: "project-1",
+      programId: "program-1",
+      createdByAdminId: "admin-1",
+      name: "Completed project",
+      status: "COMPLETED",
+      budgets: [{ id: "budget-1", pointTypeId: "point-1", approvedAmount: 100, remainingAmount: 100, pointType: { code: "PTS", name: "Points" } }],
+      members: [{ memberId: "member-1", member: { id: "member-1", email: "member@example.test", firstName: "Test", lastName: "Member" } }],
+    });
+    mockTx.projectIssueBatch.create.mockResolvedValue({ id: "batch-1" });
+    vi.mocked(createApprovalRequestWithClient).mockResolvedValue({ id: "approval-1" } as never);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/project-1/submit-issuance",
+      payload: {
+        allocations: [{ memberId: "member-1", pointTypeId: "point-1", mode: "AMOUNT", value: 50 }],
+        fieldValues: { public_summary: "Completed milestone", finance_note: "Confidential justification" },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockTx.projectIssueBatch.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ fieldValues: { public_summary: "Completed milestone", finance_note: "Confidential justification" } }),
+    }));
+    expect(createApprovalRequestWithClient).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      payload: expect.objectContaining({ fieldValues: { public_summary: "Completed milestone" } }),
+    }));
+  });
 });
 
 describe("member project routes", () => {
   it("records member invitation response with before and after status", async () => {
-    mockPrisma.projectMember.findFirst.mockResolvedValue({ id: "membership-1", status: "INVITED" });
+    mockPrisma.projectMember.findFirst.mockResolvedValue({ id: "membership-1", status: "INVITED", project: { id: "project-1", name: "Team project", createdByAdminId: "admin-1" } });
     mockPrisma.projectMember.update.mockResolvedValue({ id: "membership-1", status: "ACCEPTED" });
     const response = await app.inject({ method: "POST", url: "/members/me/projects/project-1/respond", payload: { response: "ACCEPTED" } });
     expect(response.statusCode).toBe(200);
     expect(audit).toHaveBeenCalledWith("program-1", { type: "MEMBER", id: "member-1" }, "CONFIG_CHANGE", "project", "project-1", expect.objectContaining({ operation: "RESPOND_INVITATION", before: { status: "INVITED" }, after: { status: "ACCEPTED" } }));
   });
-  it("returns an explicit safe summary and only accepted members' assigned tasks", async () => {
+  it("returns the project roster only to accepted members without private data", async () => {
     const invitedAt = new Date("2026-09-01T00:00:00.000Z");
     const completedAt = new Date("2026-09-20T00:00:00.000Z");
-    mockPrisma.projectMember.findMany.mockResolvedValue([
-      { id: "membership-1", projectId: "project-1", status: "ACCEPTED", invitedAt, respondedAt: invitedAt, invitedByAdminId: "internal-admin", project: { id: "project-1", name: "Accepted", description: "Visible brief", status: "ACTIVE", activatedAt: invitedAt, completedAt: null, closedAt: null, createdBy: { name: "Project Manager", email: "manager-secret@example.test" }, fieldValues: { internal_note: "secret" } } },
-      { id: "membership-2", projectId: "project-2", status: "DECLINED", invitedAt, respondedAt: completedAt, invitedByAdminId: "internal-admin", project: { id: "project-2", name: "Declined", description: null, status: "CLOSED", activatedAt: invitedAt, completedAt, closedAt: completedAt, createdBy: { name: "Other Manager", email: "manager-secret@example.test" }, fieldValues: { internal_note: "secret" } } },
-    ]);
-    mockPrisma.projectTask.findMany.mockResolvedValue([
-      { id: "task-1", projectId: "project-1", title: "My task", description: "Own work", status: "IN_PROGRESS", dueAt: completedAt, assigneeId: "member-1" },
-    ]);
+    mockPrisma.projectMember.findMany
+      .mockResolvedValueOnce([
+        { id: "membership-1", projectId: "project-1", status: "ACCEPTED", invitedAt, respondedAt: invitedAt, invitedByAdminId: "internal-admin", project: { id: "project-1", name: "Accepted", description: "Visible brief", status: "ACTIVE", activatedAt: invitedAt, completedAt: null, closedAt: null, createdBy: { name: "Project Manager", email: "manager-secret@example.test" }, fieldValues: { internal_note: "secret" } } },
+        { id: "membership-2", projectId: "project-2", status: "DECLINED", invitedAt, respondedAt: completedAt, invitedByAdminId: "internal-admin", project: { id: "project-2", name: "Declined", description: null, status: "CLOSED", activatedAt: invitedAt, completedAt, closedAt: completedAt, createdBy: { name: "Other Manager", email: "manager-secret@example.test" }, fieldValues: { internal_note: "secret" } } },
+      ])
+      .mockResolvedValueOnce([
+        { projectId: "project-1", member: { id: "member-1", firstName: "Hưng", lastName: "Tiến", department: "IT", photoUrl: "https://example.test/hung.jpg" } },
+        { projectId: "project-1", member: { id: "member-2", firstName: "Lan", lastName: "Nguyễn", department: "Finance", photoUrl: null } },
+      ]);
 
     const response = await app.inject({ method: "GET", url: "/members/me/projects" });
 
@@ -229,31 +336,53 @@ describe("member project routes", () => {
         id: "project-1",
         activatedAt: invitedAt.toISOString(),
         projectManager: { name: "Project Manager" },
-        tasks: [{ id: "task-1", title: "My task" }],
+        members: [
+          { memberId: "member-1", name: "Hưng Tiến", department: "IT", photoUrl: "https://example.test/hung.jpg" },
+          { memberId: "member-2", name: "Lan Nguyễn", department: "Finance", photoUrl: null },
+        ],
       },
     });
-    expect(response.json().data[1]).toMatchObject({ status: "DECLINED", project: { id: "project-2", tasks: [] } });
+    expect(response.json().data[1]).toMatchObject({ status: "DECLINED", project: { id: "project-2" } });
+    expect(response.json().data[1].project).not.toHaveProperty("members");
     const responseText = JSON.stringify(response.json());
-    for (const privateValue of ["internal-admin", "fieldValues", "secret", "manager-secret@example.test", "budget", "approvedAmount", "assigneeId", "projectId"]) {
+    for (const privateValue of ["internal-admin", "fieldValues", "secret", "manager-secret@example.test", "budget", "approvedAmount", "email", "tasks", "assigneeId", "invitedByAdminId"]) {
       expect(responseText).not.toContain(privateValue);
     }
-    expect(mockPrisma.projectTask.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId: { in: ["project-1"] }, assigneeId: "member-1" },
+    expect(mockPrisma.projectMember.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: {
+        projectId: { in: ["project-1"] },
+        status: "ACCEPTED",
+        member: { programId: "program-1", deletedAt: null, status: "ACTIVE" },
+      },
+      select: { projectId: true, member: { select: { id: true, firstName: true, lastName: true, department: true, photoUrl: true } } },
     }));
+    expect(mockPrisma.projectTask.findMany).not.toHaveBeenCalled();
   });
 
-  it("only lets an accepted active member update their own assigned task", async () => {
-    mockPrisma.projectMember.findFirst.mockResolvedValue({ id: "membership-1" });
-    mockPrisma.projectTask.findFirst.mockResolvedValue({ id: "task-1", projectId: "project-1", assigneeId: "member-1", title: "Prepare report", status: "IN_PROGRESS" });
-    mockPrisma.projectTask.update.mockResolvedValue({ id: "task-1", status: "DONE" });
+  it("does not reveal the roster to a member who has not accepted", async () => {
+    mockPrisma.projectMember.findMany.mockResolvedValueOnce([
+      { id: "membership-1", projectId: "project-1", status: "INVITED", invitedAt: new Date(), respondedAt: null, project: { id: "project-1", name: "Invited", description: "Brief", status: "ACTIVE", activatedAt: new Date(), completedAt: null, closedAt: null, createdBy: { name: "Project Manager", email: "manager-secret@example.test" } } },
+    ]);
 
-    const response = await app.inject({ method: "PATCH", url: "/members/me/projects/project-1/tasks/task-1", payload: { status: "DONE" } });
+    const response = await app.inject({ method: "GET", url: "/members/me/projects" });
 
     expect(response.statusCode).toBe(200);
-    expect(mockPrisma.projectMember.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId: "project-1", memberId: "member-1", status: "ACCEPTED", project: { programId: "program-1", status: "ACTIVE" } },
-    }));
-    expect(mockPrisma.projectTask.findFirst).toHaveBeenCalledWith({ where: { id: "task-1", projectId: "project-1", assigneeId: "member-1" } });
-    expect(audit).toHaveBeenCalledWith("program-1", { type: "MEMBER", id: "member-1" }, "CONFIG_CHANGE", "project_task", "task-1", expect.objectContaining({ before: { status: "IN_PROGRESS" }, after: { status: "DONE" }, title: "Prepare report" }));
+    expect(response.json().data[0].project).not.toHaveProperty("members");
+    expect(mockPrisma.projectMember.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose member task updates or admin task CRUD routes", async () => {
+    const responses = await Promise.all([
+      app.inject({ method: "POST", url: "/admin/projects/project-1/tasks", payload: { title: "Legacy task" } }),
+      app.inject({ method: "PATCH", url: "/admin/projects/project-1/tasks/task-1", payload: { status: "DONE" } }),
+      app.inject({ method: "DELETE", url: "/admin/projects/project-1/tasks/task-1" }),
+      app.inject({ method: "PATCH", url: "/members/me/projects/project-1/tasks/task-1", payload: { status: "DONE" } }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404, 404]);
+    expect(mockPrisma.projectTask.count).not.toHaveBeenCalled();
+    expect(mockPrisma.projectTask.create).not.toHaveBeenCalled();
+    expect(mockPrisma.projectTask.update).not.toHaveBeenCalled();
+    expect(mockPrisma.projectTask.deleteMany).not.toHaveBeenCalled();
   });
 });

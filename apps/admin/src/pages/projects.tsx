@@ -1,15 +1,17 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CustomForm, type CustomFormFile, type CustomFormField } from "@/components/custom-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
+import { downloadPrivateAttachment, uploadPrivateAttachment, type PrivateAttachment } from "@/lib/custom-attachments";
 
 type ProjectField = { id: string; key: string; label: string; type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT"; required: boolean; options: string[]; isActive: boolean; sortOrder: number };
 type PointType = { id: string; code: string; name: string; unitLabel: string; bankBalance: number | null };
@@ -17,8 +19,22 @@ type Member = { id: string; email: string | null; firstName: string | null; last
 type Bootstrap = { fields: ProjectField[]; pointTypes: PointType[]; members: Member[]; canManageProjects: boolean };
 type Budget = { id: string; pointTypeId: string; requestedAmount: number; approvedAmount: number; remainingAmount: number; issuedAmount: number; pointType: { code: string; name: string; unitLabel?: string } };
 type Participant = { id: string; memberId: string; status: string; member: Member };
-type Task = { id: string; title: string; description: string | null; status: string; dueAt: string | null; assignee: Member | null };
 type ApprovalSummary = { id: string; status: string; requestedAt: string; resolvedAt: string | null; decision: string | null; comment: string | null };
+type ProjectDistributionField = CustomFormField & { readRoles?: string[] };
+type ProjectDistributionDefinition = { id: string; key: string; name: string; fields: ProjectDistributionField[] };
+type ProjectAttachment = PrivateAttachment;
+type ProjectEvidence =
+  | { kind: "LINK"; url: string; name?: string }
+  | { kind: "FILE"; attachmentId: string; name?: string; mimeType?: string; size?: number };
+type PendingProjectFile = { key: string; name: string; file?: File; attachment?: ProjectAttachment };
+type ProjectIssueBatch = {
+  id: string;
+  status: string;
+  description?: string | null;
+  evidence?: ProjectEvidence[];
+  fieldValues?: Record<string, unknown>;
+  allocations: { id: string; member: Member; pointType: { code: string }; amount: number }[];
+};
 type Project = {
   id: string;
   name: string;
@@ -31,15 +47,14 @@ type Project = {
   fieldValues: Record<string, unknown>;
   budgets?: Budget[];
   members?: Participant[];
-  tasks?: Task[];
-  issueBatches?: { id: string; status: string; allocations: { id: string; member: Member; pointType: { code: string }; amount: number }[] }[];
+  issueBatches?: ProjectIssueBatch[];
   budgetTransactions?: { id: string; createdAt: string; pointType: { code: string }; type: string; amount: number; reason: string }[];
   approvalSummary?: { plan: ApprovalSummary | null; distribution: ApprovalSummary | null };
-  _count?: { members: number; tasks: number };
+  _count?: { members: number };
 };
 type AllocationEntry = { mode: "AMOUNT" | "PERCENT"; value: string };
 type ProjectStatusFilter = "ALL" | "DRAFT" | "PLAN_PENDING" | "PLAN_REJECTED" | "APPROVED" | "ACTIVE" | "COMPLETED" | "ISSUE_PENDING" | "ISSUE_REJECTED" | "ISSUED" | "CLOSED";
-type WorkspaceTab = "overview" | "members" | "tasks" | "budget" | "history";
+type WorkspaceTab = "overview" | "members" | "budget" | "history";
 
 const statusOptions: ProjectStatusFilter[] = ["DRAFT", "PLAN_PENDING", "PLAN_REJECTED", "APPROVED", "ACTIVE", "COMPLETED", "ISSUE_PENDING", "ISSUE_REJECTED", "ISSUED", "CLOSED"];
 const membershipStatusLabels: Record<string, string> = { INVITED: "Invited", ACCEPTED: "Accepted", DECLINED: "Declined" };
@@ -52,8 +67,13 @@ const humanizeEnum = (value: string): string => ui(value.toLocaleLowerCase().spl
 const projectStatusLabel = (status: string): string => ui(labelForStatus[status] ?? humanizeEnum(status));
 const membershipStatusLabel = (status: string): string => ui(membershipStatusLabels[status] ?? humanizeEnum(status));
 const memberSearchText = (member: Member): string => [personName(member), member.email, member.department].filter(Boolean).join(" ").toLocaleLowerCase();
-const dateInputValue = (value: string | null): string => value ? value.slice(0, 10) : "";
-const dateLabel = (value: string | null): string => value ? new Date(`${value.slice(0, 10)}T12:00:00.000Z`).toLocaleDateString() : "";
+
+function valueIsPresent(field: ProjectDistributionField, value: unknown): boolean {
+  if (field.type === "BOOLEAN") return true;
+  if (field.type === "MULTI_SELECT") return Array.isArray(value) && value.length > 0;
+  if (field.type === "FILE") return Boolean(value && typeof value === "object" && "attachmentId" in value);
+  return value !== undefined && value !== null && value !== "";
+}
 
 function stageForStatus(status: string): { label: string; index: number } {
   if (["DRAFT", "PLAN_PENDING", "PLAN_REJECTED"].includes(status)) return { label: ui("Plan and approval"), index: 0 };
@@ -63,15 +83,12 @@ function stageForStatus(status: string): { label: string; index: number } {
   return { label: status === "CLOSED" ? ui("Closed") : ui("Complete"), index: 4 };
 }
 
-function nextActionFor(project: Project, openTaskCount: number): string {
+function nextActionFor(project: Project): string {
   if (project.status === "DRAFT") return ui("Complete the project plan and submit it for approval.");
   if (project.status === "PLAN_REJECTED") return ui("Review the rejection feedback, update the plan, and submit it again.");
   if (project.status === "PLAN_PENDING") return ui("The plan is waiting for an approver.");
-  if (project.status === "APPROVED") return project.canManage ? ui("Activate the approved project to invite members and start tasks.") : ui("The project manager can activate this approved plan.");
-  if (project.status === "ACTIVE") {
-    if (openTaskCount > 0) return ui("Finish the open tasks before confirming project completion.");
-    return project.canManage ? ui("The project is ready for completion review.") : ui("The project manager can confirm completion when delivery is finished.");
-  }
+  if (project.status === "APPROVED") return project.canManage ? ui("Activate the approved project to invite members and begin delivery.") : ui("The project manager can activate this approved plan.");
+  if (project.status === "ACTIVE") return project.canManage ? ui("The project is ready for completion review.") : ui("The project manager can confirm completion when delivery is finished.");
   if (project.status === "COMPLETED") return project.canManage ? ui("Prepare member allocations and submit the distribution for approval.") : ui("The project manager is preparing the point distribution.");
   if (project.status === "ISSUE_REJECTED") return ui("Review the rejection feedback, adjust the member allocations, and submit again.");
   if (project.status === "ISSUE_PENDING") return ui("The point distribution is waiting for an approver.");
@@ -92,12 +109,11 @@ export function ProjectsPage(): JSX.Element {
   const [budgetValues, setBudgetValues] = useState<Record<string, string>>({});
   const [memberSearch, setMemberSearch] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskDescription, setTaskDescription] = useState("");
-  const [taskAssignee, setTaskAssignee] = useState("");
-  const [taskDueAt, setTaskDueAt] = useState("");
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [allocationValues, setAllocationValues] = useState<Record<string, AllocationEntry>>({});
+  const [distributionDescription, setDistributionDescription] = useState("");
+  const [distributionLinks, setDistributionLinks] = useState("");
+  const [distributionFieldValues, setDistributionFieldValues] = useState<Record<string, unknown>>({});
+  const [distributionFiles, setDistributionFiles] = useState<PendingProjectFile[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [fieldKey, setFieldKey] = useState("");
   const [fieldLabel, setFieldLabel] = useState("");
@@ -110,12 +126,16 @@ export function ProjectsPage(): JSX.Element {
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => fetchApi<Project[]>("/admin/projects"), refetchInterval: 30_000 });
   const detail = useQuery({ queryKey: ["projects", selectedId], queryFn: () => fetchApi<Project>(`/admin/projects/${selectedId ?? ""}`), enabled: Boolean(selectedId), refetchInterval: (query) => ["PLAN_PENDING", "ISSUE_PENDING"].includes((query.state.data as Project | undefined)?.status ?? "") ? 15_000 : false });
   const current = detail.data;
+  const distributionDefinitions = useQuery({
+    queryKey: ["customization", "definitions", "PROJECT_DISTRIBUTION"],
+    queryFn: () => fetchApi<ProjectDistributionDefinition[]>("/admin/customization/definitions?context=PROJECT_DISTRIBUTION"),
+    enabled: Boolean(current?.canManage && ["COMPLETED", "ISSUE_REJECTED"].includes(current.status)),
+  });
   const canManageGlobally = bootstrap.data?.canManageProjects === true;
   const canViewBudget = current?.canViewBudget === true;
+  const canSeeConfidential = canViewBudget;
   const editable = creating || Boolean(current?.canManage && ["DRAFT", "PLAN_REJECTED"].includes(current.status));
-  const currentTasks = current?.tasks ?? [];
   const acceptedMembers = useMemo(() => (current?.members ?? []).filter((participant) => participant.status === "ACCEPTED"), [current?.members]);
-  const openTaskCount = currentTasks.filter((task) => task.status !== "DONE").length;
   const filteredProjects = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
     return (projects.data ?? []).filter((project) => {
@@ -124,6 +144,40 @@ export function ProjectsPage(): JSX.Element {
       return [project.name, project.description, project.createdBy?.name, project.createdBy?.email].filter(Boolean).join(" ").toLocaleLowerCase().includes(needle);
     });
   }, [projects.data, search, statusFilter]);
+  const distributionFields = useMemo(() => {
+    const fieldsByKey = new Map<string, ProjectDistributionField>();
+    for (const definition of distributionDefinitions.data ?? []) {
+      for (const field of definition.fields ?? []) {
+        if (field.isActive && !fieldsByKey.has(field.key)) fieldsByKey.set(field.key, field);
+      }
+    }
+    return [...fieldsByKey.values()].sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+  }, [distributionDefinitions.data]);
+  const distributionFieldErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    for (const field of distributionFields) {
+      if (field.required && !valueIsPresent(field, distributionFieldValues[field.key])) {
+        errors[field.key] = ui("This field is required.");
+      }
+    }
+    return errors;
+  }, [distributionFields, distributionFieldValues]);
+  const distributionLinkItems = useMemo(
+    () => [...new Set(distributionLinks.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))],
+    [distributionLinks],
+  );
+  const distributionEvidenceError = useMemo(() => {
+    if (distributionLinkItems.length + distributionFiles.length > 10) return ui("Use no more than 10 links and files combined.");
+    for (const value of distributionLinkItems) {
+      try {
+        const url = new URL(value);
+        if (!["http:", "https:"].includes(url.protocol)) return ui("Evidence links must use HTTP or HTTPS.");
+      } catch {
+        return ui("Enter one valid web address per line.");
+      }
+    }
+    return null;
+  }, [distributionLinkItems, distributionFiles.length]);
   const availableMembers = useMemo(() => (bootstrap.data?.members ?? []).filter((member) => !(current?.members ?? []).some((participant) => participant.memberId === member.id && ["INVITED", "ACCEPTED"].includes(participant.status))), [bootstrap.data?.members, current?.members]);
   const visibleMembers = useMemo(() => {
     const needle = memberSearch.trim().toLocaleLowerCase();
@@ -139,12 +193,11 @@ export function ProjectsPage(): JSX.Element {
     setBudgetValues({});
     setMemberSearch("");
     setMemberIds([]);
-    setTaskTitle("");
-    setTaskDescription("");
-    setTaskAssignee("");
-    setTaskDueAt("");
-    setEditingTaskId(null);
     setAllocationValues({});
+    setDistributionDescription("");
+    setDistributionLinks("");
+    setDistributionFieldValues({});
+    setDistributionFiles([]);
   }, [selectedId, creating]);
 
   useEffect(() => {
@@ -156,8 +209,8 @@ export function ProjectsPage(): JSX.Element {
   }, [current?.id, current?.updatedAt, editable]);
 
   useEffect(() => {
-    if (!canViewBudget && workspaceTab === "budget") setWorkspaceTab("overview");
-  }, [canViewBudget, workspaceTab]);
+    if (!canSeeConfidential && workspaceTab === "budget") setWorkspaceTab("overview");
+  }, [canSeeConfidential, workspaceTab]);
 
   const refresh = async (): Promise<void> => {
     await Promise.all([client.invalidateQueries({ queryKey: ["projects"] }), client.invalidateQueries({ queryKey: ["projects", selectedId] }), client.invalidateQueries({ queryKey: ["projects", "bootstrap"] })]);
@@ -230,27 +283,6 @@ export function ProjectsPage(): JSX.Element {
     onSuccess: async (result) => { setMemberIds([]); setMemberSearch(""); setNotice(`${ui("Invitations sent:")} ${result.invited}`); await refresh(); },
     onError: (error: Error) => setNotice(error.message),
   });
-  const saveTask = useMutation({
-    mutationFn: () => {
-      const dueAt = taskDueAt ? new Date(`${taskDueAt}T12:00:00.000Z`).toISOString() : null;
-      const body = { title: taskTitle.trim(), description: taskDescription.trim() || null, assigneeId: taskAssignee || null, dueAt };
-      return editingTaskId
-        ? fetchApi(`/admin/projects/${selectedId}/tasks/${editingTaskId}`, { method: "PATCH", body: JSON.stringify(body) })
-        : fetchApi(`/admin/projects/${selectedId}/tasks`, { method: "POST", body: JSON.stringify({ ...body, description: taskDescription.trim() }) });
-    },
-    onSuccess: async () => { setTaskTitle(""); setTaskDescription(""); setTaskAssignee(""); setTaskDueAt(""); setEditingTaskId(null); await refresh(); },
-    onError: (error: Error) => setNotice(error.message),
-  });
-  const updateTask = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => fetchApi(`/admin/projects/${selectedId}/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: refresh,
-    onError: (error: Error) => setNotice(error.message),
-  });
-  const deleteTask = useMutation({
-    mutationFn: (id: string) => fetchApi(`/admin/projects/${selectedId}/tasks/${id}`, { method: "DELETE" }),
-    onSuccess: async () => { setNotice(ui("Task removed.")); await refresh(); },
-    onError: (error: Error) => setNotice(error.message),
-  });
   const createField = useMutation({ mutationFn: () => fetchApi<ProjectField>("/admin/project-fields", { method: "POST", body: JSON.stringify({ key: fieldKey.trim().toLowerCase(), label: fieldLabel, type: fieldType, required: fieldRequired, options: fieldOptions.split(",").map((item) => item.trim()).filter(Boolean), sortOrder: bootstrap.data?.fields.length ?? 0 }) }), onSuccess: async () => { setFieldKey(""); setFieldLabel(""); setFieldOptions(""); setFieldRequired(false); await refresh(); }, onError: (error: Error) => setNotice(error.message) });
   const archiveField = useMutation({ mutationFn: (id: string) => fetchApi(`/admin/project-fields/${id}`, { method: "DELETE" }), onSuccess: refresh, onError: (error: Error) => setNotice(error.message) });
 
@@ -291,27 +323,67 @@ export function ProjectsPage(): JSX.Element {
     return { issues, allocations, budgets, hasOverLimit: budgets.some((item) => item.overLimit) };
   }, [rows, allocationValues, current?.budgets]);
   const issue = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!allocationReview.allocations.length) throw new Error(ui("Enter at least one member allocation."));
       if (Object.keys(allocationReview.issues).length || allocationReview.hasOverLimit) throw new Error(ui("Fix allocation values that exceed the available budget."));
-      return fetchApi(`/admin/projects/${selectedId}/submit-issuance`, { method: "POST", body: JSON.stringify({ allocations: allocationReview.allocations }) });
+      if (Object.keys(distributionFieldErrors).length) throw new Error(ui("Complete all required distribution fields."));
+      if (distributionEvidenceError) throw new Error(distributionEvidenceError);
+      if (!selectedId) throw new Error(ui("Select a project before submitting the distribution."));
+
+      const evidence: ProjectEvidence[] = distributionLinkItems.map((url) => ({ kind: "LINK", url }));
+      for (const pending of distributionFiles) {
+        if (!pending.attachment && !pending.file) throw new Error(ui("Choose the evidence file again before submitting."));
+        const attachment = pending.attachment ?? await uploadPrivateAttachment("PROJECT", selectedId, pending.file as File);
+        if (!pending.attachment) {
+          const updated = { ...pending, attachment };
+          setDistributionFiles((files) => files.map((item) => item.key === pending.key ? updated : item));
+        }
+        evidence.push({ kind: "FILE", attachmentId: attachment.id, name: attachment.name });
+      }
+
+      return fetchApi(`/admin/projects/${selectedId}/submit-issuance`, {
+        method: "POST",
+        body: JSON.stringify({
+          allocations: allocationReview.allocations,
+          description: distributionDescription.trim() || null,
+          evidence,
+          fieldValues: distributionFieldValues,
+        }),
+      });
     },
-    onSuccess: async () => { setNotice(ui("Point distribution submitted for approval.")); setAllocationValues({}); await refresh(); },
+    onSuccess: async () => {
+      setNotice(ui("Point distribution submitted for approval."));
+      setAllocationValues({});
+      setDistributionDescription("");
+      setDistributionLinks("");
+      setDistributionFieldValues({});
+      setDistributionFiles([]);
+      await refresh();
+    },
     onError: (error: Error) => setNotice(error.message),
   });
 
   const selectProject = (id: string): void => { setNotice(null); setCreating(false); setSelectedId(id); };
   const startNewProject = (): void => { setNotice(null); setSelectedId(null); setCreating(true); };
-  const resetTaskEditor = (): void => { setEditingTaskId(null); setTaskTitle(""); setTaskDescription(""); setTaskAssignee(""); setTaskDueAt(""); };
-  const editTask = (task: Task): void => {
-    setEditingTaskId(task.id);
-    setTaskTitle(task.title);
-    setTaskDescription(task.description ?? "");
-    setTaskAssignee(task.assignee?.id ?? "");
-    setTaskDueAt(dateInputValue(task.dueAt));
-  };
   const toggleVisibleMembers = (): void => {
     setMemberIds((ids) => allVisibleSelected ? ids.filter((id) => !visibleMembers.some((member) => member.id === id)) : [...new Set([...ids, ...visibleMembers.map((member) => member.id)])]);
+  };
+  const handleDistributionFiles = (event: ChangeEvent<HTMLInputElement>): void => {
+    const selectedFiles = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    const existingFiles = new Set(distributionFiles.map((item) => `${item.name}:${item.file?.size ?? item.attachment?.size ?? 0}`));
+    const newFiles = selectedFiles.filter((file) => !existingFiles.has(`${file.name}:${file.size}`));
+    if (distributionLinkItems.length + distributionFiles.length + newFiles.length > 10) {
+      setNotice(ui("Use no more than 10 links and files combined."));
+      return;
+    }
+    setDistributionFiles((items) => [...items, ...newFiles.map((file) => ({ key: crypto.randomUUID(), name: file.name, file }))]);
+    setNotice(null);
+  };
+  const downloadAttachment = (attachmentId: string, fileName: string): void => {
+    void downloadPrivateAttachment(attachmentId, fileName).catch((error: unknown) => {
+      setNotice(error instanceof Error ? error.message : ui("Unable to download the attached file."));
+    });
   };
 
   const renderPlanForm = (isNew: boolean): JSX.Element => (
@@ -320,11 +392,13 @@ export function ProjectsPage(): JSX.Element {
       <CardContent className="space-y-4">
         <div><Label htmlFor="project-name">{ui("Project name")}</Label><Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} aria-invalid={!name.trim()} /></div>
         <div><Label htmlFor="project-description">{ui("Description")}</Label><Textarea id="project-description" className="min-h-24" value={description} onChange={(event) => setDescription(event.target.value)} /></div>
-        {(bootstrap.data?.fields ?? []).map((field) => <div key={field.id}>
-          <Label htmlFor={`project-field-${field.key}`}>{field.label}{field.required ? " *" : ""}</Label>
-          {field.type === "BOOLEAN" ? <label className="flex items-center gap-2 pt-2 text-sm"><input id={`project-field-${field.key}`} type="checkbox" checked={Boolean(fieldValues[field.key])} onChange={(event) => setFieldValues({ ...fieldValues, [field.key]: event.target.checked })} />{field.label}</label> : field.type === "SELECT" ? <select id={`project-field-${field.key}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={String(fieldValues[field.key] ?? "")} onChange={(event) => setFieldValues({ ...fieldValues, [field.key]: event.target.value })}><option value="">{ui("Select")}</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <Input id={`project-field-${field.key}`} type={field.type === "NUMBER" ? "number" : field.type === "DATE" ? "date" : "text"} value={String(fieldValues[field.key] ?? "")} onChange={(event) => setFieldValues({ ...fieldValues, [field.key]: field.type === "NUMBER" ? event.target.value === "" ? "" : Number(event.target.value) : event.target.value })} />}
-          {requiredFieldErrors[field.key] && <p className="mt-1 text-xs text-destructive">{requiredFieldErrors[field.key]}</p>}
-        </div>)}
+        <CustomForm
+          idPrefix="project-field"
+          fields={bootstrap.data?.fields ?? []}
+          value={fieldValues}
+          onChange={setFieldValues}
+          errors={requiredFieldErrors}
+        />
         <div className="space-y-3 rounded-md border p-4">
           <div><h3 className="font-semibold">{ui("Requested point budget")}</h3><p className="text-xs text-muted-foreground">{ui("Budget is reserved from the bank only after plan approval.")}</p></div>
           {(bootstrap.data?.pointTypes ?? []).map((type) => <div key={type.id} className="grid items-start gap-2 sm:grid-cols-[1fr_10rem]">
@@ -341,7 +415,7 @@ export function ProjectsPage(): JSX.Element {
   return (
     <div className="space-y-5 pb-12">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-2xl font-bold">{ui("Group projects")}</h1><p className="mt-1 max-w-3xl text-sm text-muted-foreground">{ui("Manage project plans, member participation, delivery tasks, and approved point distributions.")}</p></div>
+        <div><h1 className="text-2xl font-bold">{ui("Group projects")}</h1><p className="mt-1 max-w-3xl text-sm text-muted-foreground">{ui("Manage project plans, member participation, delivery, and approved point distributions.")}</p></div>
         <div className="flex flex-wrap gap-2">{canManageGlobally && <Button variant="outline" onClick={() => setFieldsOpen((open) => !open)}>{fieldsOpen ? ui("Hide project fields") : ui("Manage project fields")}</Button>}{canManageGlobally && <Button onClick={startNewProject}>{ui("New project")}</Button>}</div>
       </header>
 
@@ -368,7 +442,7 @@ export function ProjectsPage(): JSX.Element {
                 <p className="break-words text-base font-semibold leading-snug">{project.name}</p>
                 <div className="mt-1"><Badge variant="secondary" className="max-w-full whitespace-normal text-xs leading-tight">{projectStatusLabel(project.status)}</Badge></div>
                 <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{project.description || ui("No description")}</p>
-                <p className="mt-2 text-xs text-muted-foreground">{project._count?.members ?? 0} {ui("members")} · {project._count?.tasks ?? 0} {ui("tasks")}{project.createdBy?.name ? ` · ${ui("Manager")}: ${project.createdBy.name}` : ""}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{project._count?.members ?? 0} {ui("members")}{project.createdBy?.name ? ` · ${ui("Manager")}: ${project.createdBy.name}` : ""}</p>
               </button>)}
               {!projects.isLoading && !projects.isError && !filteredProjects.length && <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{projects.data?.length ? ui("No projects match these filters.") : ui("No projects yet. Create a plan to get started.")}</p>}
             </div>
@@ -387,11 +461,11 @@ export function ProjectsPage(): JSX.Element {
               {current.canManage && current.status === "DRAFT" && <Button variant="outline" onClick={() => setWorkspaceTab("overview")}>{ui("Edit plan")}</Button>}
               {current.canManage && current.status === "PLAN_REJECTED" && <Button variant="outline" onClick={() => setWorkspaceTab("overview")}>{ui("Revise rejected plan")}</Button>}
             </div>
-            <Card className="border-primary/20 bg-primary/[0.025]"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{ui("Next action")}</p><p className="mt-1 text-sm">{nextActionFor(current, openTaskCount)}</p></div>
+            <Card className="border-primary/20 bg-primary/[0.025]"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{ui("Next action")}</p><p className="mt-1 text-sm">{nextActionFor(current)}</p></div>
               {current.canManage && current.status === "APPROVED" && <Button onClick={() => callProject.mutate({ action: "activate" })} disabled={callProject.isPending}>{callProject.isPending ? ui("Updating…") : ui("Activate project")}</Button>}
-              {current.canManage && current.status === "ACTIVE" && <div className="text-right"><Button variant="outline" onClick={() => { if (window.confirm(ui("Confirm the project is complete? This locks task updates and opens point distribution."))) callProject.mutate({ action: "complete" }); }} disabled={callProject.isPending || openTaskCount > 0}>{callProject.isPending ? ui("Updating…") : ui("Confirm project complete")}</Button>{openTaskCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{openTaskCount} {ui("open task(s) must be finished first")}</p>}</div>}
+              {current.canManage && current.status === "ACTIVE" && <div className="text-right"><Button variant="outline" onClick={() => { if (window.confirm(ui("Confirm the project is complete? This locks project updates and opens point distribution."))) callProject.mutate({ action: "complete" }); }} disabled={callProject.isPending}>{callProject.isPending ? ui("Updating…") : ui("Confirm project complete")}</Button></div>}
               {current.canManage && ["COMPLETED", "ISSUED", "ISSUE_REJECTED"].includes(current.status) && <div className="flex flex-wrap gap-2">
-                {canViewBudget && ["COMPLETED", "ISSUE_REJECTED"].includes(current.status) && <Button onClick={() => setWorkspaceTab("budget")}>{ui("Budget & distribution")}</Button>}
+                {canSeeConfidential && ["COMPLETED", "ISSUE_REJECTED"].includes(current.status) && <Button onClick={() => setWorkspaceTab("budget")}>{ui("Budget & distribution")}</Button>}
                 <Button variant="outline" onClick={() => { if (window.confirm(ui("Close this project and return all unused point budget to the bank? This cannot be undone."))) callProject.mutate({ action: "close" }); }} disabled={callProject.isPending}>{callProject.isPending ? ui("Updating…") : ui("Close project")}</Button>
               </div>}
             </CardContent></Card>
@@ -400,19 +474,18 @@ export function ProjectsPage(): JSX.Element {
               <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:flex md:flex-wrap">
                 <TabsTrigger value="overview">{ui("Overview")}</TabsTrigger>
                 <TabsTrigger value="members">{ui("Members")}</TabsTrigger>
-                <TabsTrigger value="tasks">{ui("Tasks")}</TabsTrigger>
-                {canViewBudget && <TabsTrigger value="budget">{ui("Budget & distribution")}</TabsTrigger>}
+                {canSeeConfidential && <TabsTrigger value="budget">{ui("Budget & distribution")}</TabsTrigger>}
                 <TabsTrigger value="history">{ui("History")}</TabsTrigger>
               </TabsList>
               <TabsContent value="overview" className="space-y-4">
-                {editable ? renderPlanForm(false) : <Card><CardHeader><CardTitle>{ui("Project progress")}</CardTitle><CardDescription>{nextActionFor(current, openTaskCount)}</CardDescription></CardHeader><CardContent className="space-y-4">
+                {editable ? renderPlanForm(false) : <Card><CardHeader><CardTitle>{ui("Project progress")}</CardTitle><CardDescription>{nextActionFor(current)}</CardDescription></CardHeader><CardContent className="space-y-4">
                   <ol className="grid gap-2 sm:grid-cols-5">{[ui("Plan"), ui("Activate"), ui("Deliver"), ui("Distribute"), ui("Close")].map((label, index) => { const stage = stageForStatus(current.status); return <li key={label} className={`rounded-md border p-3 text-xs ${index === stage.index ? "border-primary bg-primary/5 font-semibold" : index < stage.index ? "bg-muted/50 text-muted-foreground" : "text-muted-foreground"}`}><span className="mr-2">{index < stage.index ? "✓" : index + 1}</span>{label}</li>; })}</ol>
                   <p className="text-sm">{current.description || ui("No description")}</p>
                   {Object.entries(current.fieldValues ?? {}).length > 0 && <div className="grid gap-2 border-t pt-3 sm:grid-cols-2">{Object.entries(current.fieldValues).map(([key, value]) => <p key={key} className="text-sm"><span className="text-muted-foreground">{bootstrap.data?.fields.find((field) => field.key === key)?.label ?? key}:</span> {String(value)}</p>)}</div>}
-                  <div className="grid gap-3 border-t pt-3 sm:grid-cols-3"><div><p className="text-xs text-muted-foreground">{ui("Members")}</p><p className="text-lg font-semibold">{current.members?.length ?? current._count?.members ?? 0}</p></div><div><p className="text-xs text-muted-foreground">{ui("Tasks complete")}</p><p className="text-lg font-semibold">{currentTasks.filter((task) => task.status === "DONE").length} / {currentTasks.length}</p></div><div><p className="text-xs text-muted-foreground">{ui("Last updated")}</p><p className="text-sm font-medium">{new Date(current.updatedAt).toLocaleString()}</p></div></div>
+                  <div className="grid gap-3 border-t pt-3 sm:grid-cols-2"><div><p className="text-xs text-muted-foreground">{ui("Members")}</p><p className="text-lg font-semibold">{current.members?.length ?? current._count?.members ?? 0}</p></div><div><p className="text-xs text-muted-foreground">{ui("Last updated")}</p><p className="text-sm font-medium">{new Date(current.updatedAt).toLocaleString()}</p></div></div>
                 </CardContent></Card>}
-                {canViewBudget && current.status === "PLAN_REJECTED" && current.approvalSummary?.plan?.comment && <Card className="border-destructive/30"><CardHeader><CardTitle>{ui("Plan rejection feedback")}</CardTitle></CardHeader><CardContent><p className="text-sm">{current.approvalSummary.plan.comment}</p></CardContent></Card>}
-                {canViewBudget && current.status === "ISSUE_REJECTED" && current.approvalSummary?.distribution?.comment && <Card className="border-destructive/30"><CardHeader><CardTitle>{ui("Distribution rejection feedback")}</CardTitle></CardHeader><CardContent><p className="text-sm">{current.approvalSummary.distribution.comment}</p></CardContent></Card>}
+                {canSeeConfidential && current.status === "PLAN_REJECTED" && current.approvalSummary?.plan?.comment && <Card className="border-destructive/30"><CardHeader><CardTitle>{ui("Plan rejection feedback")}</CardTitle></CardHeader><CardContent><p className="text-sm">{current.approvalSummary.plan.comment}</p></CardContent></Card>}
+                {canSeeConfidential && current.status === "ISSUE_REJECTED" && current.approvalSummary?.distribution?.comment && <Card className="border-destructive/30"><CardHeader><CardTitle>{ui("Distribution rejection feedback")}</CardTitle></CardHeader><CardContent><p className="text-sm">{current.approvalSummary.distribution.comment}</p></CardContent></Card>}
               </TabsContent>
 
               <TabsContent value="members">
@@ -428,39 +501,78 @@ export function ProjectsPage(): JSX.Element {
                 </CardContent></Card>
               </TabsContent>
 
-              <TabsContent value="tasks">
-                <Card><CardHeader><CardTitle>{ui("Project tasks")}</CardTitle><CardDescription>{ui("Track owners, due dates, and delivery progress. Tasks stay visible after the project is completed.")}</CardDescription></CardHeader><CardContent className="space-y-4">
-                  {current.canManage && current.status === "ACTIVE" && <section className="space-y-3 rounded-md border p-4">
-                    <h3 className="font-semibold">{editingTaskId ? ui("Edit task") : ui("Add task")}</h3>
-                    <div className="grid gap-3 md:grid-cols-2"><div><Label htmlFor="task-title">{ui("Task title")}</Label><Input id="task-title" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></div><div><Label htmlFor="task-assignee">{ui("Assignee")}</Label><select id="task-assignee" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={taskAssignee} onChange={(event) => setTaskAssignee(event.target.value)}><option value="">{ui("Unassigned")}</option>{acceptedMembers.map(({ member }) => <option key={member.id} value={member.id}>{personName(member)}</option>)}</select></div><div><Label htmlFor="task-due-date">{ui("Due date")}</Label><Input id="task-due-date" type="date" value={taskDueAt} onChange={(event) => setTaskDueAt(event.target.value)} /></div><div><Label htmlFor="task-description">{ui("Description")}</Label><Input id="task-description" value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} /></div></div>
-                    <div className="flex flex-wrap gap-2"><Button onClick={() => saveTask.mutate()} disabled={!taskTitle.trim() || saveTask.isPending}>{saveTask.isPending ? ui("Saving…") : editingTaskId ? ui("Save task") : ui("Add task")}</Button>{editingTaskId && <Button variant="ghost" onClick={resetTaskEditor} disabled={saveTask.isPending}>{ui("Cancel edit")}</Button>}</div>
-                  </section>}
-                  {current.status === "ACTIVE" && openTaskCount > 0 && <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">{openTaskCount} {ui("open task(s) must be finished before completion.")}</div>}
-                  <div className="space-y-2">{currentTasks.map((task) => <div key={task.id} className="rounded-md border p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">{task.title}</p>{task.description && <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{task.description}</p>}<p className="mt-2 text-xs text-muted-foreground">{task.assignee ? personName(task.assignee) : ui("Unassigned")}{task.dueAt ? ` · ${ui("Due")} ${dateLabel(task.dueAt)}` : ` · ${ui("No due date")}`}</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant={task.status === "DONE" ? "secondary" : "outline"}>{ui(task.status === "TODO" ? "To do" : task.status === "IN_PROGRESS" ? "In progress" : "Done")}</Badge>{current.canManage && current.status === "ACTIVE" && <><select aria-label={`${ui("Task status")}: ${task.title}`} className="h-9 rounded-md border bg-background px-2 text-sm" value={task.status} disabled={updateTask.isPending || saveTask.isPending || deleteTask.isPending} onChange={(event) => updateTask.mutate({ id: task.id, body: { status: event.target.value } })}><option value="TODO">{ui("To do")}</option><option value="IN_PROGRESS">{ui("In progress")}</option><option value="DONE">{ui("Done")}</option></select><Button size="sm" variant="outline" onClick={() => editTask(task)} disabled={updateTask.isPending || saveTask.isPending || deleteTask.isPending}>{ui("Edit")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(ui("Remove this task from the project?"))) deleteTask.mutate(task.id); }} disabled={deleteTask.isPending || updateTask.isPending || saveTask.isPending}>{ui("Remove")}</Button></>}</div></div></div>)}
-                    {!currentTasks.length && <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{ui("No tasks have been added yet.")}</p>}
-                  </div>
-                </CardContent></Card>
-              </TabsContent>
-
-              {canViewBudget && <TabsContent value="budget" className="space-y-4">
+              {canSeeConfidential && <TabsContent value="budget" className="space-y-4">
                 <Card><CardHeader><CardTitle>{ui("Project budget")}</CardTitle><CardDescription>{ui("Approved balances and point distributions are visible only to project finance viewers.")}</CardDescription></CardHeader><CardContent className="space-y-2">
                   {(current.budgets ?? []).map((budget) => <div key={budget.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_repeat(3,minmax(6rem,auto))] sm:items-center"><div><p className="font-medium">{budget.pointType.code} · {budget.pointType.name}</p><p className="text-xs text-muted-foreground">{ui("Requested")}: {budget.requestedAmount.toLocaleString()}</p></div><p className="text-sm"><span className="text-muted-foreground">{ui("Approved")}: </span>{budget.approvedAmount.toLocaleString()}</p><p className="text-sm"><span className="text-muted-foreground">{ui("Remaining")}: </span>{budget.remainingAmount.toLocaleString()}</p><p className="text-sm"><span className="text-muted-foreground">{ui("Issued")}: </span>{budget.issuedAmount.toLocaleString()}</p></div>)}
                   {!current.budgets?.length && <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{ui("No budget has been requested for this project.")}</p>}
                 </CardContent></Card>
                 {current.canManage && ["COMPLETED", "ISSUE_REJECTED"].includes(current.status) && <Card><CardHeader><CardTitle>{ui("Member point distribution")}</CardTitle><CardDescription>{ui("Enter points or a percentage of each point type’s approved budget. Review the total against the remaining balance before submitting for approval.")}</CardDescription></CardHeader><CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="project-distribution-description">{ui("Distribution description")}</Label>
+                    <Textarea id="project-distribution-description" value={distributionDescription} onChange={(event) => setDistributionDescription(event.target.value)} placeholder={ui("Explain why these members are receiving points.") as string} disabled={issue.isPending} />
+                  </div>
+                  {distributionDefinitions.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading distribution fields…")}</p>}
+                  {distributionDefinitions.isError && <p role="alert" className="text-sm text-destructive">{ui("Distribution fields could not be loaded. Retry before submitting.")}</p>}
+                  {distributionFields.length > 0 && <section className="space-y-3 rounded-md border p-4">
+                    <div><h3 className="font-semibold">{ui("Additional distribution details")}</h3><p className="text-xs text-muted-foreground">{ui("These fields are configured by an administrator and are visible only to project managers and finance viewers.")}</p></div>
+                    <CustomForm
+                      idPrefix="project-distribution-field"
+                      fields={distributionFields}
+                      value={distributionFieldValues}
+                      errors={distributionFieldErrors}
+                      disabled={issue.isPending}
+                      fileUploadDisabled={!selectedId || issue.isPending}
+                      onChange={setDistributionFieldValues}
+                      onFileUpload={async (_fieldKey, file): Promise<CustomFormFile> => {
+                        if (!selectedId) throw new Error(ui("Select a project before uploading a file."));
+                        const attachment = await uploadPrivateAttachment("PROJECT", selectedId, file);
+                        return { kind: "FILE", attachmentId: attachment.id, name: attachment.name };
+                      }}
+                      onFileDownload={(file) => downloadAttachment(file.attachmentId, file.name || ui("download"))}
+                    />
+                  </section>}
+                  <section className="space-y-3 rounded-md border p-4">
+                    <div><Label htmlFor="project-distribution-links">{ui("Evidence links (optional)")}</Label><p className="text-xs text-muted-foreground">{ui("Enter one HTTP or HTTPS link per line. Links and files are limited to 10 items combined.")}</p></div>
+                    <Textarea id="project-distribution-links" value={distributionLinks} onChange={(event) => setDistributionLinks(event.target.value)} placeholder="https://example.com/evidence" disabled={issue.isPending} />
+                    <div className="space-y-2">
+                      <Label htmlFor="project-distribution-files">{ui("Evidence files (optional)")}</Label>
+                      <Input id="project-distribution-files" type="file" multiple onChange={handleDistributionFiles} disabled={issue.isPending || distributionLinkItems.length + distributionFiles.length >= 10} />
+                      <p className="text-xs text-muted-foreground">{ui("Files are kept private and attached to the project when you submit the distribution.")}</p>
+                      {distributionFiles.map((item) => <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 text-sm">
+                        <span className="break-all">{item.name}</span>
+                        <div className="flex items-center gap-2">
+                          {item.attachment && <span className="text-xs text-muted-foreground">{ui("Uploaded")}</span>}
+                          {!item.attachment && <Button type="button" variant="ghost" size="sm" onClick={() => setDistributionFiles((files) => files.filter((file) => file.key !== item.key))} disabled={issue.isPending}>{ui("Remove")}</Button>}
+                        </div>
+                      </div>)}
+                      {distributionEvidenceError && <p role="alert" className="text-xs text-destructive">{distributionEvidenceError}</p>}
+                    </div>
+                  </section>
                   {rows.length ? <div className="space-y-2">{rows.map((row) => { const entry = allocationValues[row.key] ?? { mode: "AMOUNT" as const, value: "" }; return <div key={row.key} className="grid items-start gap-2 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_8rem_10rem]"><div className="text-sm"><p className="font-medium">{personName(row.participant.member)} · {row.budget.pointType.code}</p><p className="text-xs text-muted-foreground">{ui("Available")}: {row.budget.remainingAmount.toLocaleString()}</p></div><select aria-label={`${ui("Allocation mode")}: ${personName(row.participant.member)} ${row.budget.pointType.code}`} className="h-10 rounded-md border bg-background px-2 text-sm" value={entry.mode} onChange={(event) => setAllocationValues({ ...allocationValues, [row.key]: { ...entry, mode: event.target.value as AllocationEntry["mode"] } })}><option value="AMOUNT">{ui("Points")}</option><option value="PERCENT">{ui("Percent")}</option></select><div><Input aria-label={`${ui("Allocation value")}: ${personName(row.participant.member)} ${row.budget.pointType.code}`} type="number" min="0" step={entry.mode === "AMOUNT" ? "1" : "0.01"} max={entry.mode === "PERCENT" ? "100" : undefined} value={entry.value} onChange={(event) => setAllocationValues({ ...allocationValues, [row.key]: { ...entry, value: event.target.value } })} aria-invalid={Boolean(allocationReview.issues[row.key])} /><p className="mt-1 min-h-4 text-xs text-destructive">{allocationReview.issues[row.key] ?? " "}</p></div></div>; })}</div> : <p className="text-sm text-muted-foreground">{ui("Only accepted members can receive project points.")}</p>}
                   <div className="space-y-2 rounded-md bg-muted/40 p-3">{allocationReview.budgets.map(({ budget, amount, overLimit }) => <div key={budget.id} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{budget.pointType.code} · {ui("Allocation total")}</span><span className={overLimit ? "font-semibold text-destructive" : "font-medium"}>{amount.toLocaleString()} / {budget.remainingAmount.toLocaleString()} {ui("remaining")}{overLimit ? ` · ${ui("Over limit")}` : ""}</span></div>)}</div>
                   {current.approvalSummary?.distribution?.comment && current.status === "ISSUE_REJECTED" && <div className="rounded-md border border-destructive/30 p-3"><p className="text-xs font-semibold">{ui("Latest rejection feedback")}</p><p className="mt-1 text-sm">{current.approvalSummary.distribution.comment}</p></div>}
-                  <Button onClick={() => issue.mutate()} disabled={!rows.length || !allocationReview.allocations.length || Object.keys(allocationReview.issues).length > 0 || allocationReview.hasOverLimit || issue.isPending}>{issue.isPending ? ui("Submitting…") : ui("Submit point distribution for approval")}</Button>
+                  <Button onClick={() => issue.mutate()} disabled={!selectedId || !rows.length || !allocationReview.allocations.length || Object.keys(allocationReview.issues).length > 0 || allocationReview.hasOverLimit || Object.keys(distributionFieldErrors).length > 0 || Boolean(distributionEvidenceError) || distributionDefinitions.isLoading || distributionDefinitions.isError || issue.isPending}>{issue.isPending ? ui("Submitting…") : ui("Submit point distribution for approval")}</Button>
                 </CardContent></Card>}
-                {(current.issueBatches ?? []).length > 0 && <Card><CardHeader><CardTitle>{ui("Distribution batches")}</CardTitle></CardHeader><CardContent className="space-y-3">{(current.issueBatches ?? []).map((batch) => <section key={batch.id} className="rounded-md border p-3"><div className="flex items-center justify-between gap-3"><p className="font-semibold">{ui("Distribution batch")}</p><Badge variant="outline">{humanizeEnum(batch.status)}</Badge></div><div className="mt-2 space-y-1 text-sm">{batch.allocations.map((allocation) => <p key={allocation.id}>{personName(allocation.member)} · {allocation.pointType.code} · {allocation.amount.toLocaleString()}</p>)}</div></section>)}</CardContent></Card>}
               </TabsContent>}
 
               <TabsContent value="history" className="space-y-4">
                 <Card><CardHeader><CardTitle>{ui("Approval history")}</CardTitle><CardDescription>{ui("Review the latest plan and distribution decisions for this project.")}</CardDescription></CardHeader><CardContent className="space-y-3">
-                  {!canViewBudget ? <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{ui("Approval details are restricted to project finance viewers.")}</p> : ([ [ui("Project plan"), current.approvalSummary?.plan ?? null], [ui("Point distribution"), current.approvalSummary?.distribution ?? null] ] as const).map(([label, approval]) => <div key={label} className="rounded-md border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{label}</p><Badge variant="outline">{approval ? humanizeEnum(approval.status) : ui("Not submitted")}</Badge></div>{approval && <><p className="mt-1 text-xs text-muted-foreground">{ui("Requested")}: {new Date(approval.requestedAt).toLocaleString()}{approval.resolvedAt ? ` · ${ui("Resolved")}: ${new Date(approval.resolvedAt).toLocaleString()}` : ""}</p>{approval.decision && <p className="mt-1 text-sm">{ui("Decision")}: {humanizeEnum(approval.decision)}</p>}{approval.comment && <p className="mt-2 rounded bg-muted/50 p-2 text-sm">{approval.comment}</p>}</>}</div>)}
+                  {!canSeeConfidential ? <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{ui("Approval details are restricted to project managers and finance viewers.")}</p> : ([ [ui("Project plan"), current.approvalSummary?.plan ?? null], [ui("Point distribution"), current.approvalSummary?.distribution ?? null] ] as const).map(([label, approval]) => <div key={label} className="rounded-md border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{label}</p><Badge variant="outline">{approval ? humanizeEnum(approval.status) : ui("Not submitted")}</Badge></div>{approval && <><p className="mt-1 text-xs text-muted-foreground">{ui("Requested")}: {new Date(approval.requestedAt).toLocaleString()}{approval.resolvedAt ? ` · ${ui("Resolved")}: ${new Date(approval.resolvedAt).toLocaleString()}` : ""}</p>{approval.decision && <p className="mt-1 text-sm">{ui("Decision")}: {humanizeEnum(approval.decision)}</p>}{approval.comment && <p className="mt-2 rounded bg-muted/50 p-2 text-sm">{approval.comment}</p>}</>}</div>)}
                 </CardContent></Card>
-                {canViewBudget && (current.budgetTransactions ?? []).length > 0 && <Card><CardHeader><CardTitle>{ui("Project budget history")}</CardTitle></CardHeader><CardContent className="space-y-2">{(current.budgetTransactions ?? []).map((item) => <p key={item.id} className="rounded border p-2 text-sm">{item.createdAt ? new Date(item.createdAt).toLocaleString() : ""} · {item.pointType.code} · {ui(item.type)} · {item.amount.toLocaleString()} · {item.reason}</p>)}</CardContent></Card>}
+                {canSeeConfidential && (current.budgetTransactions ?? []).length > 0 && <Card><CardHeader><CardTitle>{ui("Project budget history")}</CardTitle></CardHeader><CardContent className="space-y-2">{(current.budgetTransactions ?? []).map((item) => <p key={item.id} className="rounded border p-2 text-sm">{item.createdAt ? new Date(item.createdAt).toLocaleString() : ""} · {item.pointType.code} · {ui(item.type)} · {item.amount.toLocaleString()} · {item.reason}</p>)}</CardContent></Card>}
+                {canSeeConfidential && (current.issueBatches ?? []).length > 0 && <Card><CardHeader><CardTitle>{ui("Distribution history")}</CardTitle><CardDescription>{ui("Private distribution details are visible only to project managers and finance viewers.")}</CardDescription></CardHeader><CardContent className="space-y-3">{(current.issueBatches ?? []).map((batch) => <section key={batch.id} className="space-y-3 rounded-md border p-3"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-semibold">{ui("Distribution batch")}</p><Badge variant="outline">{humanizeEnum(batch.status)}</Badge></div>
+                  {batch.description && <div><p className="text-xs font-medium text-muted-foreground">{ui("Reason / description")}</p><p className="mt-1 whitespace-pre-wrap text-sm">{batch.description}</p></div>}
+                  {batch.fieldValues && Object.keys(batch.fieldValues).length > 0 && <div className="grid gap-2 border-t pt-3 sm:grid-cols-2">{Object.entries(batch.fieldValues).map(([key, value]) => {
+                    const field = distributionFields.find((item) => item.key === key);
+                    const file = value && typeof value === "object" && !Array.isArray(value) && "attachmentId" in value
+                      ? value as CustomFormFile
+                      : null;
+                    const display = Array.isArray(value) ? value.join(", ") : value && typeof value === "object" ? "" : String(value ?? "—");
+                    return <div key={key} className="text-sm"><p className="text-xs text-muted-foreground">{field?.label ?? key}</p>{file ? <Button type="button" size="sm" variant="link" className="h-auto px-0" onClick={() => downloadAttachment(file.attachmentId, file.name || ui("download"))}>{file.name || ui("Download attached file")}</Button> : <p className="mt-1 whitespace-pre-wrap">{display || "—"}</p>}</div>;
+                  })}</div>}
+                  {(batch.evidence ?? []).length > 0 && <div className="border-t pt-3"><p className="text-xs font-medium text-muted-foreground">{ui("Evidence")}</p><ul className="mt-2 space-y-1 text-sm">{batch.evidence?.map((item, index) => item.kind === "LINK" ? <li key={`link-${index}`}><a className="break-all text-primary underline" href={item.url} target="_blank" rel="noreferrer">{item.name || item.url}</a></li> : <li key={`file-${item.attachmentId}`}><Button type="button" size="sm" variant="link" className="h-auto px-0" onClick={() => downloadAttachment(item.attachmentId, item.name || ui("download"))}>{item.name || ui("Download attached file")}</Button></li>)}</ul></div>}
+                  <div className="space-y-1 border-t pt-3 text-sm">{batch.allocations.map((allocation) => <p key={allocation.id}>{personName(allocation.member)} · {allocation.pointType.code} · {allocation.amount.toLocaleString()}</p>)}</div>
+                </section>)}</CardContent></Card>}
               </TabsContent>
             </Tabs>
           </>}

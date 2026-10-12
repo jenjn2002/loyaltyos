@@ -11,6 +11,7 @@ const ACTION_LABELS: Record<string, { "en-US": string; "vi-VN": string }> = {
   PROJECT_POINT_ISSUANCE: { "en-US": "Project point distribution", "vi-VN": "Phân bổ điểm dự án" },
   POINT_EXCHANGE: { "en-US": "Point exchange", "vi-VN": "Đổi điểm" },
   REWARD_REDEMPTION: { "en-US": "Reward redemption", "vi-VN": "Đổi phần thưởng" },
+  CUSTOM_DOCUMENT_APPROVAL: { "en-US": "Custom document", "vi-VN": "Chứng từ tùy chỉnh" },
 };
 
 const SUBJECT_LABELS: Record<string, { "en-US": string; "vi-VN": string }> = {
@@ -20,6 +21,7 @@ const SUBJECT_LABELS: Record<string, { "en-US": string; "vi-VN": string }> = {
   ProjectIssueBatch: { "en-US": "Project point distribution", "vi-VN": "Phân bổ điểm dự án" },
   PointExchangeRequest: { "en-US": "Point exchange", "vi-VN": "Đổi điểm" },
   RewardRedemption: { "en-US": "Reward redemption", "vi-VN": "Đổi phần thưởng" },
+  CustomDocument: { "en-US": "Custom document", "vi-VN": "Chứng từ tùy chỉnh" },
 };
 
 export function approvalActionLabels(actionKey: string): { "en-US": string; "vi-VN": string } {
@@ -149,6 +151,10 @@ export async function approvalSubjectName(
   payloadInput: unknown,
 ): Promise<string> {
   const payload = object(payloadInput);
+  if (subjectType === "CustomDocument") {
+    const document = await prisma.customDocument.findFirst({ where: { id: subjectId, programId }, select: { title: true } });
+    return document?.title || text(payload.documentTitle) || "Custom document";
+  }
   if (subjectType === "CAMPAIGN_ISSUANCE") {
     const campaign = await prisma.campaign.findFirst({ where: { id: subjectId, programId }, select: { name: true } });
     return (campaign?.name ?? text(payload.name)) || "Campaign";
