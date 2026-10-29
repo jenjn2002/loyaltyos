@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchApi } from "@/lib/api-client";
+import { copyText } from "@/lib/clipboard";
 import type { CouponDiscountType } from "@/types";
 
 const CHANNELS = ["EMAIL", "SMS", "PUSH", "IN_APP", "WEBHOOK"] as const;
@@ -181,7 +182,7 @@ export function CouponBulkGeneratePage(): JSX.Element {
 
   const handleCopyAll = async () => {
     if (!results) return;
-    await navigator.clipboard.writeText(results.join("\n"));
+    await copyText(results.join("\n"));
     setCopied(true);
     setTimeout(() => {
       setCopied(false);

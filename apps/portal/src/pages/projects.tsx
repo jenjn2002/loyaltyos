@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarDays, CheckCircle2, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { ui } from "@/lib/ui-text";
@@ -31,6 +31,7 @@ interface MemberProject {
     activatedAt?: string | null;
     completedAt?: string | null;
     closedAt?: string | null;
+    informationUpdatedAt?: string;
     projectManager?: { name: string } | null;
     members?: ProjectMemberSummary[];
   };
@@ -263,7 +264,18 @@ export default function Projects() {
   const [selectedView, setSelectedView] = useState<ProjectView | null>(null);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<{ message: string; isError: boolean } | null>(null);
+  const currentMemberId = getSession()?.memberId;
+  const seenStorageKey = `loyaltyos-projects-seen:${currentMemberId ?? "unknown"}`;
+  const [lastSeenProjectUpdates, setLastSeenProjectUpdates] = useState<Record<string, string>>({});
   const selectedProjectId = searchParams.get("project");
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(seenStorageKey);
+      setLastSeenProjectUpdates(stored ? JSON.parse(stored) as Record<string, string> : {});
+    } catch {
+      setLastSeenProjectUpdates({});
+    }
+  }, [seenStorageKey]);
   const projects = useQuery({
     queryKey: ["member-projects"],
     queryFn: () => fetchApi<MemberProject[]>("/members/me/projects"),
@@ -291,7 +303,6 @@ export default function Projects() {
   });
 
   const allProjects = projects.data ?? [];
-  const currentMemberId = getSession()?.memberId;
   const counts = useMemo(
     () => ({
       invitations: allProjects.filter((item) => projectView(item) === "invitations").length,
@@ -316,7 +327,37 @@ export default function Projects() {
   const selectedProject = allProjects.find((item) => item.project.id === selectedProjectId) ?? null;
   const mutationPending = respond.isPending;
 
+  useEffect(() => {
+    const projectId = selectedProject?.project.id;
+    const updatedAt = selectedProject?.project.informationUpdatedAt;
+    if (!projectId || !updatedAt || lastSeenProjectUpdates[projectId] === updatedAt) return;
+    const nextSeen = { ...lastSeenProjectUpdates, [projectId]: updatedAt };
+    setLastSeenProjectUpdates(nextSeen);
+    try {
+      localStorage.setItem(seenStorageKey, JSON.stringify(nextSeen));
+    } catch {
+      // Keep the current page usable when browser storage is unavailable.
+    }
+  }, [lastSeenProjectUpdates, seenStorageKey, selectedProject?.project.id, selectedProject?.project.informationUpdatedAt]);
+
+  const hasNewProjectInformation = (item: MemberProject): boolean => {
+    const updatedAt = item.project.informationUpdatedAt;
+    if (!updatedAt) return false;
+    const seenAt = lastSeenProjectUpdates[item.project.id];
+    return !seenAt || new Date(updatedAt).getTime() > new Date(seenAt).getTime();
+  };
+
   const openProject = (projectId: string): void => {
+    const project = allProjects.find((item) => item.project.id === projectId);
+    if (project?.project.informationUpdatedAt) {
+      const nextSeen = { ...lastSeenProjectUpdates, [projectId]: project.project.informationUpdatedAt };
+      setLastSeenProjectUpdates(nextSeen);
+      try {
+        localStorage.setItem(seenStorageKey, JSON.stringify(nextSeen));
+      } catch {
+        // Keep the current page usable when browser storage is unavailable.
+      }
+    }
     const next = new URLSearchParams(searchParams);
     next.set("project", projectId);
     setSearchParams(next);
@@ -440,8 +481,11 @@ export default function Projects() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="line-clamp-2 font-semibold">{item.project.name}</span>
-                        <span className="shrink-0 rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]">
-                          {projectStatusLabel(item)}
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {hasNewProjectInformation(item) && <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-semibold text-white">{ui("New information")}</span>}
+                          <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]">
+                            {projectStatusLabel(item)}
+                          </span>
                         </span>
                       </div>
                       {item.project.description && (

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-07T04:14:42.897Z",
-  "endpointCount": 304,
+  "generatedAt": "2026-10-29T04:59:42.132Z",
+  "endpointCount": 316,
   "endpoints": [
     {
       "id": "GET /api/v1/admin/settings/api-access",
@@ -462,7 +462,7 @@
       "description": "Registered by adminApprovalsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/approvals.ts",
-        "line": 306
+        "line": 315
       },
       "access": {
         "mode": "admin",
@@ -545,7 +545,7 @@
       "description": "Registered by adminApprovalsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/approvals.ts",
-        "line": 311
+        "line": 320
       },
       "access": {
         "mode": "admin",
@@ -586,7 +586,7 @@
               "constraints": [
                 "trim",
                 "max(2000)",
-                "Rejection requires a nonempty comment after trimming, enforced by apps/api/src/lib/approval-workflows.ts:850."
+                "Rejection requires a nonempty comment after trimming, enforced by apps/api/src/lib/approval-workflows.ts:856."
               ]
             }
           ],
@@ -623,7 +623,7 @@
         }
       ],
       "notes": [
-        "Rejection requires a nonempty comment after trimming, enforced by apps/api/src/lib/approval-workflows.ts:850."
+        "Rejection requires a nonempty comment after trimming, enforced by apps/api/src/lib/approval-workflows.ts:856."
       ]
     },
     {
@@ -934,6 +934,251 @@
             }
           },
           "source": "LoyaltyError(\"APPROVAL_REQUEST_NOT_IN_INBOX\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "POST /api/v1/admin/attachments",
+      "method": "POST",
+      "path": "/api/v1/admin/attachments",
+      "group": "Admin · Attachments",
+      "summary": "Create or execute admin / attachments",
+      "description": "Registered by adminAttachmentRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/attachments.ts",
+        "line": 276
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "assertCapability may additionally enforce project.manage; its condition is defined in the handler.",
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "contextType",
+              "type": "string",
+              "required": true,
+              "enum": [
+                "PROJECT",
+                "CUSTOM_DOCUMENT"
+              ],
+              "validator": "z.enum([\"PROJECT\", \"CUSTOM_DOCUMENT\"])",
+              "example": "PROJECT"
+            },
+            {
+              "name": "contextId",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().min(1).max(200)",
+              "example": "<contextId>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(200)"
+              ]
+            },
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().min(1).max(1000)",
+              "example": "<name>",
+              "constraints": [
+                "min(1)",
+                "max(1000)"
+              ]
+            },
+            {
+              "name": "mimeType",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().toLowerCase().max(120)",
+              "example": "<mimeType>",
+              "constraints": [
+                "trim",
+                "toLowerCase",
+                "max(120)"
+              ]
+            },
+            {
+              "name": "base64",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().min(1).max(MAX_REQUEST_BYTES)",
+              "example": "<base64>",
+              "constraints": [
+                "min(1)",
+                "max(MAX_REQUEST_BYTES)"
+              ]
+            }
+          ],
+          "validator": "uploadSchema",
+          "example": {
+            "contextType": "PROJECT",
+            "contextId": "<contextId>",
+            "name": "<name>",
+            "mimeType": "<mimeType>",
+            "base64": "<base64>"
+          },
+          "constraints": [
+            "strict"
+          ]
+        },
+        "headers": [],
+        "example": {
+          "contextType": "PROJECT",
+          "contextId": "<contextId>",
+          "name": "<name>",
+          "mimeType": "<mimeType>",
+          "base64": "<base64>"
+        }
+      },
+      "responses": [
+        {
+          "status": 201,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: metadata }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "ATTACHMENT_MIME_NOT_ALLOWED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"ATTACHMENT_MIME_NOT_ALLOWED\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "ATTACHMENT_CONTEXT_LOCKED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"ATTACHMENT_CONTEXT_LOCKED\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "ATTACHMENT_CONTEXT_FILE_LIMIT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"ATTACHMENT_CONTEXT_FILE_LIMIT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "ATTACHMENT_CONTEXT_SIZE_LIMIT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"ATTACHMENT_CONTEXT_SIZE_LIMIT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/attachments/:id",
+      "method": "GET",
+      "path": "/api/v1/admin/attachments/:id",
+      "group": "Admin · Attachments",
+      "summary": "Read admin / attachments / id",
+      "description": "Registered by adminAttachmentRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/attachments.ts",
+        "line": 324
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().trim().min(1).max(200)",
+            "example": "<id>",
+            "constraints": [
+              "trim",
+              "min(1)",
+              "max(200)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 500,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "ATTACHMENT_CONTENT_INVALID",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"ATTACHMENT_CONTENT_INVALID\", 500)",
           "notes": [
             "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
           ]
@@ -1648,7 +1893,10 @@
                     "api_key.view",
                     "api_key.manage",
                     "documentation.view",
-                    "documentation.manage"
+                    "documentation.manage",
+                    "customization.manage",
+                    "custom_document.view",
+                    "custom_document.manage"
                   ]
                 },
                 {
@@ -1714,7 +1962,10 @@
                   "api_key.view",
                   "api_key.manage",
                   "documentation.view",
-                  "documentation.manage"
+                  "documentation.manage",
+                  "customization.manage",
+                  "custom_document.view",
+                  "custom_document.manage"
                 ],
                 "roles": "<roles: runtime value>"
               }
@@ -1777,7 +2028,10 @@
                 "api_key.view",
                 "api_key.manage",
                 "documentation.view",
-                "documentation.manage"
+                "documentation.manage",
+                "customization.manage",
+                "custom_document.view",
+                "custom_document.manage"
               ],
               "roles": "<roles: runtime value>"
             }
@@ -8092,6 +8346,2833 @@
       "notes": []
     },
     {
+      "id": "GET /api/v1/admin/customization/catalog",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/catalog",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / catalog",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 54
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "assertCapability may additionally enforce custom_document.view; its condition is defined in the handler.",
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "contexts",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "key",
+                        "type": "string",
+                        "required": true,
+                        "example": "MEMBER"
+                      },
+                      {
+                        "name": "label",
+                        "type": "string",
+                        "required": true,
+                        "example": "Members"
+                      },
+                      {
+                        "name": "readCapability",
+                        "type": "string",
+                        "required": true,
+                        "example": "member.view"
+                      },
+                      {
+                        "name": "writeCapability",
+                        "type": "string",
+                        "required": true,
+                        "example": "member.manage"
+                      }
+                    ],
+                    "example": {
+                      "key": "MEMBER",
+                      "label": "Members",
+                      "readCapability": "member.view",
+                      "writeCapability": "member.manage"
+                    }
+                  },
+                  "example": [
+                    {
+                      "key": "MEMBER",
+                      "label": "Members",
+                      "readCapability": "member.view",
+                      "writeCapability": "member.manage"
+                    },
+                    {
+                      "key": "PROJECT",
+                      "label": "Projects",
+                      "readCapability": "project.view",
+                      "writeCapability": "project.manage"
+                    },
+                    {
+                      "key": "PROJECT_DISTRIBUTION",
+                      "label": "Project distributions",
+                      "readCapability": "project.finance.view",
+                      "writeCapability": "project.manage"
+                    },
+                    {
+                      "key": "CAMPAIGN",
+                      "label": "Campaigns",
+                      "readCapability": "campaign.view",
+                      "writeCapability": "campaign.manage"
+                    },
+                    {
+                      "key": "REWARD",
+                      "label": "Rewards",
+                      "readCapability": "reward.view",
+                      "writeCapability": "reward.manage"
+                    },
+                    {
+                      "key": "REWARD_REDEMPTION",
+                      "label": "Reward redemptions",
+                      "readCapability": "reward.view",
+                      "writeCapability": "reward.manage"
+                    },
+                    {
+                      "key": "COUPON",
+                      "label": "Coupons",
+                      "readCapability": "coupon.view",
+                      "writeCapability": "coupon.manage"
+                    },
+                    {
+                      "key": "SEGMENT",
+                      "label": "Segments",
+                      "readCapability": "segment.view",
+                      "writeCapability": "segment.manage"
+                    },
+                    {
+                      "key": "TIER",
+                      "label": "Tiers",
+                      "readCapability": "tier.view",
+                      "writeCapability": "tier.manage"
+                    },
+                    {
+                      "key": "BADGE",
+                      "label": "Badges",
+                      "readCapability": "badge.view",
+                      "writeCapability": "badge.manage"
+                    },
+                    {
+                      "key": "EVENT",
+                      "label": "Event definitions",
+                      "readCapability": "event.view",
+                      "writeCapability": "event.manage"
+                    },
+                    {
+                      "key": "POINT_TYPE",
+                      "label": "Point types",
+                      "readCapability": "point_type.view",
+                      "writeCapability": "point_type.manage"
+                    },
+                    {
+                      "key": "POINT_RULE",
+                      "label": "Issuance rules",
+                      "readCapability": "issuance.view",
+                      "writeCapability": "issuance.manage"
+                    },
+                    {
+                      "key": "WORKFLOW",
+                      "label": "Workflows",
+                      "readCapability": "workflow.view",
+                      "writeCapability": "workflow.manage"
+                    },
+                    {
+                      "key": "BANK_CYCLE",
+                      "label": "Bank cycles",
+                      "readCapability": "bank.view",
+                      "writeCapability": "bank.manage"
+                    },
+                    {
+                      "key": "EXCHANGE_RATE",
+                      "label": "Exchange rates",
+                      "readCapability": "exchange.view",
+                      "writeCapability": "exchange.manage"
+                    },
+                    {
+                      "key": "EXCHANGE_REQUEST",
+                      "label": "Exchange vouchers",
+                      "readCapability": "exchange.view",
+                      "writeCapability": "exchange.manage"
+                    },
+                    {
+                      "key": "NOTIFICATION_TEMPLATE",
+                      "label": "Notification templates",
+                      "readCapability": "notification.view",
+                      "writeCapability": "notification.manage"
+                    },
+                    {
+                      "key": "RECOGNITION_CATEGORY",
+                      "label": "Recognition categories",
+                      "readCapability": "recognition.view",
+                      "writeCapability": "recognition.manage"
+                    },
+                    {
+                      "key": "DOCUMENTATION",
+                      "label": "Documentation",
+                      "readCapability": "documentation.view",
+                      "writeCapability": "documentation.manage"
+                    }
+                  ]
+                },
+                {
+                  "name": "roles",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<roles: runtime value>"
+                },
+                {
+                  "name": "workflows",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<workflows: runtime value>"
+                },
+                {
+                  "name": "canConfigure",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<canConfigure: runtime value>"
+                },
+                {
+                  "name": "canManageDocuments",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<canManageDocuments: runtime value>"
+                },
+                {
+                  "name": "canViewDocuments",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<canViewDocuments: runtime value>"
+                }
+              ],
+              "example": {
+                "contexts": [
+                  {
+                    "key": "MEMBER",
+                    "label": "Members",
+                    "readCapability": "member.view",
+                    "writeCapability": "member.manage"
+                  },
+                  {
+                    "key": "PROJECT",
+                    "label": "Projects",
+                    "readCapability": "project.view",
+                    "writeCapability": "project.manage"
+                  },
+                  {
+                    "key": "PROJECT_DISTRIBUTION",
+                    "label": "Project distributions",
+                    "readCapability": "project.finance.view",
+                    "writeCapability": "project.manage"
+                  },
+                  {
+                    "key": "CAMPAIGN",
+                    "label": "Campaigns",
+                    "readCapability": "campaign.view",
+                    "writeCapability": "campaign.manage"
+                  },
+                  {
+                    "key": "REWARD",
+                    "label": "Rewards",
+                    "readCapability": "reward.view",
+                    "writeCapability": "reward.manage"
+                  },
+                  {
+                    "key": "REWARD_REDEMPTION",
+                    "label": "Reward redemptions",
+                    "readCapability": "reward.view",
+                    "writeCapability": "reward.manage"
+                  },
+                  {
+                    "key": "COUPON",
+                    "label": "Coupons",
+                    "readCapability": "coupon.view",
+                    "writeCapability": "coupon.manage"
+                  },
+                  {
+                    "key": "SEGMENT",
+                    "label": "Segments",
+                    "readCapability": "segment.view",
+                    "writeCapability": "segment.manage"
+                  },
+                  {
+                    "key": "TIER",
+                    "label": "Tiers",
+                    "readCapability": "tier.view",
+                    "writeCapability": "tier.manage"
+                  },
+                  {
+                    "key": "BADGE",
+                    "label": "Badges",
+                    "readCapability": "badge.view",
+                    "writeCapability": "badge.manage"
+                  },
+                  {
+                    "key": "EVENT",
+                    "label": "Event definitions",
+                    "readCapability": "event.view",
+                    "writeCapability": "event.manage"
+                  },
+                  {
+                    "key": "POINT_TYPE",
+                    "label": "Point types",
+                    "readCapability": "point_type.view",
+                    "writeCapability": "point_type.manage"
+                  },
+                  {
+                    "key": "POINT_RULE",
+                    "label": "Issuance rules",
+                    "readCapability": "issuance.view",
+                    "writeCapability": "issuance.manage"
+                  },
+                  {
+                    "key": "WORKFLOW",
+                    "label": "Workflows",
+                    "readCapability": "workflow.view",
+                    "writeCapability": "workflow.manage"
+                  },
+                  {
+                    "key": "BANK_CYCLE",
+                    "label": "Bank cycles",
+                    "readCapability": "bank.view",
+                    "writeCapability": "bank.manage"
+                  },
+                  {
+                    "key": "EXCHANGE_RATE",
+                    "label": "Exchange rates",
+                    "readCapability": "exchange.view",
+                    "writeCapability": "exchange.manage"
+                  },
+                  {
+                    "key": "EXCHANGE_REQUEST",
+                    "label": "Exchange vouchers",
+                    "readCapability": "exchange.view",
+                    "writeCapability": "exchange.manage"
+                  },
+                  {
+                    "key": "NOTIFICATION_TEMPLATE",
+                    "label": "Notification templates",
+                    "readCapability": "notification.view",
+                    "writeCapability": "notification.manage"
+                  },
+                  {
+                    "key": "RECOGNITION_CATEGORY",
+                    "label": "Recognition categories",
+                    "readCapability": "recognition.view",
+                    "writeCapability": "recognition.manage"
+                  },
+                  {
+                    "key": "DOCUMENTATION",
+                    "label": "Documentation",
+                    "readCapability": "documentation.view",
+                    "writeCapability": "documentation.manage"
+                  }
+                ],
+                "roles": "<roles: runtime value>",
+                "workflows": "<workflows: runtime value>",
+                "canConfigure": "<canConfigure: runtime value>",
+                "canManageDocuments": "<canManageDocuments: runtime value>",
+                "canViewDocuments": "<canViewDocuments: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "contexts": [
+                {
+                  "key": "MEMBER",
+                  "label": "Members",
+                  "readCapability": "member.view",
+                  "writeCapability": "member.manage"
+                },
+                {
+                  "key": "PROJECT",
+                  "label": "Projects",
+                  "readCapability": "project.view",
+                  "writeCapability": "project.manage"
+                },
+                {
+                  "key": "PROJECT_DISTRIBUTION",
+                  "label": "Project distributions",
+                  "readCapability": "project.finance.view",
+                  "writeCapability": "project.manage"
+                },
+                {
+                  "key": "CAMPAIGN",
+                  "label": "Campaigns",
+                  "readCapability": "campaign.view",
+                  "writeCapability": "campaign.manage"
+                },
+                {
+                  "key": "REWARD",
+                  "label": "Rewards",
+                  "readCapability": "reward.view",
+                  "writeCapability": "reward.manage"
+                },
+                {
+                  "key": "REWARD_REDEMPTION",
+                  "label": "Reward redemptions",
+                  "readCapability": "reward.view",
+                  "writeCapability": "reward.manage"
+                },
+                {
+                  "key": "COUPON",
+                  "label": "Coupons",
+                  "readCapability": "coupon.view",
+                  "writeCapability": "coupon.manage"
+                },
+                {
+                  "key": "SEGMENT",
+                  "label": "Segments",
+                  "readCapability": "segment.view",
+                  "writeCapability": "segment.manage"
+                },
+                {
+                  "key": "TIER",
+                  "label": "Tiers",
+                  "readCapability": "tier.view",
+                  "writeCapability": "tier.manage"
+                },
+                {
+                  "key": "BADGE",
+                  "label": "Badges",
+                  "readCapability": "badge.view",
+                  "writeCapability": "badge.manage"
+                },
+                {
+                  "key": "EVENT",
+                  "label": "Event definitions",
+                  "readCapability": "event.view",
+                  "writeCapability": "event.manage"
+                },
+                {
+                  "key": "POINT_TYPE",
+                  "label": "Point types",
+                  "readCapability": "point_type.view",
+                  "writeCapability": "point_type.manage"
+                },
+                {
+                  "key": "POINT_RULE",
+                  "label": "Issuance rules",
+                  "readCapability": "issuance.view",
+                  "writeCapability": "issuance.manage"
+                },
+                {
+                  "key": "WORKFLOW",
+                  "label": "Workflows",
+                  "readCapability": "workflow.view",
+                  "writeCapability": "workflow.manage"
+                },
+                {
+                  "key": "BANK_CYCLE",
+                  "label": "Bank cycles",
+                  "readCapability": "bank.view",
+                  "writeCapability": "bank.manage"
+                },
+                {
+                  "key": "EXCHANGE_RATE",
+                  "label": "Exchange rates",
+                  "readCapability": "exchange.view",
+                  "writeCapability": "exchange.manage"
+                },
+                {
+                  "key": "EXCHANGE_REQUEST",
+                  "label": "Exchange vouchers",
+                  "readCapability": "exchange.view",
+                  "writeCapability": "exchange.manage"
+                },
+                {
+                  "key": "NOTIFICATION_TEMPLATE",
+                  "label": "Notification templates",
+                  "readCapability": "notification.view",
+                  "writeCapability": "notification.manage"
+                },
+                {
+                  "key": "RECOGNITION_CATEGORY",
+                  "label": "Recognition categories",
+                  "readCapability": "recognition.view",
+                  "writeCapability": "recognition.manage"
+                },
+                {
+                  "key": "DOCUMENTATION",
+                  "label": "Documentation",
+                  "readCapability": "documentation.view",
+                  "writeCapability": "documentation.manage"
+                }
+              ],
+              "roles": "<roles: runtime value>",
+              "workflows": "<workflows: runtime value>",
+              "canConfigure": "<canConfigure: runtime value>",
+              "canManageDocuments": "<canManageDocuments: runtime value>",
+              "canViewDocuments": "<canViewDocuments: runtime value>"
+            }
+          },
+          "source": "{ data: { contexts: CUSTOM_CONTEXTS, roles: canConfigure ? await configurationRoles(request.programId) : [], workflows: canConfigure ? await prisma.approvalWorkflow.findMany({ where: { programId: request.programId, actionKey: \"CUSTOM_DOCUMENT_APPROVAL\", isActive: true }, select: { id: true, name: true, actionKey: true, isActive: true } }) : [], canConfigure, canManageDocuments: await can(request, \"custom_document.manage\"), canViewDocuments: await can(request, \"custom_document.view\"), } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/customization/definitions",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/definitions",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / definitions",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 66
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "assertCapability may additionally enforce project.view; its condition is defined in the handler.",
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [
+          {
+            "name": "context",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().optional()",
+            "example": "<context>"
+          }
+        ],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "array",
+              "required": true,
+              "example": []
+            }
+          ],
+          "example": {
+            "data": []
+          },
+          "source": "{ data: result }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 403,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_ACCESS_DENIED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_ACCESS_DENIED\", 403)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "POST /api/v1/admin/customization/definitions",
+      "method": "POST",
+      "path": "/api/v1/admin/customization/definitions",
+      "group": "Admin · Customization",
+      "summary": "Create or execute admin / customization / definitions",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 92
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [
+          "customization.manage"
+        ],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "key",
+              "type": "string",
+              "required": true,
+              "validator": "keySchema",
+              "example": "<key>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(60)",
+                "regex(/^[a-z][a-z0-9_]*$/)",
+                "refine(custom validation/transformation in source, \"Reserved key\")"
+              ]
+            },
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().min(1).max(160)",
+              "example": "<name>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(160)"
+              ]
+            },
+            {
+              "name": "description",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().trim().max(5000).nullable().optional()",
+              "example": "<description>",
+              "constraints": [
+                "trim",
+                "max(5000)"
+              ],
+              "nullable": true
+            },
+            {
+              "name": "context",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().refine(value => value === \"CUSTOM\" || CUSTOM_CONTEXTS.some(context => context.key === value))",
+              "example": "<context>",
+              "constraints": [
+                "refine(custom validation/transformation in source)"
+              ]
+            },
+            {
+              "name": "fields",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "keySchema",
+                    "example": "<key>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(60)",
+                      "regex(/^[a-z][a-z0-9_]*$/)",
+                      "refine(custom validation/transformation in source, \"Reserved key\")"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "description",
+                    "type": "string",
+                    "required": false,
+                    "validator": "z.string().trim().max(1000).nullable().optional()",
+                    "example": "<description>",
+                    "constraints": [
+                      "trim",
+                      "max(1000)"
+                    ],
+                    "nullable": true
+                  },
+                  {
+                    "name": "type",
+                    "type": "string",
+                    "required": true,
+                    "enum": [
+                      "TEXT",
+                      "LONG_TEXT",
+                      "NUMBER",
+                      "BOOLEAN",
+                      "DATE",
+                      "DATETIME",
+                      "SELECT",
+                      "MULTI_SELECT",
+                      "EMAIL",
+                      "URL",
+                      "FILE"
+                    ],
+                    "validator": "z.enum([\"TEXT\", \"LONG_TEXT\", \"NUMBER\", \"BOOLEAN\", \"DATE\", \"DATETIME\", \"SELECT\", \"MULTI_SELECT\", \"EMAIL\", \"URL\", \"FILE\"])",
+                    "example": "TEXT"
+                  },
+                  {
+                    "name": "required",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  },
+                  {
+                    "name": "options",
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(200)",
+                      "example": "<options>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(200)"
+                      ]
+                    },
+                    "validator": "z.array(z.string().trim().min(1).max(200)).max(100).default([])",
+                    "example": [],
+                    "constraints": [
+                      "max(100)"
+                    ],
+                    "default": []
+                  },
+                  {
+                    "name": "sortOrder",
+                    "type": "integer",
+                    "required": false,
+                    "validator": "z.number().int().min(0).max(10000).default(0)",
+                    "example": 0,
+                    "constraints": [
+                      "int",
+                      "min(0)",
+                      "max(10000)"
+                    ],
+                    "default": 0
+                  },
+                  {
+                    "name": "readRoles",
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(80)",
+                      "example": "<readRoles>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(80)"
+                      ]
+                    },
+                    "validator": "roleList.default([])",
+                    "example": [],
+                    "constraints": [
+                      "max(100)"
+                    ],
+                    "default": []
+                  },
+                  {
+                    "name": "isActive",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(true)",
+                    "example": true,
+                    "default": true
+                  }
+                ],
+                "validator": "customFieldSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "type": "TEXT",
+                  "required": false,
+                  "options": [],
+                  "sortOrder": 0,
+                  "readRoles": [],
+                  "isActive": true
+                }
+              },
+              "validator": "z.array(customFieldSchema).max(100).default([])",
+              "example": [],
+              "constraints": [
+                "max(100)"
+              ],
+              "default": []
+            },
+            {
+              "name": "states",
+              "type": "array",
+              "required": true,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().regex(/^[A-Z][A-Z0-9_]{0,59}$/)",
+                    "example": "<key>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "initial",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  },
+                  {
+                    "name": "terminal",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  }
+                ],
+                "validator": "stateSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "initial": false,
+                  "terminal": false
+                }
+              },
+              "validator": "z.array(stateSchema).min(1).max(30)",
+              "example": [
+                {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "initial": false,
+                  "terminal": false
+                }
+              ],
+              "constraints": [
+                "min(1)",
+                "max(30)"
+              ]
+            },
+            {
+              "name": "transitions",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "keySchema",
+                    "example": "<key>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(60)",
+                      "regex(/^[a-z][a-z0-9_]*$/)",
+                      "refine(custom validation/transformation in source, \"Reserved key\")"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "from",
+                    "type": "string",
+                    "required": true,
+                    "validator": "stateSchema.shape.key",
+                    "example": "<from>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "to",
+                    "type": "string",
+                    "required": true,
+                    "validator": "stateSchema.shape.key",
+                    "example": "<to>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "roles",
+                    "type": "array",
+                    "required": true,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(80)",
+                      "example": "<roles>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(80)"
+                      ]
+                    },
+                    "validator": "roleList.min(1)",
+                    "example": [
+                      "<roles>"
+                    ],
+                    "constraints": [
+                      "max(100)",
+                      "min(1)"
+                    ]
+                  },
+                  {
+                    "name": "workflowId",
+                    "type": "string",
+                    "required": false,
+                    "validator": "z.string().min(1).nullable().optional()",
+                    "example": "<workflowId>",
+                    "constraints": [
+                      "min(1)"
+                    ],
+                    "nullable": true
+                  }
+                ],
+                "validator": "transitionSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "from": "<from>",
+                  "to": "<to>",
+                  "roles": [
+                    "<roles>"
+                  ]
+                }
+              },
+              "validator": "z.array(transitionSchema).max(100).default([])",
+              "example": [],
+              "constraints": [
+                "max(100)"
+              ],
+              "default": []
+            },
+            {
+              "name": "readRoles",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string",
+                "required": true,
+                "validator": "z.string().trim().min(1).max(80)",
+                "example": "<readRoles>",
+                "constraints": [
+                  "trim",
+                  "min(1)",
+                  "max(80)"
+                ]
+              },
+              "validator": "roleList.min(1).default([\"SUPER_ADMIN\"])",
+              "example": [
+                "SUPER_ADMIN"
+              ],
+              "constraints": [
+                "max(100)",
+                "min(1)"
+              ],
+              "default": [
+                "SUPER_ADMIN"
+              ]
+            },
+            {
+              "name": "writeRoles",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string",
+                "required": true,
+                "validator": "z.string().trim().min(1).max(80)",
+                "example": "<writeRoles>",
+                "constraints": [
+                  "trim",
+                  "min(1)",
+                  "max(80)"
+                ]
+              },
+              "validator": "roleList.min(1).default([\"SUPER_ADMIN\"])",
+              "example": [
+                "SUPER_ADMIN"
+              ],
+              "constraints": [
+                "max(100)",
+                "min(1)"
+              ],
+              "default": [
+                "SUPER_ADMIN"
+              ]
+            },
+            {
+              "name": "isActive",
+              "type": "boolean",
+              "required": false,
+              "validator": "z.boolean().default(true)",
+              "example": true,
+              "default": true
+            }
+          ],
+          "validator": "definitionSchema",
+          "example": {
+            "key": "<key>",
+            "name": "<name>",
+            "context": "<context>",
+            "fields": [],
+            "states": [
+              {
+                "key": "<key>",
+                "label": "<label>",
+                "initial": false,
+                "terminal": false
+              }
+            ],
+            "transitions": [],
+            "readRoles": [
+              "SUPER_ADMIN"
+            ],
+            "writeRoles": [
+              "SUPER_ADMIN"
+            ],
+            "isActive": true
+          }
+        },
+        "headers": [],
+        "example": {
+          "key": "<key>",
+          "name": "<name>",
+          "context": "<context>",
+          "fields": [],
+          "states": [
+            {
+              "key": "<key>",
+              "label": "<label>",
+              "initial": false,
+              "terminal": false
+            }
+          ],
+          "transitions": [],
+          "readRoles": [
+            "SUPER_ADMIN"
+          ],
+          "writeRoles": [
+            "SUPER_ADMIN"
+          ],
+          "isActive": true
+        }
+      },
+      "responses": [
+        {
+          "status": 201,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: created }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_CONTEXT_EXISTS",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_CONTEXT_EXISTS\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "DELETE /api/v1/admin/customization/definitions/:id",
+      "method": "DELETE",
+      "path": "/api/v1/admin/customization/definitions/:id",
+      "group": "Admin · Customization",
+      "summary": "Delete admin / customization / definitions / id",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 124
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [
+          "customization.manage"
+        ],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 204,
+          "type": "unknown",
+          "source": "(empty response)",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_HAS_PENDING_DOCUMENTS",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_HAS_PENDING_DOCUMENTS\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "PATCH /api/v1/admin/customization/definitions/:id",
+      "method": "PATCH",
+      "path": "/api/v1/admin/customization/definitions/:id",
+      "group": "Admin · Customization",
+      "summary": "Update admin / customization / definitions / id",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 101
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [
+          "customization.manage"
+        ],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "key",
+              "type": "string",
+              "required": true,
+              "validator": "keySchema",
+              "example": "<key>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(60)",
+                "regex(/^[a-z][a-z0-9_]*$/)",
+                "refine(custom validation/transformation in source, \"Reserved key\")"
+              ]
+            },
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().min(1).max(160)",
+              "example": "<name>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(160)"
+              ]
+            },
+            {
+              "name": "description",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().trim().max(5000).nullable().optional()",
+              "example": "<description>",
+              "constraints": [
+                "trim",
+                "max(5000)"
+              ],
+              "nullable": true
+            },
+            {
+              "name": "context",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().refine(value => value === \"CUSTOM\" || CUSTOM_CONTEXTS.some(context => context.key === value))",
+              "example": "<context>",
+              "constraints": [
+                "refine(custom validation/transformation in source)"
+              ]
+            },
+            {
+              "name": "fields",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "keySchema",
+                    "example": "<key>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(60)",
+                      "regex(/^[a-z][a-z0-9_]*$/)",
+                      "refine(custom validation/transformation in source, \"Reserved key\")"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "description",
+                    "type": "string",
+                    "required": false,
+                    "validator": "z.string().trim().max(1000).nullable().optional()",
+                    "example": "<description>",
+                    "constraints": [
+                      "trim",
+                      "max(1000)"
+                    ],
+                    "nullable": true
+                  },
+                  {
+                    "name": "type",
+                    "type": "string",
+                    "required": true,
+                    "enum": [
+                      "TEXT",
+                      "LONG_TEXT",
+                      "NUMBER",
+                      "BOOLEAN",
+                      "DATE",
+                      "DATETIME",
+                      "SELECT",
+                      "MULTI_SELECT",
+                      "EMAIL",
+                      "URL",
+                      "FILE"
+                    ],
+                    "validator": "z.enum([\"TEXT\", \"LONG_TEXT\", \"NUMBER\", \"BOOLEAN\", \"DATE\", \"DATETIME\", \"SELECT\", \"MULTI_SELECT\", \"EMAIL\", \"URL\", \"FILE\"])",
+                    "example": "TEXT"
+                  },
+                  {
+                    "name": "required",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  },
+                  {
+                    "name": "options",
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(200)",
+                      "example": "<options>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(200)"
+                      ]
+                    },
+                    "validator": "z.array(z.string().trim().min(1).max(200)).max(100).default([])",
+                    "example": [],
+                    "constraints": [
+                      "max(100)"
+                    ],
+                    "default": []
+                  },
+                  {
+                    "name": "sortOrder",
+                    "type": "integer",
+                    "required": false,
+                    "validator": "z.number().int().min(0).max(10000).default(0)",
+                    "example": 0,
+                    "constraints": [
+                      "int",
+                      "min(0)",
+                      "max(10000)"
+                    ],
+                    "default": 0
+                  },
+                  {
+                    "name": "readRoles",
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(80)",
+                      "example": "<readRoles>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(80)"
+                      ]
+                    },
+                    "validator": "roleList.default([])",
+                    "example": [],
+                    "constraints": [
+                      "max(100)"
+                    ],
+                    "default": []
+                  },
+                  {
+                    "name": "isActive",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(true)",
+                    "example": true,
+                    "default": true
+                  }
+                ],
+                "validator": "customFieldSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "type": "TEXT",
+                  "required": false,
+                  "options": [],
+                  "sortOrder": 0,
+                  "readRoles": [],
+                  "isActive": true
+                }
+              },
+              "validator": "z.array(customFieldSchema).max(100).default([])",
+              "example": [],
+              "constraints": [
+                "max(100)"
+              ],
+              "default": []
+            },
+            {
+              "name": "states",
+              "type": "array",
+              "required": true,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().regex(/^[A-Z][A-Z0-9_]{0,59}$/)",
+                    "example": "<key>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "initial",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  },
+                  {
+                    "name": "terminal",
+                    "type": "boolean",
+                    "required": false,
+                    "validator": "z.boolean().default(false)",
+                    "example": false,
+                    "default": false
+                  }
+                ],
+                "validator": "stateSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "initial": false,
+                  "terminal": false
+                }
+              },
+              "validator": "z.array(stateSchema).min(1).max(30)",
+              "example": [
+                {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "initial": false,
+                  "terminal": false
+                }
+              ],
+              "constraints": [
+                "min(1)",
+                "max(30)"
+              ]
+            },
+            {
+              "name": "transitions",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "key",
+                    "type": "string",
+                    "required": true,
+                    "validator": "keySchema",
+                    "example": "<key>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(60)",
+                      "regex(/^[a-z][a-z0-9_]*$/)",
+                      "refine(custom validation/transformation in source, \"Reserved key\")"
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "type": "string",
+                    "required": true,
+                    "validator": "z.string().trim().min(1).max(160)",
+                    "example": "<label>",
+                    "constraints": [
+                      "trim",
+                      "min(1)",
+                      "max(160)"
+                    ]
+                  },
+                  {
+                    "name": "from",
+                    "type": "string",
+                    "required": true,
+                    "validator": "stateSchema.shape.key",
+                    "example": "<from>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "to",
+                    "type": "string",
+                    "required": true,
+                    "validator": "stateSchema.shape.key",
+                    "example": "<to>",
+                    "constraints": [
+                      "regex(/^[A-Z][A-Z0-9_]{0,59}$/)"
+                    ]
+                  },
+                  {
+                    "name": "roles",
+                    "type": "array",
+                    "required": true,
+                    "items": {
+                      "type": "string",
+                      "required": true,
+                      "validator": "z.string().trim().min(1).max(80)",
+                      "example": "<roles>",
+                      "constraints": [
+                        "trim",
+                        "min(1)",
+                        "max(80)"
+                      ]
+                    },
+                    "validator": "roleList.min(1)",
+                    "example": [
+                      "<roles>"
+                    ],
+                    "constraints": [
+                      "max(100)",
+                      "min(1)"
+                    ]
+                  },
+                  {
+                    "name": "workflowId",
+                    "type": "string",
+                    "required": false,
+                    "validator": "z.string().min(1).nullable().optional()",
+                    "example": "<workflowId>",
+                    "constraints": [
+                      "min(1)"
+                    ],
+                    "nullable": true
+                  }
+                ],
+                "validator": "transitionSchema",
+                "example": {
+                  "key": "<key>",
+                  "label": "<label>",
+                  "from": "<from>",
+                  "to": "<to>",
+                  "roles": [
+                    "<roles>"
+                  ]
+                }
+              },
+              "validator": "z.array(transitionSchema).max(100).default([])",
+              "example": [],
+              "constraints": [
+                "max(100)"
+              ],
+              "default": []
+            },
+            {
+              "name": "readRoles",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string",
+                "required": true,
+                "validator": "z.string().trim().min(1).max(80)",
+                "example": "<readRoles>",
+                "constraints": [
+                  "trim",
+                  "min(1)",
+                  "max(80)"
+                ]
+              },
+              "validator": "roleList.min(1).default([\"SUPER_ADMIN\"])",
+              "example": [
+                "SUPER_ADMIN"
+              ],
+              "constraints": [
+                "max(100)",
+                "min(1)"
+              ],
+              "default": [
+                "SUPER_ADMIN"
+              ]
+            },
+            {
+              "name": "writeRoles",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string",
+                "required": true,
+                "validator": "z.string().trim().min(1).max(80)",
+                "example": "<writeRoles>",
+                "constraints": [
+                  "trim",
+                  "min(1)",
+                  "max(80)"
+                ]
+              },
+              "validator": "roleList.min(1).default([\"SUPER_ADMIN\"])",
+              "example": [
+                "SUPER_ADMIN"
+              ],
+              "constraints": [
+                "max(100)",
+                "min(1)"
+              ],
+              "default": [
+                "SUPER_ADMIN"
+              ]
+            },
+            {
+              "name": "isActive",
+              "type": "boolean",
+              "required": false,
+              "validator": "z.boolean().default(true)",
+              "example": true,
+              "default": true
+            },
+            {
+              "name": "version",
+              "type": "integer",
+              "required": true,
+              "validator": "z.number().int().positive()",
+              "example": 1,
+              "constraints": [
+                "int",
+                "positive"
+              ]
+            }
+          ],
+          "validator": "definitionSchema.extend({ version: z.number().int().positive() })",
+          "example": {
+            "key": "<key>",
+            "name": "<name>",
+            "context": "<context>",
+            "fields": [],
+            "states": [
+              {
+                "key": "<key>",
+                "label": "<label>",
+                "initial": false,
+                "terminal": false
+              }
+            ],
+            "transitions": [],
+            "readRoles": [
+              "SUPER_ADMIN"
+            ],
+            "writeRoles": [
+              "SUPER_ADMIN"
+            ],
+            "isActive": true,
+            "version": 1
+          }
+        },
+        "headers": [],
+        "example": {
+          "key": "<key>",
+          "name": "<name>",
+          "context": "<context>",
+          "fields": [],
+          "states": [
+            {
+              "key": "<key>",
+              "label": "<label>",
+              "initial": false,
+              "terminal": false
+            }
+          ],
+          "transitions": [],
+          "readRoles": [
+            "SUPER_ADMIN"
+          ],
+          "writeRoles": [
+            "SUPER_ADMIN"
+          ],
+          "isActive": true,
+          "version": 1
+        }
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: updated }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_KEY_IMMUTABLE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_KEY_IMMUTABLE\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_VERSION_CONFLICT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_VERSION_CONFLICT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_HAS_PENDING_DOCUMENTS",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_HAS_PENDING_DOCUMENTS\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_STATE_IN_USE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_STATE_IN_USE\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_FIELD_TYPE_IN_USE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_FIELD_TYPE_IN_USE\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/customization/definitions/:id/records",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/definitions/:id/records",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / definitions / id / records",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 146
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "array",
+              "required": true,
+              "example": []
+            }
+          ],
+          "example": {
+            "data": []
+          },
+          "source": "{ data: result }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "POST /api/v1/admin/customization/definitions/:id/records",
+      "method": "POST",
+      "path": "/api/v1/admin/customization/definitions/:id/records",
+      "group": "Admin · Customization",
+      "summary": "Create or execute admin / customization / definitions / id / records",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 161
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "title",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().min(1).max(200)",
+              "example": "<title>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(200)"
+              ]
+            },
+            {
+              "name": "values",
+              "type": "object",
+              "required": false,
+              "constraints": [
+                "Record with dynamic keys"
+              ],
+              "items": {
+                "type": "unknown",
+                "required": true,
+                "validator": "z.unknown()",
+                "example": "<values>"
+              },
+              "validator": "z.record(z.unknown()).default({})",
+              "example": {},
+              "default": {}
+            },
+            {
+              "name": "recordId",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().min(1).nullable().optional()",
+              "example": "<recordId>",
+              "constraints": [
+                "min(1)"
+              ],
+              "nullable": true
+            },
+            {
+              "name": "version",
+              "type": "integer",
+              "required": false,
+              "validator": "z.number().int().positive().optional()",
+              "example": 1,
+              "constraints": [
+                "int",
+                "positive"
+              ]
+            }
+          ],
+          "validator": "recordBody",
+          "example": {
+            "title": "<title>",
+            "values": {}
+          }
+        },
+        "headers": [],
+        "example": {
+          "title": "<title>",
+          "values": {}
+        }
+      },
+      "responses": [
+        {
+          "status": 201,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "values",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<values: runtime value>"
+                }
+              ],
+              "example": {
+                "values": "<values: runtime value>"
+              },
+              "constraints": [
+                "Additional runtime fields are spread into this response."
+              ]
+            }
+          ],
+          "example": {
+            "data": {
+              "values": "<values: runtime value>"
+            }
+          },
+          "source": "{ data: { ...record, values: visibleValues(fields, record.values, role) } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_TARGET_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_TARGET_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_TARGET_INVALID",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_TARGET_INVALID\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_SAVE_DRAFT_BEFORE_UPLOAD",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_SAVE_DRAFT_BEFORE_UPLOAD\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/customization/definitions/:id/targets",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/definitions/:id/targets",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / definitions / id / targets",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 137
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [
+          {
+            "name": "search",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().max(200).default(\"\")",
+            "example": "",
+            "constraints": [
+              "max(200)"
+            ],
+            "default": ""
+          }
+        ],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: definition.context === \"CUSTOM\" ? [] : await builtinTargets(request, definition.context, role, undefined, search) }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "DELETE /api/v1/admin/customization/records/:id",
+      "method": "DELETE",
+      "path": "/api/v1/admin/customization/records/:id",
+      "group": "Admin · Customization",
+      "summary": "Delete admin / customization / records / id",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 208
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 204,
+          "type": "unknown",
+          "source": "(empty response)",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOM_DOCUMENT_NOT_ARCHIVABLE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOM_DOCUMENT_NOT_ARCHIVABLE\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOM_DOCUMENT_VERSION_CONFLICT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOM_DOCUMENT_VERSION_CONFLICT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/customization/records/:id",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/records/:id",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / records / id",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 182
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "availableTransitions",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<availableTransitions: runtime value>"
+                },
+                {
+                  "name": "definition",
+                  "type": "object",
+                  "required": true,
+                  "fields": [
+                    {
+                      "name": "canManage",
+                      "type": "unknown",
+                      "required": true,
+                      "example": "<canManage: runtime value>"
+                    },
+                    {
+                      "name": "fields",
+                      "type": "unknown",
+                      "required": true,
+                      "example": "<fields: runtime value>"
+                    }
+                  ],
+                  "example": {
+                    "canManage": "<canManage: runtime value>",
+                    "fields": "<fields: runtime value>"
+                  },
+                  "constraints": [
+                    "Additional runtime fields are spread into this response."
+                  ]
+                },
+                {
+                  "name": "values",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<values: runtime value>"
+                }
+              ],
+              "example": {
+                "availableTransitions": "<availableTransitions: runtime value>",
+                "definition": {
+                  "canManage": "<canManage: runtime value>",
+                  "fields": "<fields: runtime value>"
+                },
+                "values": "<values: runtime value>"
+              },
+              "constraints": [
+                "Additional runtime fields are spread into this response."
+              ]
+            }
+          ],
+          "example": {
+            "data": {
+              "availableTransitions": "<availableTransitions: runtime value>",
+              "definition": {
+                "canManage": "<canManage: runtime value>",
+                "fields": "<fields: runtime value>"
+              },
+              "values": "<values: runtime value>"
+            }
+          },
+          "source": "{ data: { ...record, availableTransitions: allowedTransitions(definition, record, role), definition: { ...definition, canManage, fields: fields.filter(field => fieldVisible(field, role)) }, values: visibleValues(fields, record.values, role) } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "PATCH /api/v1/admin/customization/records/:id",
+      "method": "PATCH",
+      "path": "/api/v1/admin/customization/records/:id",
+      "group": "Admin · Customization",
+      "summary": "Update admin / customization / records / id",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 189
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "title",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().trim().min(1).max(200)",
+              "example": "<title>",
+              "constraints": [
+                "trim",
+                "min(1)",
+                "max(200)"
+              ]
+            },
+            {
+              "name": "values",
+              "type": "object",
+              "required": false,
+              "constraints": [
+                "Record with dynamic keys"
+              ],
+              "items": {
+                "type": "unknown",
+                "required": true,
+                "validator": "z.unknown()",
+                "example": "<values>"
+              },
+              "validator": "z.record(z.unknown()).default({})",
+              "example": {},
+              "default": {}
+            },
+            {
+              "name": "recordId",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().min(1).nullable().optional()",
+              "example": "<recordId>",
+              "constraints": [
+                "min(1)"
+              ],
+              "nullable": true
+            },
+            {
+              "name": "version",
+              "type": "integer",
+              "required": true,
+              "validator": "z.number().int().positive()",
+              "example": 1,
+              "constraints": [
+                "int",
+                "positive"
+              ]
+            }
+          ],
+          "validator": "recordBody.extend({ version: z.number().int().positive() })",
+          "example": {
+            "title": "<title>",
+            "values": {},
+            "version": 1
+          }
+        },
+        "headers": [],
+        "example": {
+          "title": "<title>",
+          "values": {},
+          "version": 1
+        }
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "values",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<values: runtime value>"
+                }
+              ],
+              "example": {
+                "values": "<values: runtime value>"
+              },
+              "constraints": [
+                "Additional runtime fields are spread into this response."
+              ]
+            }
+          ],
+          "example": {
+            "data": {
+              "values": "<values: runtime value>"
+            }
+          },
+          "source": "{ data: { ...updated, values: visibleValues(fields, updated.values, role) } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOM_DOCUMENT_TERMINAL",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOM_DOCUMENT_TERMINAL\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOM_DOCUMENT_VERSION_CONFLICT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOM_DOCUMENT_VERSION_CONFLICT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/admin/customization/records/:id/history",
+      "method": "GET",
+      "path": "/api/v1/admin/customization/records/:id/history",
+      "group": "Admin · Customization",
+      "summary": "Read admin / customization / records / id / history",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 251
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: await prisma.approvalRequest.findMany({ where: { programId: request.programId, subjectType: \"CustomDocument\", subjectId: id }, orderBy: { requestedAt: \"desc\" }, take: 100, select: { id: true, status: true, requestedAt: true, resolvedAt: true, resolutionComment: true, steps: { orderBy: { stepOrder: \"asc\" }, select: { name: true, status: true } }, decisions: { orderBy: { createdAt: \"asc\" }, select: { decision: true, comment: true, createdAt: true, approver: { select: { name: true } } } } } }) }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "POST /api/v1/admin/customization/records/:id/transitions",
+      "method": "POST",
+      "path": "/api/v1/admin/customization/records/:id/transitions",
+      "group": "Admin · Customization",
+      "summary": "Create or execute admin / customization / records / id / transitions",
+      "description": "Registered by adminCustomizationRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/admin/customization.ts",
+        "line": 217
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().min(1)",
+            "example": "<id>",
+            "constraints": [
+              "min(1)"
+            ]
+          }
+        ],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "transitionKey",
+              "type": "string",
+              "required": true,
+              "validator": "z.string().min(1)",
+              "example": "<transitionKey>",
+              "constraints": [
+                "min(1)"
+              ]
+            },
+            {
+              "name": "version",
+              "type": "integer",
+              "required": true,
+              "validator": "z.number().int().positive()",
+              "example": 1,
+              "constraints": [
+                "int",
+                "positive"
+              ]
+            }
+          ],
+          "validator": "z.object({ transitionKey: z.string().min(1), version: z.number().int().positive() })",
+          "example": {
+            "transitionKey": "<transitionKey>",
+            "version": 1
+          }
+        },
+        "headers": [],
+        "example": {
+          "transitionKey": "<transitionKey>",
+          "version": 1
+        }
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "values",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<values: runtime value>"
+                }
+              ],
+              "example": {
+                "values": "<values: runtime value>"
+              },
+              "constraints": [
+                "Additional runtime fields are spread into this response."
+              ]
+            }
+          ],
+          "example": {
+            "data": {
+              "values": "<values: runtime value>"
+            }
+          },
+          "source": "{ data: { ...result, values: visibleValues(fields, result.values, role) } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_BUILTIN_WORKFLOW_PROTECTED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_BUILTIN_WORKFLOW_PROTECTED\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 403,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_TRANSITION_NOT_ALLOWED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_TRANSITION_NOT_ALLOWED\", 403)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOM_DOCUMENT_VERSION_CONFLICT",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOM_DOCUMENT_VERSION_CONFLICT\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "CUSTOMIZATION_WORKFLOW_INVALID",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"CUSTOMIZATION_WORKFLOW_INVALID\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
       "id": "GET /api/v1/admin/dashboard-layout",
       "method": "GET",
       "path": "/api/v1/admin/dashboard-layout",
@@ -12583,7 +15664,7 @@
       "description": "═══ Notification Templates ═══ GET /admin/notification-templates",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 132
+        "line": 198
       },
       "access": {
         "mode": "admin",
@@ -12747,7 +15828,7 @@
       "description": "POST /admin/notification-templates",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 218
+        "line": 284
       },
       "access": {
         "mode": "admin",
@@ -12905,7 +15986,7 @@
       "description": "DELETE /admin/notification-templates/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 275
+        "line": 341
       },
       "access": {
         "mode": "admin",
@@ -13004,7 +16085,7 @@
       "description": "GET /admin/notification-templates/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 240
+        "line": 306
       },
       "access": {
         "mode": "admin",
@@ -13114,7 +16195,7 @@
       "description": "PATCH /admin/notification-templates/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 253
+        "line": 319
       },
       "access": {
         "mode": "admin",
@@ -13307,7 +16388,7 @@
       "description": "POST /admin/notification-templates/:id/preview",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 295
+        "line": 361
       },
       "access": {
         "mode": "admin",
@@ -13474,7 +16555,7 @@
       "description": "POST /admin/notification-templates/:id/test-send",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 324
+        "line": 390
       },
       "access": {
         "mode": "admin",
@@ -13740,7 +16821,7 @@
       "description": "Registered by adminNotificationsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 171
+        "line": 237
       },
       "access": {
         "mode": "admin",
@@ -13990,7 +17071,7 @@
       "description": "Registered by adminNotificationsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 161
+        "line": 227
       },
       "access": {
         "mode": "admin",
@@ -14053,7 +17134,7 @@
       "description": "═══ Notifications ─────────────────────────────────────── GET /admin/notifications",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 461
+        "line": 527
       },
       "access": {
         "mode": "admin",
@@ -14193,7 +17274,7 @@
       "description": "Registered by adminNotificationsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 87
+        "line": 100
       },
       "access": {
         "mode": "admin",
@@ -14263,7 +17344,7 @@
               "unreadCount": "<unreadCount: runtime value>"
             }
           },
-          "source": "{ data: { items: items.map(({ emailBody: _emailBody, emailSubject: _emailSubject, emailError: _emailError, ...item }) => item), unreadCount, }, }",
+          "source": "{ data: { items: localizedItems.map(({ emailBody: _emailBody, emailSubject: _emailSubject, emailError: _emailError, ...item }) => item), unreadCount, }, }",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
           ]
@@ -14294,7 +17375,7 @@
       "description": "Registered by adminNotificationsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 109
+        "line": 175
       },
       "access": {
         "mode": "admin",
@@ -14400,7 +17481,7 @@
       "description": "═══ Webhooks ═══════════════════════════════════════════ GET /admin/webhooks",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 489
+        "line": 555
       },
       "access": {
         "mode": "admin",
@@ -14505,7 +17586,7 @@
       "description": "POST /admin/webhooks",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 507
+        "line": 573
       },
       "access": {
         "mode": "admin",
@@ -14629,7 +17710,7 @@
       "description": "DELETE /admin/webhooks/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 548
+        "line": 614
       },
       "access": {
         "mode": "admin",
@@ -14728,7 +17809,7 @@
       "description": "GET /admin/webhooks/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 522
+        "line": 588
       },
       "access": {
         "mode": "admin",
@@ -14838,7 +17919,7 @@
       "description": "PATCH /admin/webhooks/:id",
       "source": {
         "file": "apps/api/src/routes/admin/notifications.ts",
-        "line": 531
+        "line": 597
       },
       "access": {
         "mode": "admin",
@@ -15270,7 +18351,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 164
+        "line": 185
       },
       "access": {
         "mode": "admin",
@@ -15323,7 +18404,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 167
+        "line": 188
       },
       "access": {
         "mode": "admin",
@@ -15504,7 +18585,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 186
+        "line": 207
       },
       "access": {
         "mode": "admin",
@@ -15571,7 +18652,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 174
+        "line": 195
       },
       "access": {
         "mode": "admin",
@@ -15773,7 +18854,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 224
+        "line": 245
       },
       "access": {
         "mode": "admin",
@@ -15826,7 +18907,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 244
+        "line": 265
       },
       "access": {
         "mode": "admin",
@@ -15993,7 +19074,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 258
+        "line": 279
       },
       "access": {
         "mode": "admin",
@@ -16087,7 +19168,7 @@
               "approvalSummary": "<approvalSummary: runtime value>"
             }
           },
-          "source": "{ data: { ...project, fieldValues: flags.canViewBudget ? project.fieldValues : {}, budgets: flags.canViewBudget ? project.budgets : [], issueBatches: flags.canViewBudget ? project.issueBatches : [], budgetTransactions: flags.canViewBudget ? project.budgetTransactions : [], ...flags, approvalSummary: projectApprovalSummary, } }",
+          "source": "{ data: { ...project, fieldValues: flags.canViewBudget ? project.fieldValues : {}, budgets: flags.canViewBudget ? project.budgets : [], issueBatches, budgetTransactions: flags.canViewBudget ? project.budgetTransactions : [], ...flags, approvalSummary: projectApprovalSummary, } }",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
           ]
@@ -16118,7 +19199,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 322
+        "line": 351
       },
       "access": {
         "mode": "admin",
@@ -16310,7 +19391,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 357
+        "line": 386
       },
       "access": {
         "mode": "admin",
@@ -16387,7 +19468,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 540
+        "line": 542
       },
       "access": {
         "mode": "admin",
@@ -16478,7 +19559,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 463
+        "line": 427
       },
       "access": {
         "mode": "admin",
@@ -16542,20 +19623,6 @@
           "notes": [
             "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
           ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_TASKS_INCOMPLETE",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_TASKS_INCOMPLETE\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
         }
       ],
       "notes": []
@@ -16569,7 +19636,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 365
+        "line": 394
       },
       "access": {
         "mode": "admin",
@@ -16710,7 +19777,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 490
+        "line": 452
       },
       "access": {
         "mode": "admin",
@@ -16813,9 +19880,151 @@
                 "min(1)",
                 "max(10000)"
               ]
+            },
+            {
+              "name": "description",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().trim().max(5000).optional()",
+              "example": "<description>",
+              "constraints": [
+                "trim",
+                "max(5000)"
+              ]
+            },
+            {
+              "name": "evidence",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "union",
+                "required": true,
+                "alternatives": [
+                  {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "kind",
+                        "type": "string",
+                        "required": true,
+                        "enum": [
+                          "LINK"
+                        ],
+                        "validator": "z.literal(\"LINK\")",
+                        "example": "LINK"
+                      },
+                      {
+                        "name": "url",
+                        "type": "string",
+                        "required": true,
+                        "validator": "z.string().trim().min(1).max(2048).url().refine((value) => { try { const parsed = new URL(value); return (parsed.protocol === \"http:\" || parsed.protocol === \"https:\") && !parsed.username && !parsed.password; } catch { return false; } })",
+                        "example": "https://example.com",
+                        "constraints": [
+                          "trim",
+                          "min(1)",
+                          "max(2048)",
+                          "url",
+                          "refine(custom validation/transformation in source)"
+                        ]
+                      },
+                      {
+                        "name": "name",
+                        "type": "string",
+                        "required": false,
+                        "validator": "z.string().trim().min(1).max(160).optional()",
+                        "example": "<name>",
+                        "constraints": [
+                          "trim",
+                          "min(1)",
+                          "max(160)"
+                        ]
+                      }
+                    ],
+                    "validator": "z.object({ kind: z.literal(\"LINK\"), url: z.string().trim().min(1).max(2048).url().refine((value) => { try { const parsed = new URL(value); return (parsed.protocol === \"http:\" || parsed.protocol === \"https:\") && !parsed.username && !parsed.password; } catch { return false; } }), name: z.string().trim().min(1).max(160).optional(), })",
+                    "example": {
+                      "kind": "LINK",
+                      "url": "https://example.com"
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "kind",
+                        "type": "string",
+                        "required": true,
+                        "enum": [
+                          "FILE"
+                        ],
+                        "validator": "z.literal(\"FILE\")",
+                        "example": "FILE"
+                      },
+                      {
+                        "name": "attachmentId",
+                        "type": "string",
+                        "required": true,
+                        "validator": "z.string().trim().min(1).max(200)",
+                        "example": "<attachmentId>",
+                        "constraints": [
+                          "trim",
+                          "min(1)",
+                          "max(200)"
+                        ]
+                      },
+                      {
+                        "name": "name",
+                        "type": "string",
+                        "required": false,
+                        "validator": "z.string().trim().min(1).max(160).optional()",
+                        "example": "<name>",
+                        "constraints": [
+                          "trim",
+                          "min(1)",
+                          "max(160)"
+                        ]
+                      }
+                    ],
+                    "validator": "z.object({ kind: z.literal(\"FILE\"), attachmentId: z.string().trim().min(1).max(200), name: z.string().trim().min(1).max(160).optional(), })",
+                    "example": {
+                      "kind": "FILE",
+                      "attachmentId": "<attachmentId>"
+                    }
+                  }
+                ],
+                "validator": "evidenceItemSchema",
+                "example": {
+                  "kind": "LINK",
+                  "url": "https://example.com"
+                }
+              },
+              "validator": "issueEvidenceSchema",
+              "example": [],
+              "constraints": [
+                "max(10)"
+              ],
+              "default": []
+            },
+            {
+              "name": "fieldValues",
+              "type": "object",
+              "required": false,
+              "constraints": [
+                "Record with dynamic keys"
+              ],
+              "items": {
+                "type": "unknown",
+                "required": true,
+                "validator": "z.unknown()",
+                "example": "<fieldValues>"
+              },
+              "validator": "z.record(z.unknown()).optional().default({})",
+              "example": {},
+              "default": {}
             }
           ],
-          "validator": "z.object({ allocations: z.array(allocationSchema).min(1).max(10000) })",
+          "validator": "z.object({ allocations: z.array(allocationSchema).min(1).max(10000), description: z.string().trim().max(5000).optional(), evidence: issueEvidenceSchema, fieldValues: z.record(z.unknown()).optional().default({}), })",
           "example": {
             "allocations": [
               {
@@ -16824,7 +20033,9 @@
                 "mode": "AMOUNT",
                 "value": 1
               }
-            ]
+            ],
+            "evidence": [],
+            "fieldValues": {}
           }
         },
         "headers": [],
@@ -16836,7 +20047,9 @@
               "mode": "AMOUNT",
               "value": 1
             }
-          ]
+          ],
+          "evidence": [],
+          "fieldValues": {}
         }
       },
       "responses": [
@@ -16897,6 +20110,20 @@
             }
           },
           "source": "LoyaltyError(\"PROJECT_ISSUANCE_PENDING\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "PROJECT_EVIDENCE_ATTACHMENT_INVALID",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"PROJECT_EVIDENCE_ATTACHMENT_INVALID\", 400)",
           "notes": [
             "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
           ]
@@ -16997,7 +20224,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 333
+        "line": 362
       },
       "access": {
         "mode": "admin",
@@ -17108,419 +20335,6 @@
       "notes": []
     },
     {
-      "id": "POST /api/v1/admin/projects/:id/tasks",
-      "method": "POST",
-      "path": "/api/v1/admin/projects/:id/tasks",
-      "group": "Admin · Projects",
-      "summary": "Create or execute admin / projects / id / tasks",
-      "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
-      "source": {
-        "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 398
-      },
-      "access": {
-        "mode": "admin",
-        "credentials": [
-          "Cookie: loyaltyos_admin_session=<admin-session>"
-        ],
-        "capabilities": [
-          "project.manage"
-        ],
-        "notes": [
-          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
-        ]
-      },
-      "request": {
-        "params": [
-          {
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<id>",
-            "constraints": [
-              "min(1)"
-            ]
-          }
-        ],
-        "query": [],
-        "body": {
-          "type": "object",
-          "required": true,
-          "fields": [
-            {
-              "name": "title",
-              "type": "string",
-              "required": true,
-              "validator": "z.string().trim().min(1).max(160)",
-              "example": "<title>",
-              "constraints": [
-                "trim",
-                "min(1)",
-                "max(160)"
-              ]
-            },
-            {
-              "name": "description",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().trim().max(3000).optional()",
-              "example": "<description>",
-              "constraints": [
-                "trim",
-                "max(3000)"
-              ]
-            },
-            {
-              "name": "assigneeId",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().nullable().optional()",
-              "example": "<assigneeId>",
-              "nullable": true
-            },
-            {
-              "name": "dueAt",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().datetime().nullable().optional()",
-              "example": "2030-01-01T00:00:00.000Z",
-              "constraints": [
-                "datetime"
-              ],
-              "nullable": true
-            }
-          ],
-          "validator": "z.object({ title: z.string().trim().min(1).max(160), description: z.string().trim().max(3000).optional(), assigneeId: z.string().nullable().optional(), dueAt: z.string().datetime().nullable().optional() })",
-          "example": {
-            "title": "<title>"
-          }
-        },
-        "headers": [],
-        "example": {
-          "title": "<title>"
-        }
-      },
-      "responses": [
-        {
-          "status": 201,
-          "type": "object",
-          "fields": [
-            {
-              "name": "data",
-              "type": "unknown",
-              "required": true,
-              "example": "<data: runtime value>"
-            }
-          ],
-          "example": {
-            "data": "<data: runtime value>"
-          },
-          "source": "{ data: task }",
-          "notes": [
-            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
-          ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_NOT_ACTIVE",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_NOT_ACTIVE\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_MEMBER_MUST_ACCEPT_FIRST",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_MEMBER_MUST_ACCEPT_FIRST\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        }
-      ],
-      "notes": []
-    },
-    {
-      "id": "DELETE /api/v1/admin/projects/:id/tasks/:taskId",
-      "method": "DELETE",
-      "path": "/api/v1/admin/projects/:id/tasks/:taskId",
-      "group": "Admin · Projects",
-      "summary": "Delete admin / projects / id / tasks / taskId",
-      "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
-      "source": {
-        "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 453
-      },
-      "access": {
-        "mode": "admin",
-        "credentials": [
-          "Cookie: loyaltyos_admin_session=<admin-session>"
-        ],
-        "capabilities": [
-          "project.manage"
-        ],
-        "notes": [
-          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
-        ]
-      },
-      "request": {
-        "params": [
-          {
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<id>",
-            "constraints": [
-              "min(1)"
-            ]
-          },
-          {
-            "name": "taskId",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<taskId>",
-            "constraints": [
-              "min(1)"
-            ]
-          }
-        ],
-        "query": [],
-        "body": null,
-        "headers": []
-      },
-      "responses": [
-        {
-          "status": 204,
-          "type": "unknown",
-          "source": "(empty response)",
-          "notes": [
-            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
-          ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_NOT_ACTIVE",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_NOT_ACTIVE\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 404,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_TASK_NOT_FOUND",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_TASK_NOT_FOUND\", 404)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        }
-      ],
-      "notes": []
-    },
-    {
-      "id": "PATCH /api/v1/admin/projects/:id/tasks/:taskId",
-      "method": "PATCH",
-      "path": "/api/v1/admin/projects/:id/tasks/:taskId",
-      "group": "Admin · Projects",
-      "summary": "Update admin / projects / id / tasks / taskId",
-      "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
-      "source": {
-        "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 423
-      },
-      "access": {
-        "mode": "admin",
-        "credentials": [
-          "Cookie: loyaltyos_admin_session=<admin-session>"
-        ],
-        "capabilities": [
-          "project.manage"
-        ],
-        "notes": [
-          "This handler additionally requires adminId; a SERVER API key alone is insufficient."
-        ]
-      },
-      "request": {
-        "params": [
-          {
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<id>",
-            "constraints": [
-              "min(1)"
-            ]
-          },
-          {
-            "name": "taskId",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<taskId>",
-            "constraints": [
-              "min(1)"
-            ]
-          }
-        ],
-        "query": [],
-        "body": {
-          "type": "object",
-          "required": true,
-          "fields": [
-            {
-              "name": "title",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().trim().min(1).max(160).optional()",
-              "example": "<title>",
-              "constraints": [
-                "trim",
-                "min(1)",
-                "max(160)"
-              ]
-            },
-            {
-              "name": "description",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().trim().max(3000).nullable().optional()",
-              "example": "<description>",
-              "constraints": [
-                "trim",
-                "max(3000)"
-              ],
-              "nullable": true
-            },
-            {
-              "name": "assigneeId",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().nullable().optional()",
-              "example": "<assigneeId>",
-              "nullable": true
-            },
-            {
-              "name": "dueAt",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().datetime().nullable().optional()",
-              "example": "2030-01-01T00:00:00.000Z",
-              "constraints": [
-                "datetime"
-              ],
-              "nullable": true
-            },
-            {
-              "name": "status",
-              "type": "string",
-              "required": false,
-              "enum": [
-                "TODO",
-                "IN_PROGRESS",
-                "DONE"
-              ],
-              "validator": "z.enum([\"TODO\", \"IN_PROGRESS\", \"DONE\"]).optional()",
-              "example": "TODO"
-            }
-          ],
-          "validator": "z.object({ title: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(3000).nullable().optional(), assigneeId: z.string().nullable().optional(), dueAt: z.string().datetime().nullable().optional(), status: z.enum([\"TODO\", \"IN_PROGRESS\", \"DONE\"]).optional() })",
-          "example": {}
-        },
-        "headers": [],
-        "example": {}
-      },
-      "responses": [
-        {
-          "status": 200,
-          "type": "object",
-          "fields": [
-            {
-              "name": "data",
-              "type": "unknown",
-              "required": true,
-              "example": "<data: runtime value>"
-            }
-          ],
-          "example": {
-            "data": "<data: runtime value>"
-          },
-          "source": "{ data: task }",
-          "notes": [
-            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
-          ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_NOT_ACTIVE",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_NOT_ACTIVE\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 404,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_TASK_NOT_FOUND",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_TASK_NOT_FOUND\", 404)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 409,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_MEMBER_MUST_ACCEPT_FIRST",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_MEMBER_MUST_ACCEPT_FIRST\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        }
-      ],
-      "notes": []
-    },
-    {
       "id": "GET /api/v1/admin/projects/bootstrap",
       "method": "GET",
       "path": "/api/v1/admin/projects/bootstrap",
@@ -17529,7 +20343,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 195
+        "line": 216
       },
       "access": {
         "mode": "admin",
@@ -17651,7 +20465,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 560
+        "line": 562
       },
       "access": {
         "mode": "member",
@@ -17755,16 +20569,16 @@
                         "example": "<closedAt: runtime value>"
                       },
                       {
+                        "name": "informationUpdatedAt",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<informationUpdatedAt: runtime value>"
+                      },
+                      {
                         "name": "projectManager",
                         "type": "unknown",
                         "required": true,
                         "example": "<projectManager: runtime value>"
-                      },
-                      {
-                        "name": "tasks",
-                        "type": "unknown",
-                        "required": true,
-                        "example": "<tasks: runtime value>"
                       }
                     ],
                     "example": {
@@ -17775,9 +20589,12 @@
                       "activatedAt": "<activatedAt: runtime value>",
                       "completedAt": "<completedAt: runtime value>",
                       "closedAt": "<closedAt: runtime value>",
-                      "projectManager": "<projectManager: runtime value>",
-                      "tasks": "<tasks: runtime value>"
-                    }
+                      "informationUpdatedAt": "<informationUpdatedAt: runtime value>",
+                      "projectManager": "<projectManager: runtime value>"
+                    },
+                    "constraints": [
+                      "Additional runtime fields are spread into this response."
+                    ]
                   }
                 ],
                 "example": {
@@ -17793,8 +20610,8 @@
                     "activatedAt": "<activatedAt: runtime value>",
                     "completedAt": "<completedAt: runtime value>",
                     "closedAt": "<closedAt: runtime value>",
-                    "projectManager": "<projectManager: runtime value>",
-                    "tasks": "<tasks: runtime value>"
+                    "informationUpdatedAt": "<informationUpdatedAt: runtime value>",
+                    "projectManager": "<projectManager: runtime value>"
                   }
                 }
               },
@@ -17812,8 +20629,8 @@
                     "activatedAt": "<activatedAt: runtime value>",
                     "completedAt": "<completedAt: runtime value>",
                     "closedAt": "<closedAt: runtime value>",
-                    "projectManager": "<projectManager: runtime value>",
-                    "tasks": "<tasks: runtime value>"
+                    "informationUpdatedAt": "<informationUpdatedAt: runtime value>",
+                    "projectManager": "<projectManager: runtime value>"
                   }
                 }
               ]
@@ -17834,13 +20651,13 @@
                   "activatedAt": "<activatedAt: runtime value>",
                   "completedAt": "<completedAt: runtime value>",
                   "closedAt": "<closedAt: runtime value>",
-                  "projectManager": "<projectManager: runtime value>",
-                  "tasks": "<tasks: runtime value>"
+                  "informationUpdatedAt": "<informationUpdatedAt: runtime value>",
+                  "projectManager": "<projectManager: runtime value>"
                 }
               }
             ]
           },
-          "source": "{ data: memberships.map((membership) => ({ id: membership.id, status: membership.status, invitedAt: membership.invitedAt, respondedAt: membership.respondedAt, project: { id: membership.project.id, name: membership.project.name, description: membership.project.description, status: membership.project.status, activatedAt: membership.project.activatedAt, completedAt: membership.project.completedAt, closedAt: membership.project.closedAt, projectManager: membership.project.createdBy ? { name: membership.project.createdBy.name } : null, tasks: membership.status === \"ACCEPTED\" ? (tasksByProject.get(membership.projectId) ?? []).map((task) => ({ id: task.id, title: task.title, description: task.description, status: task.status, dueAt: task.dueAt, })) : [], }, })) }",
+          "source": "{ data: memberships.map((membership) => ({ id: membership.id, status: membership.status, invitedAt: membership.invitedAt, respondedAt: membership.respondedAt, project: { id: membership.project.id, name: membership.project.name, description: membership.project.description, status: membership.project.status, activatedAt: membership.project.activatedAt, completedAt: membership.project.completedAt, closedAt: membership.project.closedAt, informationUpdatedAt: [ membership.project.updatedAt, membership.invitedAt, membership.respondedAt, ...(participantUpdatesByProject.get(membership.projectId) ?? []), ].filter((value): value is Date => value !== null) .reduce((latest, value) => value > latest ? value : latest) .toISOString(), projectManager: membership.project.createdBy ? { name: membership.project.createdBy.name } : null, ...(membership.status === \"ACCEPTED\" ? { members: participantsByProject",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
           ]
@@ -17871,7 +20688,7 @@
       "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 625
+        "line": 640
       },
       "access": {
         "mode": "member",
@@ -17982,143 +20799,6 @@
             }
           },
           "source": "LoyaltyError(\"PROJECT_INVITATION_ALREADY_ANSWERED\", 409)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        }
-      ],
-      "notes": []
-    },
-    {
-      "id": "PATCH /api/v1/members/me/projects/:projectId/tasks/:taskId",
-      "method": "PATCH",
-      "path": "/api/v1/members/me/projects/:projectId/tasks/:taskId",
-      "group": "Admin · Projects",
-      "summary": "Update members / me / projects / projectId / tasks / taskId",
-      "description": "Registered by adminProjectsRoutes; request and response metadata below is extracted from its source.",
-      "source": {
-        "file": "apps/api/src/routes/admin/projects.ts",
-        "line": 656
-      },
-      "access": {
-        "mode": "member",
-        "credentials": [
-          "Authorization: Bearer <member-session>",
-          "Cookie: loyaltyos_session=<member-session>"
-        ],
-        "capabilities": [],
-        "notes": [
-          "The handler requires a member session; an API key or admin session alone does not set memberId."
-        ]
-      },
-      "request": {
-        "params": [
-          {
-            "name": "projectId",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<projectId>",
-            "constraints": [
-              "min(1)"
-            ]
-          },
-          {
-            "name": "taskId",
-            "type": "string",
-            "required": true,
-            "validator": "z.string().min(1)",
-            "example": "<taskId>",
-            "constraints": [
-              "min(1)"
-            ]
-          }
-        ],
-        "query": [],
-        "body": {
-          "type": "object",
-          "required": true,
-          "fields": [
-            {
-              "name": "status",
-              "type": "string",
-              "required": true,
-              "enum": [
-                "IN_PROGRESS",
-                "DONE"
-              ],
-              "validator": "z.enum([\"IN_PROGRESS\", \"DONE\"])",
-              "example": "IN_PROGRESS"
-            }
-          ],
-          "validator": "z.object({ status: z.enum([\"IN_PROGRESS\", \"DONE\"]) })",
-          "example": {
-            "status": "IN_PROGRESS"
-          }
-        },
-        "headers": [],
-        "example": {
-          "status": "IN_PROGRESS"
-        }
-      },
-      "responses": [
-        {
-          "status": 200,
-          "type": "object",
-          "fields": [
-            {
-              "name": "data",
-              "type": "unknown",
-              "required": true,
-              "example": "<data: runtime value>"
-            }
-          ],
-          "example": {
-            "data": "<data: runtime value>"
-          },
-          "source": "{ data: updated }",
-          "notes": [
-            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
-          ]
-        },
-        {
-          "status": 401,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "UNAUTHORIZED",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"UNAUTHORIZED\", 401)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 403,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_MEMBERSHIP_REQUIRED",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_MEMBERSHIP_REQUIRED\", 403)",
-          "notes": [
-            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
-          ]
-        },
-        {
-          "status": 404,
-          "type": "object",
-          "example": {
-            "error": {
-              "code": "PROJECT_TASK_NOT_FOUND",
-              "message": "<localized message>"
-            }
-          },
-          "source": "LoyaltyError(\"PROJECT_TASK_NOT_FOUND\", 404)",
           "notes": [
             "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
           ]
@@ -26935,7 +29615,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 509
+        "line": 505
       },
       "access": {
         "mode": "admin",
@@ -26999,19 +29679,9 @@
                 "min(1)",
                 "max(500)"
               ]
-            },
-            {
-              "name": "expiresAt",
-              "type": "string",
-              "required": false,
-              "validator": "z.string().datetime().optional()",
-              "example": "2030-01-01T00:00:00.000Z",
-              "constraints": [
-                "datetime"
-              ]
             }
           ],
-          "validator": "z .object({ memberId: z.string().min(1), pointTypeId: z.string().min(1), amount: z .number() .int() .refine((value) => value !== 0), reason: z.string().trim().min(1).max(500), expiresAt: z.string().datetime().optional(), })",
+          "validator": "z .object({ memberId: z.string().min(1), pointTypeId: z.string().min(1), amount: z .number() .int() .refine((value) => value !== 0), reason: z.string().trim().min(1).max(500), })",
           "example": {
             "memberId": "<memberId>",
             "pointTypeId": "<pointTypeId>",
@@ -27071,7 +29741,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1282
+        "line": 1306
       },
       "access": {
         "mode": "admin",
@@ -27258,7 +29928,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 421
+        "line": 414
       },
       "access": {
         "mode": "admin",
@@ -27311,7 +29981,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 990
+        "line": 1014
       },
       "access": {
         "mode": "admin",
@@ -27425,7 +30095,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1062
+        "line": 1086
       },
       "access": {
         "mode": "admin",
@@ -27651,7 +30321,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1210
+        "line": 1234
       },
       "access": {
         "mode": "admin",
@@ -27778,7 +30448,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1138
+        "line": 1162
       },
       "access": {
         "mode": "admin",
@@ -27926,7 +30596,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 429
+        "line": 422
       },
       "access": {
         "mode": "admin",
@@ -28040,7 +30710,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 461
+        "line": 454
       },
       "access": {
         "mode": "admin",
@@ -28103,6 +30773,17 @@
               "min(1)",
               "max(80)"
             ]
+          },
+          {
+            "name": "direction",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "increase",
+              "decrease"
+            ],
+            "validator": "z.enum([\"increase\", \"decrease\"]).optional()",
+            "example": "increase"
           },
           {
             "name": "from",
@@ -28248,7 +30929,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 652
+        "line": 676
       },
       "access": {
         "mode": "admin",
@@ -28327,7 +31008,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 674
+        "line": 698
       },
       "access": {
         "mode": "admin",
@@ -28415,7 +31096,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 725
+        "line": 749
       },
       "access": {
         "mode": "admin",
@@ -28518,7 +31199,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 699
+        "line": 723
       },
       "access": {
         "mode": "admin",
@@ -28705,7 +31386,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 974
+        "line": 998
       },
       "access": {
         "mode": "admin",
@@ -28784,7 +31465,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 931
+        "line": 955
       },
       "access": {
         "mode": "admin",
@@ -28977,7 +31658,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 755
+        "line": 779
       },
       "access": {
         "mode": "admin",
@@ -29079,7 +31760,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 771
+        "line": 795
       },
       "access": {
         "mode": "admin",
@@ -29188,7 +31869,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 849
+        "line": 873
       },
       "access": {
         "mode": "admin",
@@ -29329,7 +32010,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 813
+        "line": 837
       },
       "access": {
         "mode": "admin",
@@ -29425,7 +32106,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 600
+        "line": 624
       },
       "access": {
         "mode": "admin",
@@ -29497,7 +32178,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 623
+        "line": 647
       },
       "access": {
         "mode": "admin",
@@ -29572,6 +32253,116 @@
       "notes": []
     },
     {
+      "id": "GET /api/v1/admin/credits/member-search",
+      "method": "GET",
+      "path": "/api/v1/admin/credits/member-search",
+      "group": "Credits",
+      "summary": "Read admin / credits / member-search",
+      "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/credits.ts",
+        "line": 549
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>",
+          "X-API-Key: <server-key>"
+        ],
+        "capabilities": [
+          "wallet.adjust"
+        ],
+        "notes": [
+          "Admin session or SERVER-scoped API key required. SERVER keys bypass role capability checks in assertCapability; they remain restricted to their own program."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [
+          {
+            "name": "search",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().trim().min(2).max(120)",
+            "example": "<search>",
+            "constraints": [
+              "trim",
+              "min(2)",
+              "max(120)"
+            ]
+          }
+        ],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<items: runtime value>"
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "number",
+                  "required": true,
+                  "example": 1
+                },
+                {
+                  "name": "pageSize",
+                  "type": "number",
+                  "required": true,
+                  "example": 10
+                },
+                {
+                  "name": "totalPages",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<totalPages: runtime value>"
+                }
+              ],
+              "example": {
+                "items": "<items: runtime value>",
+                "total": "<total: runtime value>",
+                "page": 1,
+                "pageSize": 10,
+                "totalPages": "<totalPages: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": "<items: runtime value>",
+              "total": "<total: runtime value>",
+              "page": 1,
+              "pageSize": 10,
+              "totalPages": "<totalPages: runtime value>"
+            }
+          },
+          "source": "{ data: { items: members, total: members.length, page: 1, pageSize: 10, totalPages: members.length ? 1 : 0 } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
       "id": "GET /api/v1/admin/credits/transactions",
       "method": "GET",
       "path": "/api/v1/admin/credits/transactions",
@@ -29580,7 +32371,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 555
+        "line": 577
       },
       "access": {
         "mode": "admin",
@@ -29645,6 +32436,17 @@
             "required": false,
             "validator": "z.string().optional()",
             "example": "<action>"
+          },
+          {
+            "name": "direction",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "increase",
+              "decrease"
+            ],
+            "validator": "z.enum([\"increase\", \"decrease\"]).optional()",
+            "example": "increase"
           },
           {
             "name": "counterpartyMemberId",
@@ -29797,7 +32599,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 240
+        "line": 235
       },
       "access": {
         "mode": "authenticated",
@@ -29848,7 +32650,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 365
+        "line": 358
       },
       "access": {
         "mode": "member",
@@ -29975,7 +32777,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 248
+        "line": 243
       },
       "access": {
         "mode": "authenticated",
@@ -30026,7 +32828,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 264
+        "line": 259
       },
       "access": {
         "mode": "member",
@@ -30065,17 +32867,6 @@
               "constraints": [
                 "min(1)"
               ]
-            },
-            {
-              "name": "fundingSource",
-              "type": "string",
-              "required": false,
-              "enum": [
-                "BALANCE",
-                "ALLOWANCE"
-              ],
-              "validator": "z.enum([\"BALANCE\", \"ALLOWANCE\"]).optional()",
-              "example": "BALANCE"
             },
             {
               "name": "recipients",
@@ -30169,7 +32960,7 @@
               ]
             }
           ],
-          "validator": "z .object({ sourcePointTypeId: z.string().min(1), destinationPointTypeId: z.string().min(1), fundingSource: z.enum([\"BALANCE\", \"ALLOWANCE\"]).optional(), recipients: z .array( z.object({ memberId: z.string().min(1), amount: z.number().int().positive(), message: z.string().trim().max(500).optional(), }), ) .min(1) .max(500), message: z.string().trim().max(500).optional(), category: z.string().trim().max(80).optional(), categoryId: z.string().min(1).optional(), })",
+          "validator": "z .object({ sourcePointTypeId: z.string().min(1), destinationPointTypeId: z.string().min(1), recipients: z .array( z.object({ memberId: z.string().min(1), amount: z.number().int().positive(), message: z.string().trim().max(500).optional(), }), ) .min(1) .max(500), message: z.string().trim().max(500).optional(), category: z.string().trim().max(80).optional(), categoryId: z.string().min(1).optional(), })",
           "example": {
             "sourcePointTypeId": "<sourcePointTypeId>",
             "destinationPointTypeId": "<destinationPointTypeId>",
@@ -30332,7 +33123,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 252
+        "line": 247
       },
       "access": {
         "mode": "member",
@@ -34057,7 +36848,7 @@
       "description": "Global CORS preflight handler registered by @fastify/cors; allowed origins are selected from the deployment configuration.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 128
+        "line": 130
       },
       "access": {
         "mode": "infrastructure",
@@ -34106,7 +36897,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34149,7 +36940,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34192,7 +36983,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34235,7 +37026,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34278,7 +37069,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34321,7 +37112,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -34364,7 +37155,7 @@
       "description": "Exposed by the registered @fastify/swagger-ui plugin. OpenAPI output reflects Fastify schemas; most handlers use Zod manually, so this catalog provides additional request metadata.",
       "source": {
         "file": "apps/api/src/app.ts",
-        "line": 171
+        "line": 173
       },
       "backendOnly": true,
       "access": {
@@ -38164,8 +40955,7 @@
               "required": false,
               "enum": [
                 "BALANCE",
-                "ALLOWANCE",
-                "BOTH"
+                "ALLOWANCE"
               ],
               "validator": "z.enum(POINT_GIVE_SOURCES)",
               "example": "BALANCE"
@@ -38725,8 +41515,7 @@
               "required": false,
               "enum": [
                 "BALANCE",
-                "ALLOWANCE",
-                "BOTH"
+                "ALLOWANCE"
               ],
               "validator": "z.enum(POINT_GIVE_SOURCES)",
               "example": "BALANCE"
@@ -39610,7 +42399,7 @@
       "description": "Registered by rewardsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/rewards.ts",
-        "line": 141
+        "line": 146
       },
       "access": {
         "mode": "member",
@@ -39773,6 +42562,18 @@
               "trim",
               "min(1)",
               "max(80)"
+            ]
+          },
+          {
+            "name": "search",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().trim().min(1).max(120).optional()",
+            "example": "<search>",
+            "constraints": [
+              "trim",
+              "min(1)",
+              "max(120)"
             ]
           },
           {
@@ -39981,7 +42782,7 @@
       "description": "Registered by rewardsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/rewards.ts",
-        "line": 102
+        "line": 107
       },
       "access": {
         "mode": "authenticated",
@@ -40109,7 +42910,7 @@
       "description": "Registered by rewardsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/rewards.ts",
-        "line": 183
+        "line": 188
       },
       "access": {
         "mode": "member",
@@ -40161,7 +42962,7 @@
             "example": "<idempotency-key>",
             "constraints": [
               "Read by handler; conditional requirements may apply.",
-              "Required by guard in apps/api/src/routes/rewards.ts:186.",
+              "Required by guard in apps/api/src/routes/rewards.ts:191.",
               "min length 8"
             ]
           }

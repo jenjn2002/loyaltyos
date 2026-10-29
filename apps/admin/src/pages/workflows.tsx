@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { fetchApi } from "@/lib/api-client";
 import { useAdminCapability } from "@/lib/admin-permissions";
+import { useSearchParams } from "react-router-dom";
 
 interface AssignmentDraft { value: string }
 interface StepDraft {
@@ -147,9 +148,23 @@ function assignmentValue(assignee: { adminUserId: string | null; role: string | 
 export function WorkflowsPage(): JSX.Element {
   const canManage = useAdminCapability("workflow.manage");
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkflowDraft>(blankDraft);
   const [notice, setNotice] = useState<string | null>(null);
+  const requestedNewAction = searchParams.get("new");
+
+  useEffect(() => {
+    if (requestedNewAction !== "POINT_EXCHANGE") return;
+    setEditingId(null);
+    setDraft({ ...blankDraft(), actionKey: "POINT_EXCHANGE" });
+    setNotice(null);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("new");
+      return next;
+    }, { replace: true });
+  }, [requestedNewAction, setSearchParams]);
 
   const workflows = useQuery({
     queryKey: ["admin", "workflows"],

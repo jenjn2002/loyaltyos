@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Gift, Heart } from "lucide-react";
+import { Gift, Heart, Search as SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -41,6 +41,7 @@ export default function Rewards() {
   const copy = useCustomerCopy();
   const wishlist = useWishlist();
   const [category, setCategory] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [redemptionPage, setRedemptionPage] = useState(1);
   const [wishlistOnly, setWishlistOnly] = useState(false);
@@ -58,7 +59,7 @@ export default function Rewards() {
   }, []);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["rewards", "catalog", category, page, wishlistOnly, wishlistOnly ? wishlistIds : []],
+    queryKey: ["rewards", "catalog", category, search, page, wishlistOnly, wishlistOnly ? wishlistIds : []],
     queryFn: () => {
       const params = new URLSearchParams({
         isActive: "true",
@@ -66,6 +67,7 @@ export default function Rewards() {
         pageSize: String(WISHLIST_PAGE_SIZE),
       });
       if (category && !wishlistOnly) params.set("category", category);
+      if (search.trim()) params.set("search", search.trim());
       if (wishlistOnly) {
         const pageIds = wishlistIds.slice((page - 1) * WISHLIST_PAGE_SIZE, page * WISHLIST_PAGE_SIZE);
         params.set("ids", pageIds.join(","));
@@ -118,6 +120,18 @@ export default function Rewards() {
           <Heart className="h-5 w-5" fill={wishlistOnly ? "white" : "none"} />
         </button>
       </div>
+
+      <label className="relative block" htmlFor="reward-catalog-search">
+        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-secondary)]" aria-hidden="true" />
+        <input
+          id="reward-catalog-search"
+          type="search"
+          value={search}
+          onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+          placeholder={copy("Search rewards", "Tìm kiếm phần thưởng")}
+          className="min-h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-10 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+        />
+      </label>
 
       {!wishlistOnly && categories.data && categories.data.length > 0 && (
         <div className="flex gap-2 overflow-x-auto" role="group" aria-label={t("filterAll")}>

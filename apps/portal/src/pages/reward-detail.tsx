@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { fetchApi, postApi } from "../lib/api-client";
+import { createUuid } from "../lib/random-uuid";
 import type { RedeemResult, RewardDetail as RewardDetailType } from "../types";
 import { useCustomerCopy } from "../lib/customer-copy";
 
@@ -34,7 +35,7 @@ export default function RewardDetail() {
       postApi<RedeemResult>(
         `/rewards/${id ?? ""}/redeem`,
         { pointTypeId },
-        { "Idempotency-Key": `${crypto.randomUUID()}-${Date.now().toString(36)}` },
+        { "Idempotency-Key": `${createUuid()}-${Date.now().toString(36)}` },
       ),
     onSuccess: () => {
       setResult({ success: true, message: t("redeemSuccess") });

@@ -28,6 +28,8 @@ import {
 import { fetchApi } from "@/lib/api-client";
 import { useAdminPermissions } from "@/lib/admin-permissions";
 import { isAutomaticExchangeCompletion, type ExchangeAdminIdentity, type ExchangeApprovalRequest } from "@/lib/exchange-approval";
+import { createUuid } from "@/lib/random-uuid";
+import type { Member } from "@/types";
 import i18n from "@/i18n";
 
 interface PointType {
@@ -283,7 +285,11 @@ const SECTION_COPY: Record<CreditsSection, { title: string; description: string 
 const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
 function requestKey(): string {
-  return `${crypto.randomUUID()}-${Date.now().toString(36)}`;
+  return `${createUuid()}-${Date.now().toString(36)}`;
+}
+
+function containsDecimalSeparator(value: string): boolean {
+  return /[.,]/.test(value);
 }
 
 function Field({
@@ -400,6 +406,7 @@ export function CreditsManagementPage({
   const canExchangeApprove = permissions.can("exchange.approve");
   const canExchangeComplete = permissions.can("exchange.complete");
   const canWorkflowView = permissions.can("workflow.view");
+  const canWorkflowManage = permissions.can("workflow.manage");
   const canReviewApprovalInbox = permissions.can("approval.inbox");
   const canViewApproval = permissions.can("approval.view");
   const canRecognitionManage = permissions.can("recognition.manage");
@@ -413,19 +420,23 @@ export function CreditsManagementPage({
   const [bankAmount, setBankAmount] = useState("1000");
   const [bankReason, setBankReason] = useState("");
   const [adjustMemberId, setAdjustMemberId] = useState("");
+  const [adjustMemberSearch, setAdjustMemberSearch] = useState("");
+  const [debouncedAdjustMemberSearch, setDebouncedAdjustMemberSearch] = useState("");
   const [adjustTypeId, setAdjustTypeId] = useState("");
   const [adjustDirection, setAdjustDirection] = useState<"ADD" | "REMOVE">("ADD");
   const [adjustAmount, setAdjustAmount] = useState("100");
   const [adjustReason, setAdjustReason] = useState("");
-  const [adjustExpiry, setAdjustExpiry] = useState("");
   const [ledgerTypeId, setLedgerTypeId] = useState("");
   const [ledgerMemberId, setLedgerMemberId] = useState("");
   const [ledgerAction, setLedgerAction] = useState("");
+  const [ledgerDirection, setLedgerDirection] = useState<"" | "increase" | "decrease">("");
   const [ledgerSource, setLedgerSource] = useState<LedgerSource>("wallet");
   const [ledgerPage, setLedgerPage] = useState(1);
   const [ledgerFrom, setLedgerFrom] = useState("");
   const [ledgerTo, setLedgerTo] = useState("");
   const invalidLedgerDates = Boolean(ledgerFrom && ledgerTo && ledgerFrom > ledgerTo);
+  const bankAmountIsDecimal = containsDecimalSeparator(bankAmount);
+  const adjustAmountIsDecimal = containsDecimalSeparator(adjustAmount);
   const [rateTypeId, setRateTypeId] = useState("");
   const [ratePayout, setRatePayout] = useState<"CASH" | "NON_CASH">("NON_CASH");
   const [rateValue, setRateValue] = useState("1");
@@ -462,6 +473,15 @@ export function CreditsManagementPage({
     () => (pointTypes.data ?? []).filter((type) => type.isActive && !type.archivedAt),
     [pointTypes.data],
   );
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedAdjustMemberSearch(adjustMemberSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [adjustMemberSearch]);
+  const adjustmentMemberSearch = useQuery({
+    queryKey: ["credits", "adjust-member-search", debouncedAdjustMemberSearch],
+    queryFn: () => fetchApi<Page<Member>>(`/admin/credits/member-search?search=${encodeURIComponent(debouncedAdjustMemberSearch)}`),
+    enabled: canAdjustWallets && !adjustMemberId && debouncedAdjustMemberSearch.length >= 2,
+  });
   const importMemberFields = useQuery({
     queryKey: ["member-fields", "bulk-import"],
     queryFn: () => fetchApi<ImportMemberField[]>("/admin/member-fields"),
@@ -532,6 +552,7 @@ export function CreditsManagementPage({
       ledgerTypeId,
       ledgerMemberId,
       ledgerAction,
+      ledgerDirection,
       ledgerFrom, ledgerTo,
     ],
     queryFn: () => {
@@ -539,6 +560,7 @@ export function CreditsManagementPage({
       if (ledgerFrom) params.set("from", new Date(`${ledgerFrom}T00:00:00`).toISOString());
       if (ledgerTo) params.set("to", new Date(`${ledgerTo}T23:59:59.999`).toISOString());
       if (ledgerTypeId) params.set("pointTypeId", ledgerTypeId);
+      if (ledgerDirection) params.set("direction", ledgerDirection);
       if (ledgerSource === "bank") {
         if (ledgerAction) params.set("type", ledgerAction);
         return fetchApi<Page<BankTransaction>>(
@@ -609,9 +631,6 @@ export function CreditsManagementPage({
               ? -Math.abs(Number(adjustAmount))
               : Math.abs(Number(adjustAmount)),
           reason: adjustReason,
-          ...(adjustExpiry
-            ? { expiresAt: new Date(`${adjustExpiry}T23:59:59.999Z`).toISOString() }
-            : {}),
         }),
       }),
     onSuccess: async () => {
@@ -948,13 +967,14 @@ export function CreditsManagementPage({
                   >
                     <Input
                       id="bank-amount"
-                      type="number"
-                      min="1"
+                      type="text"
+                      inputMode="numeric"
                       value={bankAmount}
                       onChange={(event) => {
                         setBankAmount(event.target.value);
                       }}
                     />
+                    {bankAmountIsDecimal && <p role="alert" className="mt-1 text-xs text-destructive">{ui("Decimals and commas are not allowed. Enter a whole number.")}</p>}
                   </Field>
                   <Field
                     id="bank-reason"
@@ -971,7 +991,7 @@ export function CreditsManagementPage({
                   </Field>
                   <Button
                     className="self-end"
-                    disabled={!bankTypeId || !bankReason || issueBank.isPending}
+                    disabled={!bankTypeId || !bankReason || bankAmountIsDecimal || !Number.isInteger(Number(bankAmount)) || Number(bankAmount) <= 0 || issueBank.isPending}
                     onClick={() => {
                       issueBank.mutate();
                     }}
@@ -990,20 +1010,29 @@ export function CreditsManagementPage({
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <Field
                   id="adjust-member"
-                  label={ui("Member ID")}
-                  help={ui("Exact member whose wallet will be adjusted.")}
+                  label={ui("Search member")}
+                  help={ui("Search by name, email, or member ID, then select the member.")}
                 >
                   <Input
                     id="adjust-member"
-                    value={adjustMemberId}
+                    value={adjustMemberSearch}
+                    placeholder={ui("Name, email, or member ID")}
                     onChange={(event) => {
-                      setAdjustMemberId(event.target.value);
+                      setAdjustMemberSearch(event.target.value);
+                      setAdjustMemberId("");
                     }}
                   />
-                  <Link
-                    to="/members"
-                    className="mt-1 inline-block text-xs font-medium text-primary hover:underline"
-                  >{ui("Find and copy a Member ID")}</Link>
+                  {adjustMemberId && <p className="mt-1 text-xs text-muted-foreground">{ui("Selected member ID")}: {adjustMemberId}</p>}
+                  {!adjustMemberId && debouncedAdjustMemberSearch.length >= 2 && <div className="mt-2 max-h-48 overflow-y-auto rounded-md border">
+                    {adjustmentMemberSearch.isFetching && <p className="p-2 text-xs text-muted-foreground">{ui("Searching members…")}</p>}
+                    {(adjustmentMemberSearch.data?.items ?? []).map((member) => {
+                      const name = [member.firstName, member.lastName].filter(Boolean).join(" ") || member.id;
+                      return <button key={member.id} type="button" className="block w-full border-b p-2 text-left text-sm last:border-b-0 hover:bg-muted" onClick={() => { setAdjustMemberId(member.id); setAdjustMemberSearch(`${name} · ${member.id}`); }}>
+                        <span className="block font-medium">{name}</span><span className="block text-xs text-muted-foreground">{member.email ?? "—"}{member.department ? ` · ${member.department}` : ""} · {member.id}</span>
+                      </button>;
+                    })}
+                    {!adjustmentMemberSearch.isFetching && !(adjustmentMemberSearch.data?.items.length) && <p className="p-2 text-xs text-muted-foreground">{ui("No members found.")}</p>}
+                  </div>}
                 </Field>
                 <Field id="adjust-type" label={ui("Point type")} help={ui("Configured wallet to adjust.")}>
                   <select
@@ -1045,28 +1074,14 @@ export function CreditsManagementPage({
                 >
                   <Input
                     id="adjust-amount"
-                    type="number"
-                    min="1"
-                    step="1"
+                    type="text"
+                    inputMode="numeric"
                     value={adjustAmount}
                     onChange={(event) => {
                       setAdjustAmount(event.target.value);
                     }}
                   />
-                </Field>
-                <Field
-                  id="adjust-expiry"
-                  label={ui("Grant expiry override")}
-                  help={ui("Optional explicit expiry, especially for Per grant point types.")}
-                >
-                  <Input
-                    id="adjust-expiry"
-                    type="date"
-                    value={adjustExpiry}
-                    onChange={(event) => {
-                      setAdjustExpiry(event.target.value);
-                    }}
-                  />
+                  {adjustAmountIsDecimal && <p role="alert" className="mt-1 text-xs text-destructive">{ui("Decimals and commas are not allowed. Enter a whole number.")}</p>}
                 </Field>
                 <Field
                   id="adjust-reason"
@@ -1087,6 +1102,8 @@ export function CreditsManagementPage({
                     !adjustMemberId ||
                     !adjustTypeId ||
                     !adjustReason ||
+                    adjustAmountIsDecimal ||
+                    !Number.isInteger(Number(adjustAmount)) ||
                     Number(adjustAmount) <= 0 ||
                     adjust.isPending
                   }
@@ -1108,7 +1125,7 @@ export function CreditsManagementPage({
             <CardDescription>{ui("Filter the immutable signed transaction stream across all point types.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-6">
               <Field
                 id="ledger-source"
                 label={ui("Ledger type")}
@@ -1144,6 +1161,21 @@ export function CreditsManagementPage({
                       {type.name}
                     </option>
                   ))}
+                </select>
+              </Field>
+              <Field id="ledger-direction" label={ui("Direction")} help={ui("Filter transactions that increase or decrease points.")}>
+                <select
+                  id="ledger-direction"
+                  className={selectClass}
+                  value={ledgerDirection}
+                  onChange={(event) => {
+                    setLedgerDirection(event.target.value as "" | "increase" | "decrease");
+                    setLedgerPage(1);
+                  }}
+                >
+                  <option value="">{ui("All directions")}</option>
+                  <option value="increase">{ui("Increase")}</option>
+                  <option value="decrease">{ui("Decrease")}</option>
                 </select>
               </Field>
               {ledgerSource === "wallet" && (
@@ -1185,7 +1217,7 @@ export function CreditsManagementPage({
             <div className="flex flex-wrap items-end gap-3">
               <div><Label htmlFor="ledger-from">{ui("From date")}</Label><Input id="ledger-from" type="date" value={ledgerFrom} onChange={(event) => { setLedgerFrom(event.target.value); setLedgerPage(1); }} /></div>
               <div><Label htmlFor="ledger-to">{ui("To date")}</Label><Input id="ledger-to" type="date" value={ledgerTo} onChange={(event) => { setLedgerTo(event.target.value); setLedgerPage(1); }} /></div>
-              <Button variant="outline" onClick={() => { setLedgerTypeId(""); setLedgerMemberId(""); setLedgerAction(""); setLedgerFrom(""); setLedgerTo(""); setLedgerPage(1); }}>{ui("Clear filters")}</Button>
+              <Button variant="outline" onClick={() => { setLedgerTypeId(""); setLedgerMemberId(""); setLedgerAction(""); setLedgerDirection(""); setLedgerFrom(""); setLedgerTo(""); setLedgerPage(1); }}>{ui("Clear filters")}</Button>
               <Button variant="outline" disabled={invalidLedgerDates || ledger.isFetching} onClick={() => void ledger.refetch()}>{ui("Refresh")}</Button>
             </div>
             {invalidLedgerDates && <p role="alert" className="text-sm text-destructive">{ui("End date must be on or after start date")}</p>}
@@ -1295,7 +1327,7 @@ export function CreditsManagementPage({
                 <ArrowRightLeft />{ui("Exchange rates")}</CardTitle>
               <CardDescription>
                 {ui("Saving creates a version and deactivates only the prior rate for the same payout type.")}
-                {" "}{ui("If any POINT_EXCHANGE workflow is active, its scopes must cover every enabled rate, payout type, and allowed amount; unmatched member exchanges are blocked.")}
+                {" "}{ui("An active POINT_EXCHANGE workflow is required. Cover every enabled rate, payout type, and allowed amount with workflow scopes.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1592,9 +1624,10 @@ export function CreditsManagementPage({
               <CardDescription>
                 {ui("Final workflow approval automatically completes the voucher. Older approved vouchers can still be marked completed manually.")}
                 {" "}{ui("Cancellation before completion automatically refunds the member wallet.")}
-                {" "}{ui("Configure POINT_EXCHANGE in Approval workflows to route new vouchers through custom approval steps.")}{" "}
-                {ui("Once active, every new exchange must match a workflow; unmatched requests are blocked.")}{" "}
-                {canWorkflowView && <Link to="/workflows" className="font-medium text-primary underline underline-offset-2">{ui("Configure approval workflow")}</Link>}
+                {" "}{ui("New exchanges require a matching active POINT_EXCHANGE workflow and are sent to Approval inbox.")}{" "}
+                {ui("Vouchers remain listed here for accounting; older direct-approval vouchers can still be handled here.")}{" "}
+                {canWorkflowManage && <Link to="/workflows?new=POINT_EXCHANGE" className="font-medium text-primary underline underline-offset-2">{ui("Create exchange workflow")}</Link>}
+                {canWorkflowView && !canWorkflowManage && <Link to="/workflows" className="font-medium text-primary underline underline-offset-2">{ui("View approval workflows")}</Link>}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

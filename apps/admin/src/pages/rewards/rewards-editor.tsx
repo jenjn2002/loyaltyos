@@ -53,6 +53,8 @@ const CATEGORIES = [
 ];
 const controlClass = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
+const hasDecimalSeparator = (value: string): boolean => /[.,]/.test(value);
+
 export function RewardsEditorPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -68,6 +70,7 @@ export function RewardsEditorPage(): JSX.Element {
   const [isActive, setIsActive] = useState(false);
   const [prices, setPrices] = useState<Price[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const hasDecimalStock = hasDecimalSeparator(stock);
 
   const pointTypes = useQuery({
     queryKey: ["point-types", "reward-editor"],
@@ -193,14 +196,16 @@ export function RewardsEditorPage(): JSX.Element {
             >{ui("Stock")}</Label>
             <Input
               id="reward-stock"
-              type="number"
-              min="0"
+              type="text"
+              inputMode="numeric"
+              aria-invalid={hasDecimalStock}
               value={stock}
               onChange={(event) => {
                 setStock(event.target.value);
               }}
               placeholder={ui("Unlimited")}
             />
+            {hasDecimalStock && <p role="alert" className="mt-1 text-xs text-destructive">{ui("Decimals and commas are not allowed. Enter a whole number.")}</p>}
           </div>
           <div>
             <Label
@@ -342,8 +347,9 @@ export function RewardsEditorPage(): JSX.Element {
                 >{ui("Price")}</Label>
                 <Input
                   id={`price-amount-${String(index)}`}
-                  type="number"
-                  min="1"
+                  type="text"
+                  inputMode="numeric"
+                  aria-invalid={hasDecimalSeparator(price.amount)}
                   value={price.amount}
                   onChange={(event) => {
                     setPrices((current) =>
@@ -353,6 +359,7 @@ export function RewardsEditorPage(): JSX.Element {
                     );
                   }}
                 />
+                {hasDecimalSeparator(price.amount) && <p role="alert" className="mt-1 text-xs text-destructive">{ui("Decimals and commas are not allowed. Enter a whole number.")}</p>}
               </div>
               <Button
                 type="button"
@@ -388,7 +395,8 @@ export function RewardsEditorPage(): JSX.Element {
             save.isPending ||
             !name.trim() ||
             prices.length === 0 ||
-            prices.some((price) => !price.pointTypeId || Number(price.amount) <= 0)
+            prices.some((price) => !price.pointTypeId || !Number.isInteger(Number(price.amount)) || Number(price.amount) <= 0 || hasDecimalSeparator(price.amount)) ||
+            (stock.trim() !== "" && (!Number.isInteger(Number(stock)) || Number(stock) < 0))
           }
           onClick={() => {
             save.mutate();

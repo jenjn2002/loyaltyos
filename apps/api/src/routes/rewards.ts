@@ -64,6 +64,11 @@ export function rewardsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         { OR: [{ availableUntil: null }, { availableUntil: { gt: now } }] },
       ],
       ...(query.category ? { category: query.category } : {}),
+      ...(query.search ? { OR: [
+        { name: { contains: query.search, mode: "insensitive" } },
+        { description: { contains: query.search, mode: "insensitive" } },
+        { category: { contains: query.search, mode: "insensitive" } },
+      ] } : {}),
       ...(rewardIds ? { id: { in: rewardIds } } : {}),
       ...(query.tierRequired ? { tierRequired: query.tierRequired } : {}),
       ...(query.minPoints !== undefined || query.maxPoints !== undefined

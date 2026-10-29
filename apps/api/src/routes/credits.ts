@@ -192,15 +192,10 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         : query.kind === "given"
           ? ["GIVE_OUT", "GIVE_ALLOWANCE_OUT"]
           : ["GIVE_IN", "GIVE_OUT", "GIVE_ALLOWANCE_OUT"];
-    const selfFilter: Prisma.CustomPointTransactionWhereInput =
-      query.kind === "received"
-        ? { memberId: request.memberId, action: "GIVE_IN" }
-        : query.kind === "given"
-          ? {
-              memberId: request.memberId,
-              action: { in: ["GIVE_OUT", "GIVE_ALLOWANCE_OUT"] },
-            }
-          : { action: { in: actions } };
+    const selfFilter: Prisma.CustomPointTransactionWhereInput = {
+      memberId: request.memberId,
+      action: { in: actions },
+    };
     const where: Prisma.CustomPointTransactionWhereInput = {
       programId: request.programId,
       ...selfFilter,
@@ -270,7 +265,6 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .object({
           sourcePointTypeId: z.string().min(1),
           destinationPointTypeId: z.string().min(1),
-          fundingSource: z.enum(["BALANCE", "ALLOWANCE"]).optional(),
           recipients: z
             .array(
               z.object({
@@ -306,7 +300,6 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           {
             sourcePointTypeId: body.sourcePointTypeId,
             destinationPointTypeId: body.destinationPointTypeId,
-            fundingSource: body.fundingSource,
             recipients: body.recipients.map(({ memberId, amount }) => ({ memberId, amount })),
             transactionIds: result.transactions.map((transaction) => transaction.id),
           },
@@ -466,6 +459,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         .extend({
           pointTypeId: z.string().optional(),
           type: z.string().trim().min(1).max(80).optional(),
+          direction: z.enum(["increase", "decrease"]).optional(),
           from: z.string().datetime().optional(),
           to: z.string().datetime().optional(),
         })
@@ -474,6 +468,8 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         programId: request.programId,
         ...(query.pointTypeId ? { pointTypeId: query.pointTypeId } : {}),
         ...(query.type ? { type: query.type } : {}),
+        ...(query.direction === "increase" ? { amount: { gt: 0 } } : {}),
+        ...(query.direction === "decrease" ? { amount: { lt: 0 } } : {}),
         ...((query.from || query.to) ? { createdAt: {
           ...(query.from ? { gte: new Date(query.from) } : {}),
           ...(query.to ? { lte: new Date(query.to) } : {}),
@@ -519,7 +515,6 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             .int()
             .refine((value) => value !== 0),
           reason: z.string().trim().min(1).max(500),
-          expiresAt: z.string().datetime().optional(),
         })
         .parse(request.body);
       const result = await walletService.adjust(
@@ -530,7 +525,6 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         body.reason,
         request.actor,
         idempotencyKey(request),
-        body.expiresAt ? new Date(body.expiresAt) : undefined,
       );
       await audit(
         request.programId,
@@ -553,6 +547,34 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
   );
 
   app.get(
+    "/admin/credits/member-search",
+    { preHandler: [requireCapability("wallet.adjust")] },
+    async (request, reply) => {
+      const query = z.object({
+        search: z.string().trim().min(2).max(120),
+      }).parse(request.query);
+      const members = await prisma.member.findMany({
+        where: {
+          programId: request.programId,
+          status: "ACTIVE",
+          deletedAt: null,
+          OR: [
+            { id: { contains: query.search, mode: "insensitive" } },
+            { email: { contains: query.search, mode: "insensitive" } },
+            { firstName: { contains: query.search, mode: "insensitive" } },
+            { lastName: { contains: query.search, mode: "insensitive" } },
+            { externalId: { contains: query.search, mode: "insensitive" } },
+          ],
+        },
+        select: { id: true, email: true, firstName: true, lastName: true, department: true },
+        orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+        take: 10,
+      });
+      return reply.send({ data: { items: members, total: members.length, page: 1, pageSize: 10, totalPages: members.length ? 1 : 0 } });
+    },
+  );
+
+  app.get(
     "/admin/credits/transactions",
     { preHandler: [requireCapability("wallet.view")] },
     async (request, reply) => {
@@ -561,6 +583,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           memberId: z.string().optional(),
           pointTypeId: z.string().optional(),
           action: z.string().optional(),
+          direction: z.enum(["increase", "decrease"]).optional(),
           counterpartyMemberId: z.string().optional(),
           member: z.string().trim().min(1).max(100).optional(),
           categoryId: z.string().optional(),
@@ -578,6 +601,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       const history = await walletService.history(request.programId, {
           ...query,
           memberIds: matchedMembers?.map((member) => member.id),
+          direction: query.direction,
           from: query.from ? new Date(query.from) : undefined,
           to: query.to ? new Date(query.to) : undefined,
         });

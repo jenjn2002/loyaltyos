@@ -61,7 +61,7 @@ export const customerGuideEnglish: Record<CustomerGuideTopic["id"], EnglishTopic
     purpose: "Depending on program settings, Points lets you recognize a colleague or request an exchange using a configured rate.",
     steps: [
       "Open Points. Only actions enabled for your account and point types are displayed.",
-      "For Give Recognition, choose the source wallet, owned balance or allowance if available, an allowed destination type, and recipient.",
+      "For Give Recognition, choose a source wallet whose funding source is fixed by the administrator, an allowed destination type, and recipient.",
       "Enter the amount and any required message or category. Review the conversion, limits, and recipient amount.",
       "Confirm only after checking the recipient and details. Review the result to see whether the transaction completed or is pending.",
       "For Exchange, choose the point type and payout option, review the estimate, and submit. Track the request in More → Notifications or Points → Exchange & requests.",

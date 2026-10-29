@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { copyText } from "@/lib/clipboard";
 import {
   Table,
   TableBody,
@@ -402,7 +403,7 @@ function ApiAccessPanel({
   async function copyValue(value: string): Promise<void> {
     if (!value) return;
     try {
-      await navigator.clipboard.writeText(value);
+      await copyText(value);
       if (mounted.current) {
         setNotice(text.copied);
         setError(null);

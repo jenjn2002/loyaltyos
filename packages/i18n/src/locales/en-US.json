@@ -466,6 +466,7 @@
   },
   "errors": {
     "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "No approval workflow matches this exchange. Ask an administrator to update the exchange workflow before trying again.",
+    "POINT_EXCHANGE_WORKFLOW_REQUIRED": "Point exchange is unavailable until an administrator creates and activates an approval workflow.",
     "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "This exchange must be reviewed through its approval workflow.",
     "POINT_EXCHANGE_REJECT_VIA_WORKFLOW": "Reject this exchange through its approval workflow, or cancel it to refund the member.",
     "POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING": "An exchange approver needs Inbox, View, and Decide permissions. Ask an administrator to update the approval role.",

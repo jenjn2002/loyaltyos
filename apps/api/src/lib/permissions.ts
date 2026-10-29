@@ -228,6 +228,7 @@ export function capabilityForAdminRequest(method: string, url: string): AdminCap
   if (url.includes("/credits/exchange")) return write ? "exchange.manage" : "exchange.view";
   if (url.startsWith("/api/v1/admin/credits/categories"))
     return write ? "recognition.manage" : "recognition.view";
+  if (url.startsWith("/api/v1/admin/credits/member-search")) return "wallet.adjust";
   if (url.startsWith("/api/v1/admin/credits")) return write ? "wallet.adjust" : "wallet.view";
   if (url.startsWith("/api/v1/admin/giftcards"))
     return write ? "giftcard.manage" : "giftcard.view";

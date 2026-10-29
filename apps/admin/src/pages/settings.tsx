@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { SystemBrandingSettings } from "@/components/system-branding-settings";
 import { ApiAccessSettings } from "@/components/api-access-settings";
 import { fetchApi } from "@/lib/api-client";
+import { copyText } from "@/lib/clipboard";
 import { useAdminCapability } from "@/lib/admin-permissions";
 
 interface MicrosoftSettings {
@@ -279,7 +280,7 @@ export function SettingsPage(): JSX.Element {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  if (redirectUri) void navigator.clipboard.writeText(redirectUri);
+                  if (redirectUri) void copyText(redirectUri);
                 }}
               >
                 <Copy className="mr-1 h-3.5 w-3.5" /> {t("settings.microsoft.copy")}
@@ -298,7 +299,7 @@ export function SettingsPage(): JSX.Element {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    if (adminRedirectUri) void navigator.clipboard.writeText(adminRedirectUri);
+                    if (adminRedirectUri) void copyText(adminRedirectUri);
                   }}
                 >
                   <Copy className="mr-1 h-3.5 w-3.5" /> {t("settings.microsoft.copy")}

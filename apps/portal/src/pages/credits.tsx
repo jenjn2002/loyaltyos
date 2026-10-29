@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, fetchApi, postApi } from "../lib/api-client";
+import { createUuid } from "../lib/random-uuid";
 import { PointTypeIcon } from "../components/point-type-icon";
 import type {
   CreditBalance,
@@ -69,7 +70,11 @@ const controlClass =
   "block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm";
 
 function requestKey(): string {
-  return `${crypto.randomUUID()}-${Date.now().toString(36)}`;
+  return `${createUuid()}-${Date.now().toString(36)}`;
+}
+
+function containsDecimalSeparator(value: string): boolean {
+  return /[.,]/.test(value);
 }
 
 function memberName(member: DirectoryMember): string {
@@ -144,12 +149,12 @@ export default function Credits(): JSX.Element {
   useExpiryRefresh();
   const [sourcePointTypeId, setSourcePointTypeId] = useState("");
   const [destinationPointTypeId, setDestinationPointTypeId] = useState("");
-  const [fundingSource, setFundingSource] = useState<"BALANCE" | "ALLOWANCE">("BALANCE");
   const [recipients, setRecipients] = useState<RecipientRow[]>([
     { memberId: "", amount: "", message: "" },
   ]);
   const [selectedMemberOptions, setSelectedMemberOptions] = useState<Record<string, DirectoryMember>>({});
   const [message, setMessage] = useState("");
+  const [messageMode, setMessageMode] = useState<"shared" | "individual">("shared");
   const [categoryId, setCategoryId] = useState("");
   const [exchangePointTypeId, setExchangePointTypeId] = useState("");
   const [exchangeAmount, setExchangeAmount] = useState("");
@@ -224,11 +229,6 @@ export default function Credits(): JSX.Element {
     if (!sourcePointTypeId && giveWallets[0]) {
       setSourcePointTypeId(giveWallets[0].pointTypeId);
       setDestinationPointTypeId(giveWallets[0].transferTargets[0]?.id ?? "");
-      setFundingSource(
-        giveWallets[0].giveSource === "ALLOWANCE" || giveWallets[0].giveSource === "BOTH"
-          ? "ALLOWANCE"
-          : "BALANCE",
-      );
     }
   }, [giveWallets, sourcePointTypeId]);
 
@@ -252,24 +252,30 @@ export default function Credits(): JSX.Element {
         body: JSON.stringify({
           sourcePointTypeId,
           destinationPointTypeId,
-          fundingSource,
           recipients: recipients.map((row) => ({
             memberId: row.memberId,
             amount: Number(row.amount),
-            ...(row.message.trim() ? { message: row.message.trim() } : {}),
+            ...(messageMode === "individual" && row.message.trim()
+              ? { message: row.message.trim() }
+              : {}),
           })),
-          ...(message.trim() ? { message: message.trim() } : {}),
+          ...(messageMode === "shared" && message.trim() ? { message: message.trim() } : {}),
           ...(categoryId ? { categoryId } : {}),
         }),
       }),
     onSuccess: async () => {
       setNotice(ui("Recognition sent successfully."));
       setMessage("");
+      setMessageMode("shared");
       setRecipients([{ memberId: "", amount: "", message: "" }]);
       await queryClient.invalidateQueries({ queryKey: ["credits"] });
     },
     onError: (error: Error) => {
-      setNotice(error.message);
+      setNotice(
+        error instanceof ApiError && error.code === "POINT_PAIR_LIMIT_EXCEEDED"
+          ? ui("You have exceeded the Give limit for this recipient. Reduce the amount or choose another recipient.")
+          : error.message,
+      );
     },
   });
 
@@ -290,30 +296,39 @@ export default function Credits(): JSX.Element {
     onError: (error: Error) => {
       setNotice(error instanceof ApiError && error.code === "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED"
         ? ui("This exchange is not covered by an approval workflow. Please ask an administrator to configure one for this point type, payout type and amount.")
-        : error.message);
+        : error instanceof ApiError && error.code === "POINT_EXCHANGE_WORKFLOW_REQUIRED"
+          ? ui("Point exchange is unavailable until an administrator creates and activates an approval workflow.")
+          : error.message);
     },
   });
 
   const sourceAvailable =
-    fundingSource === "ALLOWANCE"
+    sourceWallet?.giveSource === "ALLOWANCE"
       ? (sourceWallet?.allowance?.remaining ?? 0)
       : (sourceWallet?.balance ?? 0);
-  const sourceTotal = recipients.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const sourceTotal = recipients.reduce((sum, row) => {
+    const amount = Number(row.amount);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
   const destinationTotal = destination
     ? (sourceTotal / destination.sourceAmount) * destination.destinationAmount
     : 0;
-  const exchangeValueMinor = activeRate
+  const exchangeValueMinor = activeRate && Number.isFinite(Number(exchangeAmount))
     ? Number(exchangeAmount || 0) * activeRate.valueMinorPerPoint
     : 0;
   const messageMissing = Boolean(
     sourceWallet?.requireGiveMessage &&
-    !message.trim() &&
-    recipients.some((row) => !row.message.trim()),
+    (messageMode === "shared"
+      ? !message.trim()
+      : recipients.some((row) => !row.message.trim())),
   );
   const exchangeNumericAmount = Number(exchangeAmount);
+  const exchangeHasDecimalSeparator = containsDecimalSeparator(exchangeAmount);
   const exchangeDisabledReason = !activeRate
     ? ui("No active exchange rate is available for the selected point type and payout option.")
-    : !exchangeAmount || !Number.isFinite(exchangeNumericAmount) || exchangeNumericAmount <= 0
+    : exchangeHasDecimalSeparator
+      ? ui("Decimals and commas are not allowed. Enter a whole number.")
+      : !exchangeAmount || !Number.isFinite(exchangeNumericAmount) || exchangeNumericAmount <= 0
       ? ui("Enter a positive point amount.")
       : exchangeNumericAmount < activeRate.minPoints
         ? `${ui("Minimum exchange amount:")} ${activeRate.minPoints.toLocaleString()} ${exchangeWallet?.unitLabel ?? "points"}`
@@ -325,14 +340,17 @@ export default function Credits(): JSX.Element {
   const giveDisabledReasons: string[] = [];
   if (!sourcePointTypeId || !destinationPointTypeId) giveDisabledReasons.push(ui("No transfer destination is available."));
   if (recipients.some((row) => !row.memberId)) giveDisabledReasons.push(ui("Select a colleague for each recipient."));
+  if (recipients.some((row) => containsDecimalSeparator(row.amount))) {
+    giveDisabledReasons.push(ui("Decimals and commas are not allowed. Enter a whole number."));
+  }
   if (recipients.some((row) => !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0)) {
     giveDisabledReasons.push(ui("Enter a positive amount for each recipient."));
   }
   if (sourceTotal > sourceAvailable) {
+    giveDisabledReasons.push(`${ui("Insufficient source points. Short by")} ${(sourceTotal - sourceAvailable).toLocaleString()} ${sourceWallet?.unitLabel ?? "points"}.`);
+  }
   if (destination && recipients.some((row) => Number(row.amount) > 0 && Number(row.amount) % destination.sourceAmount !== 0)) {
     giveDisabledReasons.push(ui("Amounts must follow the configured transfer increment."));
-  }
-    giveDisabledReasons.push(`${ui("Insufficient source points. Short by")} ${(sourceTotal - sourceAvailable).toLocaleString()} ${sourceWallet?.unitLabel ?? "points"}.`);
   }
   if (messageMissing) giveDisabledReasons.push(ui("A recognition message is required for this point type."));
 
@@ -454,7 +472,7 @@ export default function Credits(): JSX.Element {
           <div className="mt-4 space-y-3">
             <label
               className="block text-sm font-medium"
-              data-help={ui("Select which owned wallet or separate allowance funds this Give operation.")}
+              data-help={ui("The administrator fixes the Give source for each point type.")}
             >{ui("Source point type")}<select
                 className={`mt-1 ${controlClass}`}
                 value={sourcePointTypeId}
@@ -463,11 +481,6 @@ export default function Credits(): JSX.Element {
                   const source = giveWallets.find((wallet) => wallet.pointTypeId === sourceId);
                   setSourcePointTypeId(sourceId);
                   setDestinationPointTypeId(source?.transferTargets[0]?.id ?? "");
-                  setFundingSource(
-                    source?.giveSource === "ALLOWANCE" || source?.giveSource === "BOTH"
-                      ? "ALLOWANCE"
-                      : "BALANCE",
-                  );
                 }}
               >
                 {giveWallets.map((wallet) => (
@@ -477,22 +490,6 @@ export default function Credits(): JSX.Element {
                 ))}
               </select>
             </label>
-            {sourceWallet?.giveSource === "BOTH" && (
-              <label
-                className="block text-sm font-medium"
-                data-help={ui("Choose whether this Give consumes your owned wallet balance or your renewable Give allowance.")}
-              >{ui("Funds from")}<select
-                  className={`mt-1 ${controlClass}`}
-                  value={fundingSource}
-                  onChange={(event) => {
-                    setFundingSource(event.target.value as "BALANCE" | "ALLOWANCE");
-                  }}
-                >
-                  <option value="ALLOWANCE">{ui("Give allowance")}</option>
-                  <option value="BALANCE">{ui("Owned balance")}</option>
-                </select>
-              </label>
-            )}
             <label
               className="block text-sm font-medium"
               data-help={ui("Only destinations explicitly allowed by the administrator appear here.")}
@@ -526,9 +523,13 @@ export default function Credits(): JSX.Element {
             {recipients.map((recipient, index) => {
               const pageMembers = members.data?.items ?? [];
               const selectedMember = selectedMemberOptions[recipient.memberId];
-              const recipientOptions = selectedMember && !pageMembers.some((member) => member.id === selectedMember.id)
-                ? [selectedMember, ...pageMembers]
-                : pageMembers;
+              const selectedByOtherRows = new Set(
+                recipients.filter((_, rowIndex) => rowIndex !== index).map((row) => row.memberId),
+              );
+              const availableMembers = pageMembers.filter((member) => !selectedByOtherRows.has(member.id));
+              const recipientOptions = selectedMember && !availableMembers.some((member) => member.id === selectedMember.id)
+                ? [selectedMember, ...availableMembers]
+                : availableMembers;
               return (
               <div
                 key={index}
@@ -541,6 +542,7 @@ export default function Credits(): JSX.Element {
                     aria-label={`Recipient ${String(index + 1)}`}
                     value={recipient.memberId}
                     onChange={(event) => {
+                      if (recipients.some((row, rowIndex) => rowIndex !== index && row.memberId === event.target.value)) return;
                       const selected = pageMembers.find((member) => member.id === event.target.value);
                       if (selected) {
                         setSelectedMemberOptions((current) => ({ ...current, [selected.id]: selected }));
@@ -568,9 +570,9 @@ export default function Credits(): JSX.Element {
                   data-help={ui("Amount consumed from the source. The recipient amount follows the configured ratio.")}
                 >{ui("Amount")}<input
                     aria-label={`Amount for recipient ${String(index + 1)}`}
-                    type="number"
-                    min={destination?.sourceAmount ?? 1}
-                    step={destination?.sourceAmount ?? 1}
+                    type="text"
+                    inputMode="numeric"
+                    aria-invalid={containsDecimalSeparator(recipient.amount)}
                     value={recipient.amount}
                     placeholder={String(destination?.sourceAmount ?? 1)}
                     onChange={(event) => {
@@ -582,6 +584,7 @@ export default function Credits(): JSX.Element {
                     }}
                     className={`mt-1 ${controlClass}`}
                   />
+                  {containsDecimalSeparator(recipient.amount) && <span role="alert" className="mt-1 block text-xs text-red-700">{ui("Decimals and commas are not allowed. Enter a whole number.")}</span>}
                 </label>
                 <button
                   type="button"
@@ -594,12 +597,10 @@ export default function Credits(): JSX.Element {
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
-                <details className="col-span-3">
-                  <summary className="cursor-pointer list-none py-2 text-xs font-medium">{ui("Personal message (optional)")}</summary>
-                <label
+                {messageMode === "individual" && <label
                   className="col-span-3 text-xs font-medium"
-                  data-help={ui("Optional recipient-specific message; it overrides the shared message for this person.")}
-                >{ui("Recipient-specific message")}<input
+                  data-help={ui("A separate recognition message for this recipient.")}
+                >{ui("Recipient-specific message")}{sourceWallet?.requireGiveMessage ? ui(" (required)") : ui(" (optional)")}<textarea
                     value={recipient.message}
                     onChange={(event) => {
                       setRecipients((rows) =>
@@ -608,11 +609,10 @@ export default function Credits(): JSX.Element {
                         ),
                       );
                     }}
-                    placeholder={ui("Optional override")}
-                    className={`mt-1 ${controlClass}`}
+                    placeholder={ui("Write a message for this recipient")}
+                    className={`mt-1 min-h-20 ${controlClass}`}
                   />
-                </label>
-                </details>
+                </label>}
               </div>
               );
             })}
@@ -643,7 +643,18 @@ export default function Credits(): JSX.Element {
                   <Plus className="h-4 w-4" />{ui("Add recipient")}</button>
               )}
 
-            <label
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-semibold">{ui("Recognition message")}</legend>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" name="give-message-mode" value="shared" checked={messageMode === "shared"} onChange={() => setMessageMode("shared")} />
+                {ui("One shared message")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" name="give-message-mode" value="individual" checked={messageMode === "individual"} onChange={() => setMessageMode("individual")} />
+                {ui("A different message for each recipient")}
+              </label>
+            </fieldset>
+            {messageMode === "shared" && <label
               className="block text-sm font-medium"
               data-help={ui("Shared recognition context. It is required when the selected point type requires a message.")}
             >
@@ -655,7 +666,7 @@ export default function Credits(): JSX.Element {
                 }}
                 className={`mt-1 min-h-20 ${controlClass}`}
               />
-            </label>
+            </label>}
             <label
               className="block text-sm font-medium"
               data-help={ui("Optional reporting category selected by your program administrator.")}
@@ -691,7 +702,7 @@ export default function Credits(): JSX.Element {
                 sourceTotal <= 0 ||
                 sourceTotal > sourceAvailable ||
                 messageMissing ||
-                recipients.some((row) => !row.memberId || Number(row.amount) <= 0 || (destination ? Number(row.amount) % destination.sourceAmount !== 0 : false))
+                recipients.some((row) => !row.memberId || !Number.isInteger(Number(row.amount)) || Number(row.amount) <= 0 || containsDecimalSeparator(row.amount) || (destination ? Number(row.amount) % destination.sourceAmount !== 0 : false))
               }
               onClick={() => {
                 if (
@@ -759,9 +770,9 @@ export default function Credits(): JSX.Element {
               data-help={ui("Points deducted immediately when the exchange request is submitted.")}
             >{ui("Amount")}<input
                 className={`mt-1 ${controlClass}`}
-                type="number"
-                min={activeRate?.minPoints ?? 1}
-                max={activeRate?.maxPoints ?? undefined}
+                type="text"
+                inputMode="numeric"
+                aria-invalid={exchangeHasDecimalSeparator}
                 value={exchangeAmount}
                 placeholder={String(activeRate?.minPoints ?? 1)}
                 onChange={(event) => {
@@ -884,7 +895,7 @@ export default function Credits(): JSX.Element {
         <div className="mt-3 flex items-center justify-between gap-3">
           <label
             className="text-sm font-medium"
-            data-help={ui("All shows the program feed; Received and Given are limited to your own activity.")}
+            data-help={ui("All, Received, and Given show only your own recognition activity.")}
           >{ui("View")}<select
               className={`mt-1 ${controlClass}`}
               value={feedKind}
@@ -893,7 +904,7 @@ export default function Credits(): JSX.Element {
                 setFeedPage(1);
               }}
             >
-              <option value="all">{ui("All recognition")}</option>
+              <option value="all">{ui("All my activity")}</option>
               <option value="received">{ui("Received by me")}</option>
               <option value="given">{ui("Given by me")}</option>
             </select>
@@ -905,15 +916,16 @@ export default function Credits(): JSX.Element {
         <div className="mt-3 space-y-3">
           {(recognitionFeed.data?.items ?? []).map((item) => {
             const amount = displayAmount(item);
+            const counterpartyName = item.counterparty
+              ? [item.counterparty.firstName, item.counterparty.lastName].filter(Boolean).join(" ") ||
+                item.counterparty.email ||
+                ui("Unknown member")
+              : ui("Unknown member");
+            const direction = item.action === "GIVE_IN" ? ui("Received from") : ui("Given to");
             return (
               <article key={item.id} className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-semibold">
-                    {item.member
-                      ? [item.member.firstName, item.member.lastName].filter(Boolean).join(" ") ||
-                        item.member.email
-                      : "Member"}
-                  </span>
+                  <span className="font-semibold">{direction} {counterpartyName}</span>
                   <span
                     className={`font-semibold ${amount >= 0 ? "text-green-600" : "text-red-600"}`}
                   >

@@ -16,7 +16,7 @@ import { formatPointExchangeReason } from "./exchange-reason.js";
 
 export const POINT_TYPE_CODES = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 export const POINT_EXPIRY_MODES = ["NEVER", "AFTER_DAYS", "FIXED_DATE", "PER_GRANT"] as const;
-export const POINT_GIVE_SOURCES = ["BALANCE", "ALLOWANCE", "BOTH"] as const;
+export const POINT_GIVE_SOURCES = ["BALANCE", "ALLOWANCE"] as const;
 export const BANK_CYCLE_RETURN_TYPES = ["RETURN", "PROJECT_RETURN"] as const;
 
 export interface PointTypeSelector {
@@ -1151,7 +1151,7 @@ export class WalletService {
           totalSpent: wallet?.totalSpent ?? 0,
           allowance:
             pointType.giveEnabled &&
-            (pointType.giveSource === "ALLOWANCE" || pointType.giveSource === "BOTH")
+            pointType.giveSource === "ALLOWANCE"
               ? {
                   allocated: allowance?.allocated ?? pointType.allowanceAmount ?? 0,
                   remaining: allowance?.remaining ?? pointType.allowanceAmount ?? 0,
@@ -1229,7 +1229,7 @@ export class WalletService {
           exchangeable: true,
           bankEnabled: true,
           giveEnabled: true,
-          giveSource: "BOTH",
+          giveSource: "ALLOWANCE",
           // Governance must set the actual recurring allowance; the template
           // deliberately does not invent a financial policy value.
           allowanceAmount: 0,
@@ -1706,14 +1706,10 @@ export class WalletService {
       if (!sourceType.giveEnabled || !sourceType.transferable)
         throw new LoyaltyError("POINT_GIVE_DISABLED", 409);
       if (!rule) throw new LoyaltyError("POINT_TRANSFER_NOT_ALLOWED", 422);
-      const fundingSource =
-        sourceType.giveSource === "BOTH" ? input.fundingSource : sourceType.giveSource;
-      if (!fundingSource) throw new LoyaltyError("POINT_GIVE_FUNDING_SOURCE_REQUIRED", 400);
-      if (
-        input.fundingSource &&
-        sourceType.giveSource !== "BOTH" &&
-        input.fundingSource !== sourceType.giveSource
-      ) {
+      const fundingSource = sourceType.giveSource;
+      if (fundingSource !== "BALANCE" && fundingSource !== "ALLOWANCE")
+        throw new LoyaltyError("POINT_GIVE_SOURCE_INVALID", 409);
+      if (input.fundingSource && input.fundingSource !== fundingSource) {
         throw new LoyaltyError("POINT_GIVE_FUNDING_SOURCE_NOT_ALLOWED", 422);
       }
       if (input.recipients.length === 0 || input.recipients.length > sourceType.maxRecipients)
@@ -1878,6 +1874,7 @@ export class WalletService {
       pointTypeId?: string;
       action?: string;
       actions?: string[];
+      direction?: "increase" | "decrease";
       counterpartyMemberId?: string;
       categoryId?: string;
       memberIds?: string[];
@@ -1895,6 +1892,10 @@ export class WalletService {
       ...(input.memberIds ? { memberId: { in: input.memberIds } } : {}),
       ...(input.pointTypeId ? { pointTypeId: input.pointTypeId } : {}),
       ...(input.actions?.length ? { action: { in: input.actions } } : input.action ? { action: input.action } : {}),
+      ...(input.direction === "increase" ? { amount: { gt: 0 } } : {}),
+      ...(input.direction === "decrease"
+        ? { OR: [{ amount: { lt: 0 } }, { action: "GIVE_ALLOWANCE_OUT" }] }
+        : {}),
       ...(input.counterpartyMemberId ? { counterpartyMemberId: input.counterpartyMemberId } : {}),
       ...(input.categoryId ? { categoryId: input.categoryId } : {}),
       ...(input.from !== undefined || input.to !== undefined
@@ -2151,13 +2152,12 @@ export class WalletService {
           select: { id: true },
         });
         if (activeWorkflow) throw new LoyaltyError("POINT_EXCHANGE_WORKFLOW_NOT_MATCHED", 409);
+        throw new LoyaltyError("POINT_EXCHANGE_WORKFLOW_REQUIRED", 409);
       }
-      const linkedRequest = approvalRequest
-        ? await tx.pointExchangeRequest.update({
-            where: { id: request.id },
-            data: { approvalRequestId: approvalRequest.id },
-          })
-        : request;
+      const linkedRequest = await tx.pointExchangeRequest.update({
+        where: { id: request.id },
+        data: { approvalRequestId: approvalRequest.id },
+      });
       return { request: linkedRequest, transaction: debit.transaction, idempotent: false };
     });
   }

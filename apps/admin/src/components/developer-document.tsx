@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { getDeveloperApiGuide } from "@/content/developer-api-guide";
 import referenceData from "@/content/developer-api-reference.json";
 import type { ApiEndpoint, ApiField, ApiReferenceCatalog, ApiSchema } from "@/content/developer-api-types";
+import { copyText } from "@/lib/clipboard";
 
 const catalog = referenceData as ApiReferenceCatalog;
 
@@ -126,7 +127,7 @@ function CodeSample({ title, code, language, copy }: { title: string; code: stri
   const [failed, setFailed] = useState(false);
   const copyCode = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await copyText(code);
       setCopied(true);
       setFailed(false);
     } catch { setFailed(true); }

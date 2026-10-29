@@ -15,6 +15,7 @@ export const rewardUpdateSchema = rewardCreateSchema.omit({ programId: true }).p
 
 export const rewardListQuerySchema = z.object({
   category: z.string().trim().min(1).max(80).optional(),
+  search: z.string().trim().min(1).max(120).optional(),
   isActive: z
     .enum(["true", "false"])
     .optional()

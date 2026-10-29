@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/clipboard";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
@@ -497,7 +498,7 @@ export function MembersListPage(): JSX.Element {
                             size="icon"
                             className="h-7 w-7 shrink-0"
                             aria-label={`Copy member ID ${member.id}`}
-                            onClick={() => void navigator.clipboard.writeText(member.id)}
+                            onClick={() => void copyText(member.id)}
                           >
                             <Copy className="h-3.5 w-3.5" />
                           </Button>

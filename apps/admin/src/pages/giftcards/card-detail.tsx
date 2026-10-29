@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
 import { useAdminCapability } from "@/lib/admin-permissions";
+import { createUuid } from "@/lib/random-uuid";
 import type { GiftCard, GiftCardTransaction, PaginatedResponse } from "@/types";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -102,7 +103,7 @@ export function CardDetailPage(): JSX.Element {
     setSubmitting(true);
     setActionError(null);
     try {
-      const key = crypto.randomUUID();
+      const key = createUuid();
       await fetchApi("/admin/giftcards/redeem", {
         method: "POST",
         headers: { "Idempotency-Key": key },
@@ -130,7 +131,7 @@ export function CardDetailPage(): JSX.Element {
     setSubmitting(true);
     setActionError(null);
     try {
-      const key = crypto.randomUUID();
+      const key = createUuid();
       await fetchApi("/admin/giftcards/refund", {
         method: "POST",
         headers: { "Idempotency-Key": key },

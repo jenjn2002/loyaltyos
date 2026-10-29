@@ -466,6 +466,7 @@
   },
   "errors": {
     "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "Không có quy trình phê duyệt phù hợp với yêu cầu đổi điểm này. Hãy nhờ quản trị viên cập nhật quy trình trước khi thử lại.",
+    "POINT_EXCHANGE_WORKFLOW_REQUIRED": "Chưa thể đổi điểm vì chưa có quy trình phê duyệt đang hoạt động. Hãy nhờ quản trị viên tạo và kích hoạt quy trình.",
     "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "Yêu cầu đổi điểm này phải được duyệt qua quy trình phê duyệt.",
     "POINT_EXCHANGE_REJECT_VIA_WORKFLOW": "Hãy từ chối yêu cầu này trong quy trình phê duyệt, hoặc hủy để hoàn điểm cho thành viên.",
     "POINT_EXCHANGE_APPROVER_PERMISSIONS_MISSING": "Người duyệt yêu cầu đổi điểm cần các quyền Inbox, View và Decide. Hãy nhờ quản trị viên cập nhật vai trò phê duyệt.",

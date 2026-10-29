@@ -119,7 +119,7 @@ function normalizePointType(input: PointTypeInput) {
     throw new LoyaltyError("POINT_FIXED_EXPIRY_REQUIRED", 400);
   if (
     input.giveEnabled &&
-    (input.giveSource === "ALLOWANCE" || input.giveSource === "BOTH") &&
+    input.giveSource === "ALLOWANCE" &&
     input.allowanceAmount == null
   )
     throw new LoyaltyError("POINT_ALLOWANCE_NOT_CONFIGURED", 400);

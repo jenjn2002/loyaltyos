@@ -66,7 +66,7 @@ export interface CreditBalance {
   cashEligible: boolean;
   bankEnabled: boolean;
   giveEnabled: boolean;
-  giveSource: "BALANCE" | "ALLOWANCE" | "BOTH";
+  giveSource: "BALANCE" | "ALLOWANCE";
   requireGiveMessage: boolean;
   allowMultiRecipient: boolean;
   maxRecipients: number;

@@ -578,6 +578,7 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
             activatedAt: true,
             completedAt: true,
             closedAt: true,
+            updatedAt: true,
             createdBy: { select: { name: true } },
           },
         },
@@ -592,11 +593,12 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
             status: "ACCEPTED",
             member: { programId: request.programId, deletedAt: null, status: "ACTIVE" },
           },
-          select: { projectId: true, member: { select: { id: true, firstName: true, lastName: true, department: true, photoUrl: true } } },
+          select: { projectId: true, invitedAt: true, respondedAt: true, member: { select: { id: true, firstName: true, lastName: true, department: true, photoUrl: true } } },
         })
       : [];
     const participantsByProject = new Map<string, { memberId: string; name: string; department: string | null; photoUrl: string | null }[]>();
-    for (const { projectId, member } of acceptedParticipants) {
+    const participantUpdatesByProject = new Map<string, Date[]>();
+    for (const { projectId, member, invitedAt, respondedAt } of acceptedParticipants) {
       const participants = participantsByProject.get(projectId) ?? [];
       participants.push({
         memberId: member.id,
@@ -605,6 +607,9 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
         photoUrl: member.photoUrl,
       });
       participantsByProject.set(projectId, participants);
+      const updates = participantUpdatesByProject.get(projectId) ?? [];
+      updates.push(...[invitedAt, respondedAt].filter((value): value is Date => value !== null));
+      participantUpdatesByProject.set(projectId, updates);
     }
     return reply.send({ data: memberships.map((membership) => ({
       id: membership.id,
@@ -619,6 +624,14 @@ export function adminProjectsRoutes(app: FastifyInstance, _opts: unknown, done: 
         activatedAt: membership.project.activatedAt,
         completedAt: membership.project.completedAt,
         closedAt: membership.project.closedAt,
+        informationUpdatedAt: [
+          membership.project.updatedAt,
+          membership.invitedAt,
+          membership.respondedAt,
+          ...(participantUpdatesByProject.get(membership.projectId) ?? []),
+        ].filter((value): value is Date => value !== null)
+          .reduce((latest, value) => value > latest ? value : latest)
+          .toISOString(),
         projectManager: membership.project.createdBy ? { name: membership.project.createdBy.name } : null,
         ...(membership.status === "ACCEPTED" ? { members: participantsByProject.get(membership.projectId) ?? [] } : {}),
       },

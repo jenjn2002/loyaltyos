@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi } from "@/lib/api-client";
 import { downloadPrivateAttachment, uploadPrivateAttachment, type PrivateAttachment } from "@/lib/custom-attachments";
+import { createUuid } from "@/lib/random-uuid";
 
 type ProjectField = { id: string; key: string; label: string; type: "TEXT" | "NUMBER" | "BOOLEAN" | "DATE" | "SELECT"; required: boolean; options: string[]; isActive: boolean; sortOrder: number };
 type PointType = { id: string; code: string; name: string; unitLabel: string; bankBalance: number | null };
@@ -377,7 +378,7 @@ export function ProjectsPage(): JSX.Element {
       setNotice(ui("Use no more than 10 links and files combined."));
       return;
     }
-    setDistributionFiles((items) => [...items, ...newFiles.map((file) => ({ key: crypto.randomUUID(), name: file.name, file }))]);
+    setDistributionFiles((items) => [...items, ...newFiles.map((file) => ({ key: createUuid(), name: file.name, file }))]);
     setNotice(null);
   };
   const downloadAttachment = (attachmentId: string, fileName: string): void => {
@@ -508,7 +509,7 @@ export function ProjectsPage(): JSX.Element {
                 </CardContent></Card>
                 {current.canManage && ["COMPLETED", "ISSUE_REJECTED"].includes(current.status) && <Card><CardHeader><CardTitle>{ui("Member point distribution")}</CardTitle><CardDescription>{ui("Enter points or a percentage of each point type’s approved budget. Review the total against the remaining balance before submitting for approval.")}</CardDescription></CardHeader><CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="project-distribution-description">{ui("Distribution description")}</Label>
+                    <Label htmlFor="project-distribution-description">{ui("Distribution description (optional)")}</Label>
                     <Textarea id="project-distribution-description" value={distributionDescription} onChange={(event) => setDistributionDescription(event.target.value)} placeholder={ui("Explain why these members are receiving points.") as string} disabled={issue.isPending} />
                   </div>
                   {distributionDefinitions.isLoading && <p className="text-sm text-muted-foreground">{ui("Loading distribution fields…")}</p>}

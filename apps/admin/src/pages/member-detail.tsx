@@ -21,7 +21,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchApi } from "@/lib/api-client";
+import { copyText } from "@/lib/clipboard";
 import { memberPhotoFileToDataUrl } from "@/lib/member-photo";
+import { createUuid } from "@/lib/random-uuid";
 import type { Member, MemberPointWallet, PaginatedResponse, PointTransaction } from "@/types";
 
 const transactionTypeColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -283,7 +285,7 @@ export function MemberDetailPage(): JSX.Element {
       await fetchApi(`/admin/members/${memberId}/status`, {
         method: "POST",
         body: JSON.stringify({ status, reason: statusReason }),
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+        headers: { "Idempotency-Key": createUuid() },
       });
       setStatusReason("");
       setStatusMessage(
@@ -358,7 +360,7 @@ export function MemberDetailPage(): JSX.Element {
     try {
       await fetchApi(`/admin/members/${memberId}`, {
         method: "DELETE",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+        headers: { "Idempotency-Key": createUuid() },
       });
       await queryClient.invalidateQueries({ queryKey: ["members"] });
       navigate("/members");
@@ -651,7 +653,7 @@ export function MemberDetailPage(): JSX.Element {
                         size="icon"
                         className="h-7 w-7 shrink-0"
                         aria-label={ui("Copy member ID")}
-                        onClick={() => void navigator.clipboard.writeText(member.id)}
+                        onClick={() => void copyText(member.id)}
                       >
                         <Copy className="h-3.5 w-3.5" />
                       </Button>

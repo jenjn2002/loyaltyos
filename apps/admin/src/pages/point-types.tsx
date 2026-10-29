@@ -39,7 +39,7 @@ import { fetchApi } from "@/lib/api-client";
 import { useAdminPermissions } from "@/lib/admin-permissions";
 
 type ExpiryMode = "NEVER" | "AFTER_DAYS" | "FIXED_DATE" | "PER_GRANT";
-type GiveSource = "BALANCE" | "ALLOWANCE" | "BOTH";
+type GiveSource = "BALANCE" | "ALLOWANCE";
 export type PointTypesView = "registry" | "editor";
 
 const expiryModeLabel: Record<ExpiryMode, string> = {
@@ -52,7 +52,6 @@ const expiryModeLabel: Record<ExpiryMode, string> = {
 const giveSourceLabel: Record<GiveSource, string> = {
   BALANCE: "Owned balance",
   ALLOWANCE: "Give allowance",
-  BOTH: "Owned balance or give allowance",
 };
 
 interface TransferRule {
@@ -472,7 +471,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
         giveEnabled: draft.giveEnabled,
         giveSource: draft.giveSource,
         allowanceAmount:
-          draft.giveEnabled && (draft.giveSource === "ALLOWANCE" || draft.giveSource === "BOTH")
+          draft.giveEnabled && draft.giveSource === "ALLOWANCE"
             ? nullableInt(draft.allowanceAmount)
             : null,
         allowanceCycleDays: Number(draft.allowanceCycleDays),
@@ -1083,7 +1082,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                   <Field
                     id="give-source"
                     label={ui("Give source")}
-                    help={ui("Choose owned balance, a renewable allowance, or let members explicitly choose either source for each Give.")}
+                    help={ui("Choose one fixed Give source: owned balance or separate renewable allowance.")}
                   >
                     <select
                       id="give-source"
@@ -1095,7 +1094,6 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                     >
                       <option value="BALANCE">{ui("Owned balance")}</option>
                       <option value="ALLOWANCE">{ui("Separate allowance")}</option>
-                      <option value="BOTH">{ui("Member chooses balance or allowance")}</option>
                     </select>
                   </Field>
                   <Field
