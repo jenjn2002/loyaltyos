@@ -158,7 +158,17 @@ function prettyJson(value: unknown): string {
   }
 }
 
-function dataSummary(value: Record<string, unknown> | null): string {
+function recordedValue(value: unknown, locale: string): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return String(value);
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+  }).format(date);
+}
+
+function dataSummary(value: Record<string, unknown> | null, locale: string): string {
   if (!value) return "";
   return Object.entries(value)
     .filter(([key]) => !key.toLowerCase().endsWith("id"))
@@ -166,7 +176,7 @@ function dataSummary(value: Record<string, unknown> | null): string {
     .slice(0, 4)
     .map(([key, item]) => {
       const label = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ");
-      const valueLabel = typeof item === "string" ? item : String(item);
+      const valueLabel = recordedValue(item, locale);
       return `${ui(label)}: ${valueLabel}`;
     })
     .join(" · ");
@@ -176,12 +186,12 @@ function featureLabel(value: string): string {
   return ui(value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase()));
 }
 
-function RecordedData({ value }: { value: unknown }): JSX.Element {
+function RecordedData({ value, locale }: { value: unknown; locale: string }): JSX.Element {
   if (value === null || value === undefined) return <span>—</span>;
-  if (typeof value !== "object") return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+  if (typeof value !== "object") return <span className="whitespace-pre-wrap break-words" title={typeof value === "string" ? value : undefined}>{recordedValue(value, locale)}</span>;
   return <dl className="space-y-2 border-l pl-3">{Object.entries(value).map(([key, item]) => <div key={key}>
     <dt className="text-xs font-medium text-muted-foreground">{ui(key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()))}</dt>
-    <dd className="mt-1 text-sm"><RecordedData value={item} /></dd>
+    <dd className="mt-1 text-sm"><RecordedData value={item} locale={locale} /></dd>
   </div>)}</dl>;
 }
 
@@ -396,7 +406,7 @@ export function LogsPage(): JSX.Element {
                   {entries.map((entry) => (
                     <Fragment key={entry.id}>
                       <TableRow key={entry.id} className="cursor-pointer" onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}>
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString(i18n.language)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{recordedValue(entry.createdAt, i18n.language)}</TableCell>
                         <TableCell className="min-w-48"><p className="font-medium">{actorLabel(entry.actor)}</p><p className="text-xs text-muted-foreground">{ui(entry.actorType)}</p></TableCell>
                         <TableCell className="whitespace-nowrap">{actionLabel(entry.action)}</TableCell>
                         <TableCell><code className="text-xs">{featureLabel(entry.entityType)}</code></TableCell>
@@ -405,7 +415,7 @@ export function LogsPage(): JSX.Element {
                           {entry.targetLabel && entry.entityId && <span className="ml-1 text-muted-foreground">({entry.entityId})</span>}
                         </TableCell>
                         <TableCell className="max-w-80 text-xs">
-                          <p className="truncate" title={dataSummary(entry.diff)}>{dataSummary(entry.diff) || (entry.diff ? ui("View details") : "—")}</p>
+                          <p className="truncate" title={dataSummary(entry.diff, i18n.language)}>{dataSummary(entry.diff, i18n.language) || (entry.diff ? ui("View details") : "—")}</p>
                           {entry.reason && <p className="truncate text-muted-foreground" title={entry.reason}>{ui("Reason")}: {entry.reason}</p>}
                         </TableCell>
                       </TableRow>
@@ -413,7 +423,7 @@ export function LogsPage(): JSX.Element {
                         <TableRow key={`${entry.id}-details`}>
                           <TableCell colSpan={6} className="bg-muted/30">
                             <div className="grid gap-4 md:grid-cols-2">
-                              <div><p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{ui("Recorded data")}</p><div className="max-h-96 overflow-auto rounded-md border bg-background p-3"><RecordedData value={entry.diff} /></div><details className="mt-2"><summary className="cursor-pointer text-xs text-muted-foreground">{ui("Technical data")}</summary><pre className="max-h-64 overflow-auto p-3 text-xs">{prettyJson(entry.diff)}</pre></details></div>
+                              <div><p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{ui("Recorded data")}</p><div className="max-h-96 overflow-auto rounded-md border bg-background p-3"><RecordedData value={entry.diff} locale={i18n.language} /></div><details className="mt-2"><summary className="cursor-pointer text-xs text-muted-foreground">{ui("Technical data")}</summary><pre className="max-h-64 overflow-auto p-3 text-xs">{prettyJson(entry.diff)}</pre></details></div>
                               <div className="space-y-2 text-sm"><p><strong>{ui("Actor ID")}:</strong> {entry.actorId}</p><p><strong>{ui("Feature")}:</strong> {featureLabel(entry.entityType)}</p><p><strong>{ui("Target")}:</strong> {entry.targetLabel ?? "—"}</p><p><strong>{ui("Target ID")}:</strong> {entry.entityId ?? "—"}</p><p><strong>{ui("Reason")}:</strong> {entry.reason ?? "—"}</p></div>
                             </div>
                           </TableCell>
