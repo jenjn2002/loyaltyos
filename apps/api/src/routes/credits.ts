@@ -154,6 +154,82 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     });
   });
 
+  app.get("/members/me/credits/summary", async (request, reply) => {
+    if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
+    const query = z.object({ from: z.string().datetime().optional(), to: z.string().datetime().optional() }).parse(request.query);
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    if (from && to && from > to) throw new LoyaltyError("INVALID_DATE_RANGE", 400);
+    const wallets = await walletService.memberWallets(request.memberId, request.programId, false, true);
+    const pointTypeIds = wallets.map((wallet) => wallet.pointTypeId);
+    const where: Prisma.CustomPointTransactionWhereInput = {
+      programId: request.programId,
+      memberId: request.memberId,
+      pointTypeId: { in: pointTypeIds },
+      ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    };
+    // A balance is a snapshot: take the last wallet ledger entry before each boundary.
+    const balancesAt = (boundary: Date, inclusive: boolean) => prisma.$queryRaw<Array<{ pointTypeId: string; balanceAfter: number }>>(Prisma.sql`
+      SELECT DISTINCT ON ("pointTypeId") "pointTypeId", "balanceAfter"
+      FROM "CustomPointTransaction"
+      WHERE "programId" = ${request.programId} AND "memberId" = ${request.memberId}
+        AND "createdAt" ${inclusive ? Prisma.sql`<=` : Prisma.sql`<`} ${boundary}
+      ORDER BY "pointTypeId", "createdAt" DESC, "id" DESC
+    `);
+    const [groups, allowances, expirations, openingRows, endingRows] = await Promise.all([
+      prisma.customPointTransaction.groupBy({ by: ["pointTypeId", "action"], where, _sum: { amount: true } }),
+      prisma.customPointTransaction.findMany({ where: { ...where, action: "GIVE_ALLOWANCE_OUT" }, select: { pointTypeId: true, metadata: true } }),
+      prisma.$queryRaw<Array<{ pointTypeId: string; expired: bigint }>>(Prisma.sql`
+        SELECT expiration."pointTypeId", COALESCE(SUM(-expiration."amount"), 0)::bigint AS expired
+        FROM "CustomPointTransaction" AS expiration
+        WHERE expiration."programId" = ${request.programId}
+          AND expiration."memberId" = ${request.memberId}
+          AND expiration."action" = 'EXPIRATION'
+          AND expiration."amount" < 0
+          ${from ? Prisma.sql`AND expiration."createdAt" >= ${from}` : Prisma.empty}
+          ${to ? Prisma.sql`AND expiration."createdAt" <= ${to}` : Prisma.empty}
+          AND NOT EXISTS (
+            SELECT 1 FROM "CustomPointTransaction" AS reset
+            WHERE reset."programId" = expiration."programId"
+              AND reset."memberId" = expiration."memberId"
+              AND reset."pointTypeId" = expiration."pointTypeId"
+              AND reset."action" = 'EXPIRATION_RESET'
+              AND reset."reversedFromId" = expiration."id"
+              ${to ? Prisma.sql`AND reset."createdAt" <= ${to}` : Prisma.empty}
+          )
+        GROUP BY expiration."pointTypeId"
+      `),
+      from ? balancesAt(from, false) : Promise.resolve([]),
+      to ? balancesAt(to, true) : Promise.resolve([]),
+    ]);
+    const totals = new Map(pointTypeIds.map((id) => [id, { received: 0, sent: 0, redeemed: 0, expired: 0 }]));
+    for (const group of groups) {
+      const total = totals.get(group.pointTypeId);
+      if (!total) continue;
+      const amount = group._sum.amount ?? 0;
+      if (["EARN", "GRANT", "GIVE_IN"].includes(group.action)) total.received += Math.max(0, amount);
+      if (group.action === "GIVE_OUT") total.sent += Math.max(0, -amount);
+      if (["REDEEM", "EXCHANGE"].includes(group.action)) total.redeemed += Math.max(0, -amount);
+    }
+    for (const entry of expirations) {
+      const total = totals.get(entry.pointTypeId);
+      if (total) total.expired = Number(entry.expired);
+    }
+    for (const entry of allowances) {
+      const metadata = entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata) ? entry.metadata : {};
+      const spent = Number(metadata.allowanceSpent ?? 0);
+      if (Number.isFinite(spent) && spent > 0) totals.get(entry.pointTypeId)!.sent += spent;
+    }
+    const openingByType = new Map(openingRows.map((row) => [row.pointTypeId, row.balanceAfter]));
+    const endingByType = new Map(endingRows.map((row) => [row.pointTypeId, row.balanceAfter]));
+    return reply.send({ data: wallets.map((wallet) => ({
+      ...wallet,
+      openingBalance: from ? openingByType.get(wallet.pointTypeId) ?? 0 : null,
+      periodEndBalance: to ? endingByType.get(wallet.pointTypeId) ?? 0 : wallet.balance,
+      ...totals.get(wallet.pointTypeId),
+    })) });
+  });
+
   app.get("/members/me/credits/transactions", async (request, reply) => {
     if (!request.memberId) throw new LoyaltyError("UNAUTHORIZED", 401);
     const query = pageSchema

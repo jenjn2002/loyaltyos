@@ -1,6 +1,6 @@
 import { ui } from "@/lib/ui-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, BookOpen, CalendarDays, Check, ChevronRight, Gift, Loader2, Star } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Award, BarChart3, BookOpen, CalendarDays, Check, ChevronRight, Clock3, Gift, Loader2, Repeat2, Star, Wallet } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -261,6 +261,97 @@ function BalanceCard({
         </div>
       )}
     </div>
+  );
+}
+
+type WalletSummary = CreditBalance & { openingBalance: number | null; periodEndBalance: number; received: number; sent: number; redeemed: number; expired: number };
+
+function PointActivityChart({ wallet }: { wallet: WalletSummary }) {
+  const entries = [
+    { label: ui("Received"), value: wallet.received, color: "bg-emerald-500", icon: ArrowDownLeft },
+    { label: ui("Sent"), value: wallet.sent, color: "bg-sky-500", icon: ArrowUpRight },
+    { label: ui("Redeemed / exchanged"), value: wallet.redeemed, color: "bg-violet-500", icon: Repeat2 },
+    { label: ui("Expired"), value: wallet.expired, color: "bg-amber-500", icon: Clock3 },
+  ];
+  const max = Math.max(0, ...entries.map((entry) => entry.value));
+  return (
+    <figure className="mt-4 rounded-xl border border-[var(--color-border)] p-4" aria-label={`${ui("Point activity chart")} · ${wallet.name}`}>
+      <figcaption className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold text-[var(--color-text)]">{ui("Point activity")}</span>
+        <span className="text-xs text-[var(--color-text-secondary)]">{wallet.unitLabel}</span>
+      </figcaption>
+      <div className="mt-4 space-y-4">
+        {entries.map(({ label, value, color, icon: Icon }) => (
+          <div key={label}>
+            <div className="mb-1.5 flex items-baseline justify-between gap-3 text-xs">
+              <span className="flex min-w-0 items-center gap-1.5 text-[var(--color-text-secondary)]"><Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{label}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-[var(--color-text)]">{value.toLocaleString()}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]" role="img" aria-label={`${label}: ${value.toLocaleString()} ${wallet.unitLabel}`}>
+              <div className={`h-full rounded-full ${color}`} style={{ width: `${max > 0 ? (value / max) * 100 : 0}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between text-[10px] tabular-nums text-[var(--color-text-secondary)]" aria-hidden="true"><span>0</span><span>{max.toLocaleString()}</span></div>
+      {max === 0 && <p className="mt-3 text-xs text-[var(--color-text-secondary)]">{ui("No point activity in the selected period.")}</p>}
+    </figure>
+  );
+}
+
+export function PointsDashboard({ enabled }: { enabled: boolean }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const fromDate = from ? new Date(from) : null;
+  const toDate = to ? new Date(to) : null;
+  const valid = (!fromDate || Number.isFinite(fromDate.getTime())) && (!toDate || Number.isFinite(toDate.getTime())) && (!fromDate || !toDate || fromDate.getTime() <= toDate.getTime());
+  const params = new URLSearchParams();
+  if (fromDate && Number.isFinite(fromDate.getTime())) params.set("from", fromDate.toISOString());
+  if (toDate && Number.isFinite(toDate.getTime())) {
+    toDate.setMilliseconds(999);
+    params.set("to", toDate.toISOString());
+  }
+  const summary = useQuery({
+    queryKey: ["credits", "summary", from, to],
+    queryFn: () => fetchApi<WalletSummary[]>(`/members/me/credits/summary?${params.toString()}`),
+    enabled: enabled && valid,
+  });
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-sm" aria-labelledby="points-overview-heading">
+      <div className="border-b border-[var(--color-border)] p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary)] text-white"><BarChart3 className="h-5 w-5" aria-hidden="true" /></span>
+          <div>
+            <h2 id="points-overview-heading" className="text-lg font-semibold text-[var(--color-text)]">{ui("Points overview")}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-secondary)]">{ui("Balances are snapshots at the selected times. Activity covers the selected period. Expired points exclude amounts restored by the end time; redeemed and exchanged totals are before refunds.")}</p>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 rounded-xl bg-[var(--color-surface)] p-3 sm:grid-cols-2">
+          <label className="text-xs font-medium text-[var(--color-text-secondary)]">{ui("From date and time")}<input type="datetime-local" step="1" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1.5 block w-full min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-2 text-sm text-[var(--color-text)]" /></label>
+          <label className="text-xs font-medium text-[var(--color-text-secondary)]">{ui("To date and time")}<input type="datetime-local" step="1" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1.5 block w-full min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-2 text-sm text-[var(--color-text)]" /></label>
+        </div>
+      </div>
+      <div className="p-5 sm:p-6">
+        {!valid ? <p role="alert" className="text-sm text-red-600">{ui("Start time must be on or before end time.")}</p> : summary.isError ? <p role="alert" className="text-sm text-red-600">{ui("Could not load points overview.")} <button type="button" onClick={() => void summary.refetch()} className="underline">{ui("Try again")}</button></p> : summary.isLoading ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("Loading…")}</p> : summary.data?.length === 0 ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("No point balances available.")}</p> : (
+          <div className="space-y-4">{summary.data?.map((wallet) => (
+            <div key={wallet.pointTypeId} className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
+                <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-text)]"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-secondary)] text-[var(--color-primary)]"><PointTypeIcon icon={wallet.icon} className="h-4 w-4" /></span><span className="truncate">{wallet.name}</span></h3>
+                <span className="shrink-0 rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">{wallet.unitLabel}</span>
+              </div>
+              <div className="p-4">
+                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-4">
+                  <p className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)]"><Wallet className="h-4 w-4 text-[var(--color-primary)]" aria-hidden="true" />{to ? ui("Balance at end of period") : ui("Current balance")}</p>
+                  <p className="mt-2 break-words text-3xl font-bold tracking-tight text-[var(--color-text)]">{wallet.periodEndBalance.toLocaleString()} <span className="text-xs font-medium tracking-normal text-[var(--color-text-secondary)]">{wallet.unitLabel}</span></p>
+                </div>
+                {from && wallet.openingBalance !== null && <p className="mt-3 text-sm text-[var(--color-text-secondary)]">{ui("Balance at start of period")}: <span className="font-semibold text-[var(--color-text)]">{wallet.openingBalance.toLocaleString()} {wallet.unitLabel}</span></p>}
+                <PointActivityChart wallet={wallet} />
+              </div>
+            </div>
+          ))}</div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -594,6 +685,7 @@ export default function Home() {
             />
           ))}
           {balance.data && <BalanceCard balance={balance.data} creditWallets={credits.data ?? []} />}
+          <PointsDashboard enabled={authed} />
           {tier.data ? <TierCard tier={tier.data} pointTypes={credits.data ?? []} /> : null}
           {rewards.data && rewards.data.length > 0 && <TopRewards rewards={rewards.data} />}
           {badges.data && <BadgePreview badges={badges.data} />}
