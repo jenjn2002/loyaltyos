@@ -573,12 +573,27 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
 
   const expire = useMutation({
     mutationFn: (pointTypeId: string) =>
-      fetchApi<{ expired: number; runId: string | null }>("/admin/credits/expire", {
+      fetchApi<{ expired: number; expiredPoints: number; runId: string | null }>("/admin/credits/expire", {
         method: "POST",
         body: JSON.stringify({ pointTypeId }),
       }),
     onSuccess: async (result) => {
-      setNotice(`${String(result.expired)} ${ui("expired lot(s) processed.")}`);
+      setNotice(`${String(result.expiredPoints)} ${ui("points expired across")} ${String(result.expired)} ${ui("lots.")}`);
+      await refresh();
+    },
+    onError: (error: Error) => {
+      setNotice(error.message);
+    },
+  });
+
+  const forceExpire = useMutation({
+    mutationFn: (pointTypeId: string) =>
+      fetchApi<{ expired: number; expiredPoints: number; runId: string | null }>("/admin/credits/expire", {
+        method: "POST",
+        body: JSON.stringify({ pointTypeId, force: true }),
+      }),
+    onSuccess: async (result) => {
+      setNotice(`${String(result.expiredPoints)} ${ui("points force-expired across")} ${String(result.expired)} ${ui("lots.")}`);
       await refresh();
     },
     onError: (error: Error) => {
@@ -1411,7 +1426,7 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={expire.isPending || resetExpire.isPending}
+                              disabled={expire.isPending || forceExpire.isPending || resetExpire.isPending}
                               onClick={() => {
                                 if (!window.confirm(ui("Run expiry for this point type now?"))) return;
                                 expire.mutate(pointType.id);
@@ -1421,8 +1436,19 @@ export function PointTypesPage({ view = "registry" }: { view?: PointTypesView })
                             </Button>
                             <Button
                               size="sm"
+                              variant="destructive"
+                              disabled={expire.isPending || forceExpire.isPending || resetExpire.isPending}
+                              onClick={() => {
+                                if (!window.confirm(ui("Force-expire all remaining points of this type now? This ignores expiry dates. You can reset the latest run afterward."))) return;
+                                forceExpire.mutate(pointType.id);
+                              }}
+                            >
+                              <Zap />{ui("Force expire")}
+                            </Button>
+                            <Button
+                              size="sm"
                               variant="outline"
-                              disabled={expire.isPending || resetExpire.isPending}
+                              disabled={expire.isPending || forceExpire.isPending || resetExpire.isPending}
                               onClick={() => {
                                 if (!window.confirm(ui("Reset the most recent expiry run for this point type?"))) return;
                                 resetExpire.mutate(pointType.id);

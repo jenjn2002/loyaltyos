@@ -465,6 +465,7 @@
     "confirmCancelDesc": "Are you sure you want to cancel batch \"{{name}}\" with {{count}} cards? This will cancel all remaining active cards."
   },
   "errors": {
+    "FORCE_EXPIRY_POINT_TYPE_REQUIRED": "Forced expiry requires a point type.",
     "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "No approval workflow matches this exchange. Ask an administrator to update the exchange workflow before trying again.",
     "POINT_EXCHANGE_WORKFLOW_REQUIRED": "Point exchange is unavailable until an administrator creates and activates an approval workflow.",
     "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "This exchange must be reviewed through its approval workflow.",

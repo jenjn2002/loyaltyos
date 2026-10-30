@@ -625,8 +625,11 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
     "/admin/credits/expire",
     { preHandler: [requireCapability("wallet.adjust")] },
     async (request, reply) => {
-      const body = z.object({ pointTypeId: z.string().trim().min(1).optional() }).parse(request.body ?? {});
-      const result = await walletService.expire(request.programId, request.actor, body.pointTypeId);
+      const body = z.object({
+        pointTypeId: z.string().trim().min(1).optional(),
+        force: z.boolean().optional().default(false),
+      }).parse(request.body ?? {});
+      const result = await walletService.expire(request.programId, request.actor, body.pointTypeId, body.force);
       await audit(
         request.programId,
         request.actor,
@@ -634,9 +637,11 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         "point_expiration_run",
         result.runId,
         {
-          operation: "RUN_EXPIRY",
+          operation: body.force ? "FORCE_EXPIRY" : "RUN_EXPIRY",
           pointTypeId: body.pointTypeId ?? null,
           expiredLots: result.expired,
+          expiredPoints: result.expiredPoints,
+          force: body.force,
           runId: result.runId,
         },
       );

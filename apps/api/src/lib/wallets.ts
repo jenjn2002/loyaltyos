@@ -1069,8 +1069,8 @@ export class WalletService {
     });
   }
 
-  async memberWallets(memberId: string, programId: string, adminView = false) {
-    const [types, wallets, allowances] = await Promise.all([
+  async memberWallets(memberId: string, programId: string, adminView = false, includeZero = false) {
+    const [types, wallets, allowances, expirationTotals] = await Promise.all([
       this.db.pointTypeDefinition.findMany({
         where: {
           programId,
@@ -1104,8 +1104,20 @@ export class WalletService {
         where: { memberId, programId, cycleEnd: { gt: new Date() } },
         orderBy: { cycleStart: "desc" },
       }),
+      this.db.customPointTransaction.groupBy({
+        by: ["pointTypeId"],
+        where: {
+          memberId,
+          programId,
+          action: { in: ["EXPIRATION", "EXPIRATION_RESET"] },
+        },
+        _sum: { amount: true },
+      }),
     ]);
     const walletByType = new Map(wallets.map((wallet) => [wallet.pointTypeId, wallet]));
+    const expiredByType = new Map(
+      expirationTotals.map((entry) => [entry.pointTypeId, Math.max(0, -(entry._sum.amount ?? 0))]),
+    );
     const allowanceByType = new Map<string, (typeof allowances)[number]>();
     for (const allowance of allowances) {
       if (!allowanceByType.has(allowance.pointTypeId))
@@ -1149,6 +1161,7 @@ export class WalletService {
           balance: wallet?.balance ?? 0,
           totalEarned: wallet?.totalEarned ?? 0,
           totalSpent: wallet?.totalSpent ?? 0,
+          expiredPoints: expiredByType.get(pointType.id) ?? 0,
           allowance:
             pointType.giveEnabled &&
             pointType.giveSource === "ALLOWANCE"
@@ -1172,8 +1185,10 @@ export class WalletService {
       .filter(
         (wallet) =>
           adminView ||
+          includeZero ||
           wallet.showZeroBalance ||
           wallet.balance !== 0 ||
+          wallet.expiredPoints > 0 ||
           (wallet.allowance?.remaining ?? 0) !== 0,
       );
   }
@@ -2607,57 +2622,76 @@ export class WalletService {
     programId: string,
     actor?: LedgerActor,
     pointTypeId?: string,
-  ): Promise<{ expired: number; runId: string | null }> {
+    force = false,
+  ): Promise<{ expired: number; expiredPoints: number; runId: string | null }> {
+    if (force && (!actor || !pointTypeId)) {
+      throw new LoyaltyError("FORCE_EXPIRY_POINT_TYPE_REQUIRED", 400);
+    }
     const runId = randomUUID();
-    const candidates = await this.db.customPointLot.findMany({
-      where: {
-        programId,
-        ...(pointTypeId ? { pointTypeId } : {}),
-        remainingAmount: { gt: 0 },
-        expiresAt: { lte: new Date() },
-      },
+    let expired = 0;
+    let expiredPoints = 0;
+    const where = {
+      programId,
+      ...(pointTypeId ? { pointTypeId } : {}),
+      remainingAmount: { gt: 0 },
+      ...(!force ? { expiresAt: { lte: new Date() } } : {}),
+    };
+    let candidates = await this.db.customPointLot.findMany({
+      where,
       include: { pointType: true },
       orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
       take: 500,
     });
-    let expired = 0;
-    for (const candidate of candidates) {
-      const changed = await this.db.$transaction(async (tx) => {
-        const lot = await tx.customPointLot.findUnique({ where: { id: candidate.id } });
-        if (!lot || lot.remainingAmount <= 0) return false;
-        const wallet = await tx.customPointWallet.findUniqueOrThrow({
-          where: { id: lot.walletId },
-        });
-        const amount = Math.min(lot.remainingAmount, Math.max(wallet.balance, 0));
-        if (amount <= 0) {
-          await tx.customPointLot.update({
-            where: { id: lot.id },
-            data: { remainingAmount: 0 },
+    while (candidates.length > 0) {
+      for (const candidate of candidates) {
+        const amount = await this.db.$transaction(async (tx) => {
+          const lot = await tx.customPointLot.findUnique({ where: { id: candidate.id } });
+          if (!lot || lot.remainingAmount <= 0) return 0;
+          const wallet = await tx.customPointWallet.findUniqueOrThrow({
+            where: { id: lot.walletId },
           });
-          return false;
-        }
-        await debitWallet(tx, {
-          memberId: lot.memberId,
-          programId,
-          pointType: candidate.pointType,
-          amount,
-          action: "EXPIRATION",
-          source: "system:expiration",
-          reason: `Expired lot ${lot.id}`,
-          idempotencyKey: `point-expire:${lot.id}`,
-          actor: actor ?? { type: "SYSTEM", id: "point-expiration" },
-          metadata: {
-            lotId: lot.id,
-            grantTransactionId: lot.grantTransactionId,
-            expirationRunId: runId,
-            manual: Boolean(actor),
-          },
+          const amount = Math.min(lot.remainingAmount, Math.max(wallet.balance, 0));
+          if (amount <= 0) {
+            await tx.customPointLot.update({
+              where: { id: lot.id },
+              data: { remainingAmount: 0 },
+            });
+            return 0;
+          }
+          await debitWallet(tx, {
+            memberId: lot.memberId,
+            programId,
+            pointType: candidate.pointType,
+            amount,
+            action: "EXPIRATION",
+            source: "system:expiration",
+            reason: `${force ? "Force-expired" : "Expired"} lot ${lot.id}`,
+            idempotencyKey: `point-expire:${lot.id}`,
+            actor: actor ?? { type: "SYSTEM", id: "point-expiration" },
+            metadata: {
+              lotId: lot.id,
+              grantTransactionId: lot.grantTransactionId,
+              expirationRunId: runId,
+              manual: Boolean(actor),
+              force,
+            },
+          });
+          return amount;
         });
-        return true;
+        if (amount > 0) {
+          expired += 1;
+          expiredPoints += amount;
+        }
+      }
+      if (!force || candidates.length < 500) break;
+      candidates = await this.db.customPointLot.findMany({
+        where,
+        include: { pointType: true },
+        orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
+        take: 500,
       });
-      if (changed) expired += 1;
     }
-    return { expired, runId: expired > 0 ? runId : null };
+    return { expired, expiredPoints, runId: expired > 0 ? runId : null };
   }
 
   async resetExpiry(

@@ -75,6 +75,7 @@ export interface CreditBalance {
   balance: number;
   totalEarned: number;
   totalSpent: number;
+  expiredPoints: number;
   isPrimary: boolean;
   showZeroBalance: boolean;
   allowance: {

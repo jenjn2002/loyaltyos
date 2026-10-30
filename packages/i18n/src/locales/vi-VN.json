@@ -465,6 +465,7 @@
     "confirmCancelDesc": "Bạn có chắc chắn muốn hủy lô \"{{name}}\" bằng thẻ {{count}} không? Điều này sẽ hủy tất cả các thẻ hoạt động còn lại."
   },
   "errors": {
+    "FORCE_EXPIRY_POINT_TYPE_REQUIRED": "Ép hết hạn cần chỉ định loại điểm.",
     "POINT_EXCHANGE_WORKFLOW_NOT_MATCHED": "Không có quy trình phê duyệt phù hợp với yêu cầu đổi điểm này. Hãy nhờ quản trị viên cập nhật quy trình trước khi thử lại.",
     "POINT_EXCHANGE_WORKFLOW_REQUIRED": "Chưa thể đổi điểm vì chưa có quy trình phê duyệt đang hoạt động. Hãy nhờ quản trị viên tạo và kích hoạt quy trình.",
     "POINT_EXCHANGE_APPROVAL_VIA_WORKFLOW": "Yêu cầu đổi điểm này phải được duyệt qua quy trình phê duyệt.",

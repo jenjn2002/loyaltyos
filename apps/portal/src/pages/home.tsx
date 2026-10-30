@@ -196,17 +196,26 @@ function useExpiryRefresh(): void {
 }
 
 function expiryLabel(wallet: CreditBalance): string {
-  if (wallet.expiryMode === "NEVER") return ui("Does not expire");
-  if (wallet.expiryMode === "AFTER_DAYS" || wallet.expiryMode === "FIXED_DATE") {
+  const expiredLabel = wallet.expiredPoints > 0
+    ? `${ui("Expired points (total)")}: ${wallet.expiredPoints.toLocaleString()}`
+    : "";
+  if (wallet.balance <= 0) {
+    return expiredLabel
+      ? `${ui("No points remaining")} · ${expiredLabel}`
+      : ui("No points remaining");
+  }
+  let label: string;
+  if (wallet.expiryMode === "NEVER") label = ui("Does not expire");
+  else if (wallet.expiryMode === "AFTER_DAYS" || wallet.expiryMode === "FIXED_DATE") {
     const expiryAt = wallet.expiryAt ?? wallet.fixedExpiryAt;
     const days = remainingExpiryDays(expiryAt);
-    if (days === 0) return ui("Expires today");
-    if (days !== null) return `${ui("Expires in")} ${String(days)} ${ui("days")}`;
-    return wallet.expiryMode === "AFTER_DAYS"
+    if (days === 0) label = ui("Expires today");
+    else if (days !== null) label = `${ui("Expires in")} ${String(days)} ${ui("days")}`;
+    else label = wallet.expiryMode === "AFTER_DAYS"
       ? `${ui("Expires")} ${String(wallet.expiryDays)} ${ui("days from point creation")}`
       : ui("Fixed expiry date");
-  }
-  return ui("Expiry is set for each grant");
+  } else label = ui("Expiry is set for each grant");
+  return expiredLabel ? `${label} · ${expiredLabel}` : label;
 }
 
 function BalanceCard({
