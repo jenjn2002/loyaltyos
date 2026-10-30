@@ -108,9 +108,6 @@ services:
     build:
       context: ../..
       dockerfile: apps/admin/Dockerfile
-      args:
-        VITE_LOYALTYOS_ENVIRONMENT: sandbox
-        VITE_LOYALTYOS_SWITCH_URL: https://adminloyalty.trunglocxoay.store
     depends_on:
       migration:
         condition: service_completed_successfully

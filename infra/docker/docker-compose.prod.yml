@@ -85,9 +85,6 @@ services:
     build:
       context: ../..
       dockerfile: apps/admin/Dockerfile
-      args:
-        VITE_LOYALTYOS_ENVIRONMENT: production
-        VITE_LOYALTYOS_SWITCH_URL: https://adminloyalty-sandbox.trunglocxoay.store
     expose:
       - "80"
     ports:

@@ -28,7 +28,6 @@ import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { EnvironmentSwitch } from "@/components/layout/environment-switch";
 import {
   Select,
   SelectContent,
@@ -376,7 +375,6 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
           .map((item) => <SidebarLink key={item.to} item={item} />)}
       </nav>
       <div className="border-t p-4 space-y-3">
-        {authenticated && <EnvironmentSwitch />}
         <NavLink
           to="/document"
           className={({ isActive }) => cn(

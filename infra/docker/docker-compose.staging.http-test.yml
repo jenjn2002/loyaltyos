@@ -29,9 +29,6 @@ services:
       CORS_ORIGINS: http://161.118.206.195:18090,http://161.118.206.195:18091
 
   admin:
-    build:
-      args:
-        VITE_LOYALTYOS_SWITCH_URL: http://161.118.206.195:18081
     ports:
       - "0.0.0.0:18091:80"
     labels: !reset {}

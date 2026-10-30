@@ -8,7 +8,6 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App";
 import i18n from "./i18n";
-import { completeEnvironmentHandoff } from "./lib/api-client";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,15 +43,4 @@ function renderApp(): void {
   );
 }
 
-function showHandoffFailure(): void {
-  appRootElement.replaceChildren();
-  const message = document.createElement("p");
-  message.className = "m-8 text-sm text-red-700";
-  message.textContent = "Could not switch environments. The secure sign-in link may have expired; return to the previous environment and try again.";
-  appRootElement.append(message);
-}
-
-void completeEnvironmentHandoff().then(renderApp).catch((error: unknown) => {
-  console.error("Environment sign-in handoff failed", error);
-  showHandoffFailure();
-});
+renderApp();

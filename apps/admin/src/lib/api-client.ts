@@ -107,31 +107,6 @@ export function isAdminAuthenticated(): boolean {
   return adminCredentialMode;
 }
 
-/** Consume a short-lived cross-environment ticket before protected routes mount. */
-export async function completeEnvironmentHandoff(): Promise<void> {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  const ticket = params.get("loyaltyos-handoff");
-  if (!ticket) return;
-  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-  const response = await fetch(`${API_URL}/auth/environment-handoff/exchange`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticket }),
-  });
-  const body = (await response.json()) as {
-    data?: { kind?: string; returnTo?: string };
-    error?: { message?: string };
-  };
-  if (!response.ok || body.data?.kind !== "admin") {
-    throw new Error(body.error?.message ?? "The sign-in handoff could not be completed.");
-  }
-  const returnTo = body.data.returnTo;
-  if (returnTo?.startsWith("/") && !returnTo.startsWith("//")) {
-    window.history.replaceState(null, "", returnTo);
-  }
-}
-
 /** Restore the admin session after a full-page refresh. */
 export async function restoreAdminSession(): Promise<boolean> {
   const controller = new AbortController();

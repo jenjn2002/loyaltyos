@@ -44,9 +44,6 @@ services:
       APPRECIO_TIMEOUT_MS: 1000
 
   admin:
-    build:
-      args:
-        VITE_LOYALTYOS_SWITCH_URL: http://161.118.206.195:18091
     ports:
       - "0.0.0.0:18081:80"
     labels: !reset {}
