@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-29T04:59:42.132Z",
-  "endpointCount": 316,
+  "generatedAt": "2026-10-30T09:26:51.784Z",
+  "endpointCount": 319,
   "endpoints": [
     {
       "id": "GET /api/v1/admin/settings/api-access",
@@ -11216,19 +11216,27 @@
                   "type": "unknown",
                   "required": true,
                   "example": "<widgets: runtime value>"
+                },
+                {
+                  "name": "order",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<order: runtime value>"
                 }
               ],
               "example": {
-                "widgets": "<widgets: runtime value>"
+                "widgets": "<widgets: runtime value>",
+                "order": "<order: runtime value>"
               }
             }
           ],
           "example": {
             "data": {
-              "widgets": "<widgets: runtime value>"
+              "widgets": "<widgets: runtime value>",
+              "order": "<order: runtime value>"
             }
           },
-          "source": "{ data: { widgets: storedWidgets(preference?.widgets) } }",
+          "source": "{ data: { widgets: storedWidgets(preference?.widgets), order: z.array(z.string()).safeParse(preference?.layoutOrder).data ?? [] } }",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
           ]
@@ -11340,6 +11348,28 @@
               "constraints": [
                 "max(30)"
               ]
+            },
+            {
+              "name": "order",
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string",
+                "required": true,
+                "validator": "z.string().min(1).max(150)",
+                "example": "<order>",
+                "constraints": [
+                  "min(1)",
+                  "max(150)"
+                ]
+              },
+              "validator": "z.array(z.string().min(1).max(150)).max(100).optional()",
+              "example": [
+                "<order>"
+              ],
+              "constraints": [
+                "max(100)"
+              ]
             }
           ],
           "validator": "layoutSchema",
@@ -11379,19 +11409,27 @@
                   "type": "unknown",
                   "required": true,
                   "example": "<widgets: runtime value>"
+                },
+                {
+                  "name": "order",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<order: runtime value>"
                 }
               ],
               "example": {
-                "widgets": "<widgets: runtime value>"
+                "widgets": "<widgets: runtime value>",
+                "order": "<order: runtime value>"
               }
             }
           ],
           "example": {
             "data": {
-              "widgets": "<widgets: runtime value>"
+              "widgets": "<widgets: runtime value>",
+              "order": "<order: runtime value>"
             }
           },
-          "source": "{ data: { widgets: storedWidgets(preference.widgets) } }",
+          "source": "{ data: { widgets: storedWidgets(preference.widgets), order: z.array(z.string()).safeParse(preference.layoutOrder).data ?? [] } }",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
           ]
@@ -29615,7 +29653,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 505
+        "line": 581
       },
       "access": {
         "mode": "admin",
@@ -29741,7 +29779,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1306
+        "line": 1425
       },
       "access": {
         "mode": "admin",
@@ -29928,7 +29966,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 414
+        "line": 490
       },
       "access": {
         "mode": "admin",
@@ -29981,7 +30019,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1014
+        "line": 1095
       },
       "access": {
         "mode": "admin",
@@ -30095,7 +30133,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1086
+        "line": 1167
       },
       "access": {
         "mode": "admin",
@@ -30313,6 +30351,175 @@
       "notes": []
     },
     {
+      "id": "PATCH /api/v1/admin/credits/bank/cycles/:id",
+      "method": "PATCH",
+      "path": "/api/v1/admin/credits/bank/cycles/:id",
+      "group": "Credits",
+      "summary": "Update admin / credits / bank / cycles / id",
+      "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/credits.ts",
+        "line": 1321
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>",
+          "X-API-Key: <server-key>"
+        ],
+        "capabilities": [
+          "bank.manage"
+        ],
+        "notes": [
+          "Admin session or SERVER-scoped API key required. SERVER keys bypass role capability checks in assertCapability; they remain restricted to their own program."
+        ]
+      },
+      "request": {
+        "params": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "validator": "z.string()",
+            "example": "<id>"
+          }
+        ],
+        "query": [],
+        "body": {
+          "type": "object",
+          "required": true,
+          "fields": [
+            {
+              "name": "startsAt",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().datetime().optional()",
+              "example": "2030-01-01T00:00:00.000Z",
+              "constraints": [
+                "datetime"
+              ]
+            },
+            {
+              "name": "endsAt",
+              "type": "string",
+              "required": false,
+              "validator": "z.string().datetime().optional()",
+              "example": "2030-01-01T00:00:00.000Z",
+              "constraints": [
+                "datetime"
+              ]
+            },
+            {
+              "name": "clearBankOnClose",
+              "type": "boolean",
+              "required": false,
+              "validator": "z.boolean().optional()",
+              "example": true
+            }
+          ],
+          "validator": "z.object({ startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), clearBankOnClose: z.boolean().optional() }) .refine((value) => value.startsAt !== undefined || value.endsAt !== undefined || value.clearBankOnClose !== undefined)",
+          "example": {},
+          "constraints": [
+            "refine(custom validation/transformation in source)"
+          ]
+        },
+        "headers": [],
+        "example": {}
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "unknown",
+              "required": true,
+              "example": "<data: runtime value>"
+            }
+          ],
+          "example": {
+            "data": "<data: runtime value>"
+          },
+          "source": "{ data: updated }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "POINT_BANK_CYCLE_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"POINT_BANK_CYCLE_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 404,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "POINT_BANK_NOT_FOUND",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"POINT_BANK_NOT_FOUND\", 404)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 409,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "POINT_BANK_CYCLE_NOT_OPEN",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"POINT_BANK_CYCLE_NOT_OPEN\", 409)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "POINT_BANK_CYCLE_DATES_INVALID",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"POINT_BANK_CYCLE_DATES_INVALID\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "POINT_BANK_CYCLE_CLEAR_END_IN_PAST",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"POINT_BANK_CYCLE_CLEAR_END_IN_PAST\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
       "id": "POST /api/v1/admin/credits/bank/cycles/:id/clear",
       "method": "POST",
       "path": "/api/v1/admin/credits/bank/cycles/:id/clear",
@@ -30321,7 +30528,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1234
+        "line": 1354
       },
       "access": {
         "mode": "admin",
@@ -30448,7 +30655,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 1162
+        "line": 1244
       },
       "access": {
         "mode": "admin",
@@ -30510,16 +30717,26 @@
                 "trim",
                 "max(500)"
               ]
+            },
+            {
+              "name": "clearBankOnClose",
+              "type": "boolean",
+              "required": false,
+              "validator": "z.boolean().default(false)",
+              "example": false,
+              "default": false
             }
           ],
-          "validator": "z .object({ pointTypeId: z.string().min(1), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), note: z.string().trim().max(500).optional(), })",
+          "validator": "z .object({ pointTypeId: z.string().min(1), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), note: z.string().trim().max(500).optional(), clearBankOnClose: z.boolean().default(false), })",
           "example": {
-            "pointTypeId": "<pointTypeId>"
+            "pointTypeId": "<pointTypeId>",
+            "clearBankOnClose": false
           }
         },
         "headers": [],
         "example": {
-          "pointTypeId": "<pointTypeId>"
+          "pointTypeId": "<pointTypeId>",
+          "clearBankOnClose": false
         }
       },
       "responses": [
@@ -30596,7 +30813,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 422
+        "line": 498
       },
       "access": {
         "mode": "admin",
@@ -30710,7 +30927,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 454
+        "line": 530
       },
       "access": {
         "mode": "admin",
@@ -30929,7 +31146,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 676
+        "line": 757
       },
       "access": {
         "mode": "admin",
@@ -31008,7 +31225,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 698
+        "line": 779
       },
       "access": {
         "mode": "admin",
@@ -31096,7 +31313,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 749
+        "line": 830
       },
       "access": {
         "mode": "admin",
@@ -31199,7 +31416,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 723
+        "line": 804
       },
       "access": {
         "mode": "admin",
@@ -31386,7 +31603,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 998
+        "line": 1079
       },
       "access": {
         "mode": "admin",
@@ -31465,7 +31682,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 955
+        "line": 1036
       },
       "access": {
         "mode": "admin",
@@ -31658,7 +31875,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 779
+        "line": 860
       },
       "access": {
         "mode": "admin",
@@ -31760,7 +31977,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 795
+        "line": 876
       },
       "access": {
         "mode": "admin",
@@ -31869,7 +32086,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 873
+        "line": 954
       },
       "access": {
         "mode": "admin",
@@ -32010,7 +32227,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 837
+        "line": 918
       },
       "access": {
         "mode": "admin",
@@ -32106,7 +32323,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 624
+        "line": 700
       },
       "access": {
         "mode": "admin",
@@ -32138,13 +32355,25 @@
                 "trim",
                 "min(1)"
               ]
+            },
+            {
+              "name": "force",
+              "type": "boolean",
+              "required": false,
+              "validator": "z.boolean().optional().default(false)",
+              "example": false,
+              "default": false
             }
           ],
-          "validator": "z.object({ pointTypeId: z.string().trim().min(1).optional() })",
-          "example": {}
+          "validator": "z.object({ pointTypeId: z.string().trim().min(1).optional(), force: z.boolean().optional().default(false), })",
+          "example": {
+            "force": false
+          }
         },
         "headers": [],
-        "example": {}
+        "example": {
+          "force": false
+        }
       },
       "responses": [
         {
@@ -32178,7 +32407,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 647
+        "line": 728
       },
       "access": {
         "mode": "admin",
@@ -32261,7 +32490,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 549
+        "line": 625
       },
       "access": {
         "mode": "admin",
@@ -32371,7 +32600,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 577
+        "line": 653
       },
       "access": {
         "mode": "admin",
@@ -32599,7 +32828,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 235
+        "line": 311
       },
       "access": {
         "mode": "authenticated",
@@ -32650,7 +32879,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 358
+        "line": 434
       },
       "access": {
         "mode": "member",
@@ -32777,7 +33006,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 243
+        "line": 319
       },
       "access": {
         "mode": "authenticated",
@@ -32828,7 +33057,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 259
+        "line": 335
       },
       "access": {
         "mode": "member",
@@ -33123,7 +33352,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 247
+        "line": 323
       },
       "access": {
         "mode": "member",
@@ -33208,6 +33437,141 @@
       "notes": []
     },
     {
+      "id": "GET /api/v1/members/me/credits/summary",
+      "method": "GET",
+      "path": "/api/v1/members/me/credits/summary",
+      "group": "Credits",
+      "summary": "Read members / me / credits / summary",
+      "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/credits.ts",
+        "line": 157
+      },
+      "access": {
+        "mode": "member",
+        "credentials": [
+          "Authorization: Bearer <member-session>",
+          "Cookie: loyaltyos_session=<member-session>"
+        ],
+        "capabilities": [],
+        "notes": [
+          "The handler requires a member session; an API key or admin session alone does not set memberId."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [
+          {
+            "name": "from",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().datetime().optional()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          },
+          {
+            "name": "to",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().datetime().optional()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          }
+        ],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "array",
+              "required": true,
+              "items": {
+                "type": "object",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "openingBalance",
+                    "type": "unknown",
+                    "required": true,
+                    "example": "<openingBalance: runtime value>"
+                  },
+                  {
+                    "name": "periodEndBalance",
+                    "type": "unknown",
+                    "required": true,
+                    "example": "<periodEndBalance: runtime value>"
+                  }
+                ],
+                "example": {
+                  "openingBalance": "<openingBalance: runtime value>",
+                  "periodEndBalance": "<periodEndBalance: runtime value>"
+                },
+                "constraints": [
+                  "Additional runtime fields are spread into this response."
+                ]
+              },
+              "example": [
+                {
+                  "openingBalance": "<openingBalance: runtime value>",
+                  "periodEndBalance": "<periodEndBalance: runtime value>"
+                }
+              ]
+            }
+          ],
+          "example": {
+            "data": [
+              {
+                "openingBalance": "<openingBalance: runtime value>",
+                "periodEndBalance": "<periodEndBalance: runtime value>"
+              }
+            ]
+          },
+          "source": "{ data: wallets.map((wallet) => ({ ...wallet, openingBalance: from ? openingByType.get(wallet.pointTypeId) ?? 0 : null, periodEndBalance: to ? endingByType.get(wallet.pointTypeId) ?? 0 : wallet.balance, ...totals.get(wallet.pointTypeId), })) }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 401,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "UNAUTHORIZED",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"UNAUTHORIZED\", 401)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "INVALID_DATE_RANGE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"INVALID_DATE_RANGE\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
       "id": "GET /api/v1/members/me/credits/transactions",
       "method": "GET",
       "path": "/api/v1/members/me/credits/transactions",
@@ -33216,7 +33580,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 157
+        "line": 233
       },
       "access": {
         "mode": "member",
@@ -33343,7 +33707,7 @@
       "description": "Registered by creditsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/credits.ts",
-        "line": 180
+        "line": 256
       },
       "access": {
         "mode": "member",
@@ -43084,7 +43448,7 @@
       "description": "Registered by statsRoutes; request and response metadata below is extracted from its source.",
       "source": {
         "file": "apps/api/src/routes/stats.ts",
-        "line": 8
+        "line": 11
       },
       "access": {
         "mode": "admin",
@@ -43099,7 +43463,38 @@
       },
       "request": {
         "params": [],
-        "query": [],
+        "query": [
+          {
+            "name": "from",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().datetime().optional()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          },
+          {
+            "name": "to",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().datetime().optional()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          },
+          {
+            "name": "timeZone",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().max(100).optional()",
+            "example": "<timeZone>",
+            "constraints": [
+              "max(100)"
+            ]
+          }
+        ],
         "body": null,
         "headers": []
       },
@@ -43269,6 +43664,849 @@
           "source": "{ data: { activeMembers, totalPointsIssued: totalIssued, totalPointsRedeemed: totalRedeemed, redemptionRatio: totalIssued > 0 ? totalRedeemed / totalIssued : 0, recentTransactions, inactiveMembers, newMembersLast30Days: newMembers, pointIssued: totalIssued, pointRedeemed: totalRedeemed, pointExchanged: totalExchanged, recognitionCount: recognitionRowsAllTime.reduce((sum, row) => sum + row._count._all, 0), recognitionVolume, currentPointBalance: primaryPointType ? balanceByType.get(primaryPointType.id) ?? 0 : 0, currentPointBalanceType: primaryPointType ? { id: primaryPointType.id, name: primaryPointType.name, unitLabel: primaryPointType.unitLabel } : null, pointTypeMetrics, pointBanks: bankMetrics, topRewards, recognitionOverTime, }, }",
           "notes": [
             "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "INVALID_DATE_RANGE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"INVALID_DATE_RANGE\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "INVALID_TIME_ZONE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"INVALID_TIME_ZONE\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "GET /api/v1/stats/dashboard/details",
+      "method": "GET",
+      "path": "/api/v1/stats/dashboard/details",
+      "group": "Stats",
+      "summary": "Read stats / dashboard / details",
+      "description": "Registered by statsRoutes; request and response metadata below is extracted from its source.",
+      "source": {
+        "file": "apps/api/src/routes/stats.ts",
+        "line": 212
+      },
+      "access": {
+        "mode": "admin",
+        "credentials": [
+          "Cookie: loyaltyos_admin_session=<admin-session>",
+          "X-API-Key: <server-key>"
+        ],
+        "capabilities": [
+          "dashboard.view"
+        ],
+        "notes": [
+          "assertCapability may additionally enforce member.view; its condition is defined in the handler.",
+          "assertCapability may additionally enforce bank.view; its condition is defined in the handler.",
+          "assertCapability may additionally enforce giftcard.view; its condition is defined in the handler.",
+          "assertCapability may additionally enforce wallet.view; its condition is defined in the handler.",
+          "assertCapability may additionally enforce reward.view; its condition is defined in the handler.",
+          "assertCapability may additionally enforce wallet.view; its condition is defined in the handler."
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [
+          {
+            "name": "metric",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "activeMembers",
+              "inactiveMembers",
+              "newMembersLast30Days",
+              "recentTransactions",
+              "totalPointsIssued",
+              "totalPointsRedeemed",
+              "pointExchanged",
+              "redemptionRatio",
+              "currentPointBalance",
+              "recognitionVolume",
+              "recognitionTrend",
+              "pointTypeBalance",
+              "pointTypeIssued",
+              "pointsOverview",
+              "bank",
+              "topRewards",
+              "giftCardsActive",
+              "giftCardsOutstanding"
+            ],
+            "validator": "z.enum([\"activeMembers\", \"inactiveMembers\", \"newMembersLast30Days\", \"recentTransactions\", \"totalPointsIssued\", \"totalPointsRedeemed\", \"pointExchanged\", \"redemptionRatio\", \"currentPointBalance\", \"recognitionVolume\", \"recognitionTrend\", \"pointTypeBalance\", \"pointTypeIssued\", \"pointsOverview\", \"bank\", \"topRewards\", \"giftCardsActive\", \"giftCardsOutstanding\"])",
+            "example": "activeMembers"
+          },
+          {
+            "name": "from",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().datetime()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          },
+          {
+            "name": "to",
+            "type": "string",
+            "required": true,
+            "validator": "z.string().datetime()",
+            "example": "2030-01-01T00:00:00.000Z",
+            "constraints": [
+              "datetime"
+            ]
+          },
+          {
+            "name": "pointTypeId",
+            "type": "string",
+            "required": false,
+            "validator": "z.string().optional()",
+            "example": "<pointTypeId>"
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "required": false,
+            "constraints": [
+              "Input is coerced before validation",
+              "int",
+              "min(1)"
+            ],
+            "validator": "z.coerce.number().int().min(1).default(1)",
+            "example": 1,
+            "default": 1
+          }
+        ],
+        "body": null,
+        "headers": []
+      },
+      "responses": [
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "date",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<date: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "date": "<date: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "date": "<date: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: memberName(row), description: [row.email, row.status].filter(Boolean).join(\" · \"), date: row.createdAt })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "amount",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<amount: runtime value>"
+                      },
+                      {
+                        "name": "unit",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<unit: runtime value>"
+                      },
+                      {
+                        "name": "date",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<date: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "amount": "<amount: runtime value>",
+                    "unit": "<unit: runtime value>",
+                    "date": "<date: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "amount": "<amount: runtime value>",
+                  "unit": "<unit: runtime value>",
+                  "date": "<date: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: `${row.type} · ${row.pointType.name}`, description: row.reason, amount: row.amount, unit: row.pointType.unitLabel, date: row.createdAt })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "amount",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<amount: runtime value>"
+                      },
+                      {
+                        "name": "unit",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<unit: runtime value>"
+                      },
+                      {
+                        "name": "date",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<date: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "amount": "<amount: runtime value>",
+                    "unit": "<unit: runtime value>",
+                    "date": "<date: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "amount": "<amount: runtime value>",
+                  "unit": "<unit: runtime value>",
+                  "date": "<date: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: row.code, description: row.status, amount: Number(row.balance), unit: row.currency, date: row.activatedAt })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "amount",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<amount: runtime value>"
+                      },
+                      {
+                        "name": "unit",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<unit: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "amount": "<amount: runtime value>",
+                    "unit": "<unit: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "amount": "<amount: runtime value>",
+                  "unit": "<unit: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: memberName(row.member), description: row.pointType.name, amount: row.balance, unit: row.pointType.unitLabel })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "date",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<date: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "date": "<date: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "date": "<date: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: row.reward.name, description: memberName(row.member), date: row.redeemedAt })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 200,
+          "type": "object",
+          "fields": [
+            {
+              "name": "data",
+              "type": "object",
+              "required": true,
+              "fields": [
+                {
+                  "name": "items",
+                  "type": "array",
+                  "required": true,
+                  "items": {
+                    "type": "object",
+                    "required": true,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<id: runtime value>"
+                      },
+                      {
+                        "name": "title",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<title: runtime value>"
+                      },
+                      {
+                        "name": "description",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<description: runtime value>"
+                      },
+                      {
+                        "name": "amount",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<amount: runtime value>"
+                      },
+                      {
+                        "name": "unit",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<unit: runtime value>"
+                      },
+                      {
+                        "name": "date",
+                        "type": "unknown",
+                        "required": true,
+                        "example": "<date: runtime value>"
+                      }
+                    ],
+                    "example": {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  },
+                  "example": [
+                    {
+                      "id": "<id: runtime value>",
+                      "title": "<title: runtime value>",
+                      "description": "<description: runtime value>",
+                      "amount": "<amount: runtime value>",
+                      "unit": "<unit: runtime value>",
+                      "date": "<date: runtime value>"
+                    }
+                  ]
+                },
+                {
+                  "name": "total",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<total: runtime value>"
+                },
+                {
+                  "name": "page",
+                  "type": "unknown",
+                  "required": true,
+                  "example": "<page: runtime value>"
+                }
+              ],
+              "example": {
+                "items": [
+                  {
+                    "id": "<id: runtime value>",
+                    "title": "<title: runtime value>",
+                    "description": "<description: runtime value>",
+                    "amount": "<amount: runtime value>",
+                    "unit": "<unit: runtime value>",
+                    "date": "<date: runtime value>"
+                  }
+                ],
+                "total": "<total: runtime value>",
+                "page": "<page: runtime value>"
+              }
+            }
+          ],
+          "example": {
+            "data": {
+              "items": [
+                {
+                  "id": "<id: runtime value>",
+                  "title": "<title: runtime value>",
+                  "description": "<description: runtime value>",
+                  "amount": "<amount: runtime value>",
+                  "unit": "<unit: runtime value>",
+                  "date": "<date: runtime value>"
+                }
+              ],
+              "total": "<total: runtime value>",
+              "page": "<page: runtime value>"
+            }
+          },
+          "source": "{ data: { items: rows.map((row) => ({ id: row.id, title: memberName(row.member), description: `${row.action} · ${row.pointType.name}`, amount: row.amount, unit: row.pointType.unitLabel, date: row.createdAt })), total, page: query.page } }",
+          "notes": [
+            "Response envelope extracted from source. Runtime values are placeholders; this is not a complete response contract."
+          ]
+        },
+        {
+          "status": 400,
+          "type": "object",
+          "example": {
+            "error": {
+              "code": "INVALID_DATE_RANGE",
+              "message": "<localized message>"
+            }
+          },
+          "source": "LoyaltyError(\"INVALID_DATE_RANGE\", 400)",
+          "notes": [
+            "Explicit route error; localized envelope is defined in apps/api/src/lib/error-handler.ts."
           ]
         }
       ],
