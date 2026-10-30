@@ -1873,6 +1873,7 @@ model AdminDashboardPreference {
   programId   String
   adminUserId String
   widgets     Json     @default("[]")
+  layoutOrder Json     @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

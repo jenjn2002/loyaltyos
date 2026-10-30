@@ -7,7 +7,7 @@ export const adminGuideEnglish: Record<AdminGuideTopic["id"], EnglishTopic> = {
   dashboard: {
     title: "Dashboard and custom dashboards", group: "Overview and administration",
     purpose: "Review operational metrics and add built-in widgets to your personal dashboard; it does not support arbitrary queries or charts.",
-    steps: ["Open Dashboard and check the date range and scope for each metric.", "Select Customize dashboard; choose a Metric in the inline builder and enter an optional Title.", "Select Add widget to save it automatically; use the remove icon on a card to delete a widget.", "Compare each metric with its detail page; widgets cannot be dragged or rearranged."],
+    steps: ["Open Dashboard, select a date range, and open a card to see paginated details.", "Select Customize dashboard; choose a Metric in the inline builder and enter an optional Title.", "Select Add widget to save it automatically; use the remove icon on a card to delete a widget.", "Drag cards or use the arrow buttons to reorder them; the layout is saved to your account."],
     result: "The layout is saved to the Admin account and follows it across devices. Widgets do not replace the Ledger or detailed reports.",
     notes: ["Dashboard contents may vary by data and permissions.", "If a total looks unexpected, check the metric definition, date range, point type, and transaction status."],
   },

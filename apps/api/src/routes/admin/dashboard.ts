@@ -26,7 +26,7 @@ const widgetSchema = z.object({
   ]),
   title: z.string().trim().min(1).max(80),
 });
-const layoutSchema = z.object({ widgets: z.array(widgetSchema).max(30) });
+const layoutSchema = z.object({ widgets: z.array(widgetSchema).max(30), order: z.array(z.string().min(1).max(150)).max(100).optional() });
 
 function currentAdmin(request: { adminId: string | null }): string {
   if (!request.adminId) throw new LoyaltyError("UNAUTHORIZED", 401);
@@ -50,9 +50,9 @@ export function adminDashboardRoutes(app: FastifyInstance, _opts: unknown, done:
             adminUserId: currentAdmin(request),
           },
         },
-        select: { widgets: true },
+        select: { widgets: true, layoutOrder: true },
       });
-      return reply.send({ data: { widgets: storedWidgets(preference?.widgets) } });
+      return reply.send({ data: { widgets: storedWidgets(preference?.widgets), order: z.array(z.string()).safeParse(preference?.layoutOrder).data ?? [] } });
     },
   );
 
@@ -73,11 +73,12 @@ export function adminDashboardRoutes(app: FastifyInstance, _opts: unknown, done:
           programId: request.programId,
           adminUserId,
           widgets: body.widgets as Prisma.InputJsonValue,
+          layoutOrder: (body.order ?? []) as Prisma.InputJsonValue,
         },
-        update: { widgets: body.widgets as Prisma.InputJsonValue },
-        select: { widgets: true },
+        update: { widgets: body.widgets as Prisma.InputJsonValue, ...(body.order ? { layoutOrder: body.order as Prisma.InputJsonValue } : {}) },
+        select: { widgets: true, layoutOrder: true },
       });
-      return reply.send({ data: { widgets: storedWidgets(preference.widgets) } });
+      return reply.send({ data: { widgets: storedWidgets(preference.widgets), order: z.array(z.string()).safeParse(preference.layoutOrder).data ?? [] } });
     },
   );
 

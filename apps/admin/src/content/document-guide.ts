@@ -15,7 +15,7 @@ export const adminGuide: AdminGuideTopic[] = [
   {
     id: "dashboard", title: "Dashboard và dashboard riêng", group: "Tổng quan và quản trị", route: "/", image: "dashboard",
     purpose: "Xem chỉ số vận hành và thêm widget dựng sẵn vào dashboard cá nhân; không tạo truy vấn hoặc biểu đồ tùy ý.",
-    steps: ["Mở Dashboard và đọc thời gian/phạm vi của từng thẻ số liệu.", "Chọn Customize dashboard; trong khung hiện trên trang, chọn Metric và nhập Title nếu muốn.", "Chọn Add widget để thêm và tự lưu widget; dùng biểu tượng xóa trên thẻ để gỡ widget không cần.", "Đối chiếu metric với trang chi tiết liên quan; dashboard không có thao tác kéo/thả sắp xếp."],
+    steps: ["Mở Dashboard, chọn khoảng ngày và nhấn thẻ để xem chi tiết phân trang.", "Chọn Customize dashboard; trong khung hiện trên trang, chọn Metric và nhập Title nếu muốn.", "Chọn Add widget để thêm và tự lưu widget; dùng biểu tượng xóa trên thẻ để gỡ widget không cần.", "Kéo thả hoặc dùng mũi tên để sắp xếp các thẻ; bố cục được lưu theo tài khoản."],
     result: "Layout được lưu vào tài khoản Admin và đồng bộ giữa các thiết bị; widget không thay thế Ledger hoặc báo cáo chi tiết.",
     notes: ["Dashboard có thể khác nhau tùy dữ liệu và quyền xem.", "Nếu số tổng không khớp kỳ vọng, mở định nghĩa chỉ số và kiểm tra ngày, loại điểm, trạng thái giao dịch."],
   },
