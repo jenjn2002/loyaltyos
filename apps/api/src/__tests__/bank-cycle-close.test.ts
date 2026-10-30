@@ -58,6 +58,7 @@ const cycle = {
   programId: "program-1",
   pointTypeId: "point-type-1",
   status: "OPEN",
+  createdAt: new Date("2026-08-31T00:00:00.000Z"),
   startsAt: new Date("2026-09-01T00:00:00.000Z"),
   endsAt: new Date("2026-10-01T00:00:00.000Z"),
   opening: 1000,
@@ -180,13 +181,13 @@ describe("bank cycle closing totals", () => {
     expect(mockPrisma.pointBankTransaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         AND: [{ OR: [
-          { cycleId: "cycle-1", createdAt: { lte: clearedAt } },
+          { cycleId: "cycle-1", createdAt: { gte: cycle.createdAt, lte: clearedAt } },
           { cycleId: null, createdAt: { gte: cycle.startsAt, lte: clearedAt } },
         ] }],
       }),
     }));
     expect(mockPrisma.pointBankTransaction.aggregate).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ cycleId: "cycle-1", createdAt: { lte: clearedAt } }),
+      where: expect.objectContaining({ cycleId: "cycle-1", createdAt: { gte: cycle.createdAt, lte: clearedAt } }),
     }));
   });
 
@@ -204,7 +205,7 @@ describe("bank cycle closing totals", () => {
 
     expect(response.statusCode).toBe(200);
     const groupByArgs = mockPrisma.pointBankTransaction.groupBy.mock.calls[0]?.[0];
-    expect(groupByArgs.where.AND[1].OR).toContainEqual({ cycleId: "cycle-1", createdAt: { lte: clearedAt } });
+    expect(groupByArgs.where.AND[1].OR).toContainEqual({ cycleId: "cycle-1", createdAt: { gte: cycle.createdAt, lte: clearedAt } });
   });
 
   it("closes with debits net of returns", async () => {
@@ -219,8 +220,9 @@ describe("bank cycle closing totals", () => {
     expect(mockTx.pointBankTransaction.aggregate).toHaveBeenCalledWith({
       where: {
         cycleId: "cycle-1",
+        createdAt: { gte: cycle.createdAt },
         OR: [
-          { amount: { lt: 0 } },
+          { amount: { lt: 0 }, type: { not: "CYCLE_CLEAR" } },
           { type: { in: ["RETURN", "PROJECT_RETURN"] }, amount: { gt: 0 } },
         ],
       },
@@ -239,5 +241,67 @@ describe("bank cycle closing totals", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().data.allocated).toBe(0);
+  });
+});
+
+describe("bank cycle schedule changes", () => {
+  const url = "/admin/credits/bank/cycles/cycle-1";
+  const futureStart = "2099-03-04T12:34:56.000Z";
+  const futureEnd = "2099-04-05T23:59:58.000Z";
+
+  it("updates both timestamps to future times with second precision", async () => {
+    const response = await app.inject({ method: "PATCH", url, payload: { startsAt: futureStart, endsAt: futureEnd } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ startsAt: futureStart, endsAt: futureEnd });
+    expect(mockTx.pointBankCycle.update).toHaveBeenCalledWith({ where: { id: "cycle-1" }, data: { startsAt: new Date(futureStart), endsAt: new Date(futureEnd) } });
+    expect(mockTx.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { startsAt: "2000-01-01T12:34:56.000Z", endsAt: futureEnd },
+    { endsAt: "2000-01-01T12:34:56.000Z" },
+    { startsAt: futureEnd, endsAt: futureStart },
+  ])("rejects changed past timestamps and inverted ranges: %j", async (payload) => {
+    const response = await app.inject({ method: "PATCH", url, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("POINT_BANK_CYCLE_DATES_INVALID");
+    expect(mockTx.pointBankCycle.update).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("updates only the clear-bank option to %s", async (clearBankOnClose) => {
+    const open = { ...cycle, endsAt: new Date("2099-01-01T00:00:00Z"), clearBankOnClose: !clearBankOnClose };
+    mockTx.pointBankCycle.findFirst.mockResolvedValueOnce(open);
+    const response = await app.inject({ method: "PATCH", url, payload: { clearBankOnClose } });
+    expect(response.statusCode).toBe(200);
+    expect(mockTx.pointBankCycle.update).toHaveBeenCalledWith({ where: { id: "cycle-1" }, data: { startsAt: open.startsAt, endsAt: open.endsAt, clearBankOnClose } });
+  });
+  it("rejects enabling clear on an expired cycle without extending its end", async () => {
+    mockTx.pointBankCycle.findFirst.mockResolvedValueOnce({ ...cycle, endsAt: new Date("2020-01-01T00:00:00Z"), startsAt: new Date("2019-01-01T00:00:00Z"), clearBankOnClose: false });
+    const response = await app.inject({ method: "PATCH", url, payload: { clearBankOnClose: true } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("POINT_BANK_CYCLE_CLEAR_END_IN_PAST");
+    expect(mockTx.pointBankCycle.update).not.toHaveBeenCalled();
+  });
+  it("allows enabling clear while extending an expired cycle", async () => {
+    mockTx.pointBankCycle.findFirst.mockResolvedValueOnce({ ...cycle, startsAt: new Date("2019-01-01T00:00:00Z"), endsAt: new Date("2020-01-01T00:00:00Z"), clearBankOnClose: false });
+    const response = await app.inject({ method: "PATCH", url, payload: { endsAt: futureEnd, clearBankOnClose: true } });
+    expect(response.statusCode).toBe(200);
+    expect(mockTx.pointBankCycle.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ endsAt: new Date(futureEnd), clearBankOnClose: true }) }));
+  });
+
+  it("rejects editing an already closed cycle", async () => {
+    mockTx.pointBankCycle.findFirst.mockResolvedValueOnce({ ...cycle, status: "CLEARED" });
+    const response = await app.inject({ method: "PATCH", url, payload: { endsAt: futureEnd } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("POINT_BANK_CYCLE_NOT_OPEN");
+    expect(mockTx.pointBankCycle.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects extending an expired cycle configured to clear the bank", async () => {
+    mockTx.pointBankCycle.findFirst.mockResolvedValueOnce({ ...cycle, endsAt: new Date("2000-01-01T00:00:00Z"), clearBankOnClose: true });
+    const response = await app.inject({ method: "PATCH", url, payload: { endsAt: futureEnd } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("POINT_BANK_CYCLE_NOT_OPEN");
+    expect(mockTx.pointBankCycle.update).not.toHaveBeenCalled();
   });
 });

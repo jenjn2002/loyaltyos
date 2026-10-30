@@ -73,8 +73,8 @@ export const adminGuide: AdminGuideTopic[] = [
   },
   {
     id: "banks-cycles", title: "Banks và bank cycles", group: "Điểm, ví và sổ cái", route: "/credits/banks", image: "bank",
-    purpose: "Quản lý quỹ điểm trung tâm, các lần nạp và chu kỳ phân bổ; đóng cycle không xóa số điểm chưa sử dụng.",
-    steps: ["Chọn point type và xem số bank hiện có.", "Khi nạp bank, nhập số điểm cùng lý do để tạo bản ghi funding.", "Mở cycle với mốc thời gian/ghi chú; theo dõi opening, các giao dịch trong kỳ và allocation.", "Khi đóng, nhập lý do đóng và xác nhận người thực hiện.", "Mở chi tiết cycle để rà các giao dịch và số closing; phần chưa sử dụng vẫn ở bank."],
+    purpose: "Quản lý quỹ điểm trung tâm, các lần nạp và chu kỳ phân bổ; chọn giữ hoặc xóa số dư bank khi đóng cycle.",
+    steps: ["Chọn point type và xem số bank hiện có.", "Mở cycle trước khi nạp bank; nhập thời gian bắt đầu/kết thúc (gồm giờ, phút, giây), ghi chú và chọn có xóa bank khi đóng hay không.", "Nạp bank bằng số điểm và lý do; theo dõi opening, giao dịch và allocation. Có thể chỉnh thời gian cycle sang tương lai.", "Khi đóng, nhập lý do đóng và xác nhận người thực hiện.", "Mở chi tiết cycle để rà các giao dịch và số closing; số dư bank được giữ hoặc xóa theo tùy chọn của cycle."],
     result: "Cycle đóng được lưu cùng thời gian, actor, lý do và lịch sử giao dịch. Allocated thể hiện tổng ròng sau các khoản trả/hoàn đủ điều kiện.",
     notes: ["Adjustment REMOVE và hoàn điểm dự án có thể trả điểm về bank/cycle theo loại giao dịch.", "Không dùng số gross issue thay cho allocated ròng khi đối chiếu cycle.", "Fund bank tạo lịch sử bank funding, không phải giao dịch ví của member."],
   },

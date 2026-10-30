@@ -9,7 +9,7 @@ import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
 import { notificationsService } from "../lib/notifications-setup.js";
 import { requireCapability } from "../lib/permissions.js";
-import { BANK_CYCLE_RETURN_TYPES, walletService } from "../lib/wallets.js";
+import { BANK_CYCLE_RETURN_TYPES, clearCycleBank, closeExpiredBankCycle, walletService } from "../lib/wallets.js";
 import { notifyCreditAdjustment, notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
 function idempotencyKey(request: {
@@ -37,7 +37,7 @@ function bankCycleAllocationWhere(
       ? { createdAt: { ...(from ? { gte: from } : {}), ...(through ? { lte: through } : {}) } }
       : {}),
     OR: [
-      { amount: { lt: 0 } },
+      { amount: { lt: 0 }, type: { not: "CYCLE_CLEAR" } },
       { type: { in: [...BANK_CYCLE_RETURN_TYPES] }, amount: { gt: 0 } },
     ],
   };
@@ -1045,7 +1045,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
                 AND: [
                   {
                     OR: [
-                      { amount: { lt: 0 } },
+                      { amount: { lt: 0 }, type: { not: "CYCLE_CLEAR" } },
                       { type: { in: [...BANK_CYCLE_RETURN_TYPES] }, amount: { gt: 0 } },
                     ],
                   },
@@ -1053,7 +1053,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
                     OR: cycles.map((cycle) => ({
                       cycleId: cycle.id,
                       createdAt: {
-                        gte: cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt,
+                        gte: cycle.createdAt,
                         lte: cycle.clearedAt ?? new Date(),
                       },
                     })),
@@ -1100,7 +1100,8 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       });
       if (!cycle) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
       const transactionCutoff = cycle.clearedAt ?? new Date();
-      const transactionStart = cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt;
+      const transactionStart = cycle.createdAt;
+      const legacyTransactionStart = cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt;
       const transactionWhere: Prisma.PointBankTransactionWhereInput = {
         programId: request.programId,
         pointTypeId: cycle.pointTypeId,
@@ -1110,7 +1111,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
               { cycleId: cycle.id, createdAt: { gte: transactionStart, lte: transactionCutoff } },
               {
                 cycleId: null,
-                createdAt: { gte: transactionStart, lte: transactionCutoff },
+                createdAt: { gte: legacyTransactionStart, lte: transactionCutoff },
               },
             ],
           },
@@ -1174,6 +1175,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           startsAt: z.string().datetime().optional(),
           endsAt: z.string().datetime().optional(),
           note: z.string().trim().max(500).optional(),
+          clearBankOnClose: z.boolean().default(false),
         })
         .parse(request.body);
       const pointType = await prisma.pointTypeDefinition.findFirst({
@@ -1189,7 +1191,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
       const endsAt = body.endsAt
         ? new Date(body.endsAt)
         : new Date(startsAt.getTime() + pointType.allowanceCycleDays * 86_400_000);
-      if (endsAt <= startsAt) throw new LoyaltyError("POINT_BANK_CYCLE_DATES_INVALID", 400);
+      if (endsAt <= startsAt || endsAt <= new Date()) throw new LoyaltyError("POINT_BANK_CYCLE_DATES_INVALID", 400);
       const cycle = await prisma.$transaction(async (tx) => {
         const bank = await tx.pointBank.upsert({
           where: { programId_pointTypeId: { programId: request.programId, pointTypeId: pointType.id } },
@@ -1199,6 +1201,8 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         // Serialize cycle creation with both another open request and wallet
         // debits, which acquire this same bank row before updating allocations.
         await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PointBank" WHERE "id" = ${bank.id} FOR UPDATE`;
+        await closeExpiredBankCycle(tx, request.programId, pointType.id);
+        const refreshedBank = await tx.pointBank.findUniqueOrThrow({ where: { id: bank.id } });
         const current = await tx.pointBankCycle.findFirst({
           where: { programId: request.programId, pointTypeId: pointType.id, status: "OPEN" },
           select: { id: true },
@@ -1210,7 +1214,8 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             pointTypeId: pointType.id,
             startsAt,
             endsAt,
-            opening: bank.balance,
+            opening: refreshedBank.balance,
+            clearBankOnClose: body.clearBankOnClose,
             note: body.note,
           },
         });
@@ -1226,6 +1231,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
             startsAt: created.startsAt,
             endsAt: created.endsAt,
             opening: created.opening,
+            clearBankOnClose: created.clearBankOnClose,
           },
           body.note,
           tx,
@@ -1233,6 +1239,39 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         return created;
       });
       return reply.status(201).send({ data: cycle });
+    },
+  );
+
+  app.patch(
+    "/admin/credits/bank/cycles/:id",
+    { preHandler: [requireCapability("bank.manage")] },
+    async (request, reply) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = z.object({ startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), clearBankOnClose: z.boolean().optional() })
+        .refine((value) => value.startsAt !== undefined || value.endsAt !== undefined || value.clearBankOnClose !== undefined).parse(request.body);
+      const snapshot = await prisma.pointBankCycle.findFirst({ where: { id, programId: request.programId } });
+      if (!snapshot) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
+      const updated = await prisma.$transaction(async (tx) => {
+        const bank = await tx.pointBank.findUnique({ where: { programId_pointTypeId: { programId: request.programId, pointTypeId: snapshot.pointTypeId } }, select: { id: true } });
+        if (!bank) throw new LoyaltyError("POINT_BANK_NOT_FOUND", 404);
+        await tx.$queryRaw`SELECT "id" FROM "PointBank" WHERE "id" = ${bank.id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT "id" FROM "PointBankCycle" WHERE "id" = ${id} AND "programId" = ${request.programId} FOR UPDATE`;
+        const cycle = await tx.pointBankCycle.findFirst({ where: { id, programId: request.programId } });
+        if (!cycle) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
+        if (cycle.status !== "OPEN" || (cycle.clearBankOnClose && cycle.endsAt <= new Date())) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_OPEN", 409);
+        const now = new Date();
+        const startsAt = body.startsAt ? new Date(body.startsAt) : cycle.startsAt;
+        const endsAt = body.endsAt ? new Date(body.endsAt) : cycle.endsAt;
+        if ((body.startsAt && startsAt.getTime() !== cycle.startsAt.getTime() && startsAt <= now) ||
+            (body.endsAt && endsAt.getTime() !== cycle.endsAt.getTime() && endsAt <= now) || endsAt <= startsAt)
+          throw new LoyaltyError("POINT_BANK_CYCLE_DATES_INVALID", 400);
+        if (body.clearBankOnClose === true && endsAt <= now) throw new LoyaltyError("POINT_BANK_CYCLE_CLEAR_END_IN_PAST", 400);
+        const result = await tx.pointBankCycle.update({ where: { id }, data: { startsAt, endsAt, ...(body.clearBankOnClose !== undefined ? { clearBankOnClose: body.clearBankOnClose } : {}) } });
+        await audit(request.programId, request.actor, "CONFIG_CHANGE", "point_bank_cycle", id,
+          { previousStartsAt: cycle.startsAt, previousEndsAt: cycle.endsAt, previousClearBankOnClose: cycle.clearBankOnClose, startsAt, endsAt, clearBankOnClose: result.clearBankOnClose }, undefined, tx);
+        return result;
+      });
+      return reply.send({ data: updated });
     },
   );
 
@@ -1246,10 +1285,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         where: { id, programId: request.programId },
       });
       if (!cycleSnapshot) throw new LoyaltyError("POINT_BANK_CYCLE_NOT_FOUND", 404);
-      // Closing a cycle records allocation and closing balance. It never destroys
-      // the unallocated bank balance. Lock ordering matches debitBank (bank,
-      // then cycle) so a concurrent issuance is either fully included or waits
-      // until after this cycle has been closed.
+      // Lock the bank before the cycle to serialize closing with funding and allocations.
       const result = await prisma.$transaction(async (tx) => {
         const bank = await tx.pointBank.findUnique({
           where: { programId_pointTypeId: { programId: request.programId, pointTypeId: cycleSnapshot.pointTypeId } },
@@ -1266,17 +1302,18 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           tx.pointBankTransaction.aggregate({
             where: bankCycleAllocationWhere(
               cycle.id,
-              cycle.startsAt > cycle.createdAt ? cycle.startsAt : cycle.createdAt,
+              cycle.createdAt,
             ),
             _sum: { amount: true },
           }),
         ]);
+        const clearedPoints = cycle.clearBankOnClose ? await clearCycleBank(tx, { id: bank.id, balance: currentBank.balance }, cycle, request.actor.id, body.reason) : 0;
         const updated = await tx.pointBankCycle.update({
           where: { id },
           data: {
             status: "CLEARED",
             allocated: netBankCycleAllocated(allocations._sum.amount, 0),
-            closing: currentBank.balance,
+            closing: cycle.clearBankOnClose ? 0 : currentBank.balance,
             clearedAt: new Date(),
             clearedBy: request.actor.id,
             clearReason: body.reason,
@@ -1290,6 +1327,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           id,
           {
             status: "CLEARED",
+            clearedPoints,
             pointTypeId: updated.pointTypeId,
             startsAt: updated.startsAt,
             endsAt: updated.endsAt,

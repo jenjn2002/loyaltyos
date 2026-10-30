@@ -499,6 +499,7 @@ model PointBankCycle {
   clearedAt   DateTime?
   clearedBy   String?
   clearReason String?
+  clearBankOnClose Boolean @default(false)
   note        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

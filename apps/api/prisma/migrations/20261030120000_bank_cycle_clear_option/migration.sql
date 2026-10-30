@@ -1,0 +1,1 @@
+ALTER TABLE "PointBankCycle" ADD COLUMN "clearBankOnClose" BOOLEAN NOT NULL DEFAULT false;

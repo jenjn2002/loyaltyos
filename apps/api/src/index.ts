@@ -5,6 +5,7 @@ await initTracing("loyaltyos-api");
 
 import { buildApp, getBullMQMetrics, prisma } from "./app.js";
 import { bootstrapInitialAdmin } from "./lib/bootstrap.js";
+import { closeExpiredBankCycles } from "./lib/wallets.js";
 import { getBusinessMetrics } from "./lib/business-metrics.js";
 import { ensureCreditNotificationTemplates, scheduleCreditExpiry } from "./lib/credit-setup.js";
 import {
@@ -44,6 +45,9 @@ try {
   await scheduleOutstandingBalanceRefresh();
   await scheduleCreditExpiry();
   await startOccasionsWorker();
+  const closeExpiredCycles = () => { void closeExpiredBankCycles().catch((err: unknown) => app.log.error({ err }, "bank cycle scheduler failed")); };
+  closeExpiredCycles();
+  setInterval(closeExpiredCycles, 60_000);
 
   // Collect BullMQ queue depth metrics periodically
   const bullmqMetrics = getBullMQMetrics();

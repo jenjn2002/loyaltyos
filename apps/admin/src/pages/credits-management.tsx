@@ -159,6 +159,7 @@ interface Cycle {
   closing: number;
   clearedAt: string | null;
   clearReason: string | null;
+  clearBankOnClose: boolean;
   note: string | null;
   pointType: { code: string; name: string; unitLabel: string };
   createdBy?: { id: string; name: string; email: string | null } | null;
@@ -394,6 +395,13 @@ function formatAdminDate(value: string, withTime = false): string {
 }
 
 
+function cycleLocalDateTime(value: string): string {
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+
 export function CreditsManagementPage({
   section = "wallets",
 }: {
@@ -456,6 +464,12 @@ export function CreditsManagementPage({
   const [cycleStart, setCycleStart] = useState("");
   const [cycleEnd, setCycleEnd] = useState("");
   const [cycleNote, setCycleNote] = useState("");
+  const [editingCycleId, setEditingCycleId] = useState<string | null>(null);
+  const [cycleEditNotice, setCycleEditNotice] = useState<{ id: string; message: string } | null>(null);
+  const [editCycleStart, setEditCycleStart] = useState("");
+  const [editCycleEnd, setEditCycleEnd] = useState("");
+  const [editCycleClearBank, setEditCycleClearBank] = useState(false);
+  const [cycleClearBank, setCycleClearBank] = useState(false);
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   const [cycleDetailPage, setCycleDetailPage] = useState(1);
   const [bulkFormat, setBulkFormat] = useState<"csv" | "xlsx">("csv");
@@ -615,7 +629,7 @@ export function CreditsManagementPage({
       await refresh();
     },
     onError: (error: Error) => {
-      setNotice(error.message);
+      setNotice(error.message === "Point bank cycle required" ? ui("Open a bank cycle for the selected point type before adding bank balance. Funding is available before the cycle starts.") : error.message);
     },
   });
   const adjust = useMutation({
@@ -780,10 +794,11 @@ export function CreditsManagementPage({
         method: "POST",
         body: JSON.stringify({
           pointTypeId: cycleTypeId,
+          clearBankOnClose: cycleClearBank,
           ...(cycleStart
-            ? { startsAt: new Date(`${cycleStart}T00:00:00.000Z`).toISOString() }
+            ? { startsAt: new Date(cycleStart).toISOString() }
             : {}),
-          ...(cycleEnd ? { endsAt: new Date(`${cycleEnd}T23:59:59.999Z`).toISOString() } : {}),
+          ...(cycleEnd ? { endsAt: new Date(cycleEnd).toISOString() } : {}),
           ...(cycleNote ? { note: cycleNote } : {}),
         }),
       }),
@@ -793,6 +808,39 @@ export function CreditsManagementPage({
     },
     onError: (error: Error) => {
       setNotice(error.message);
+    },
+  });
+  const editCycle = useMutation({
+    mutationFn: (cycle: Cycle) => {
+      if (!editCycleStart || !editCycleEnd) throw new Error(ui("Both cycle times are required."));
+      const startInput = new Date(editCycleStart);
+      const endInput = new Date(editCycleEnd);
+      if (!Number.isFinite(startInput.getTime()) || !Number.isFinite(endInput.getTime())) throw new Error(ui("Enter valid cycle times."));
+      const startsAt = Math.floor(startInput.getTime() / 1000) !== Math.floor(new Date(cycle.startsAt).getTime() / 1000) ? startInput : null;
+      const endsAt = Math.floor(endInput.getTime() / 1000) !== Math.floor(new Date(cycle.endsAt).getTime() / 1000) ? endInput : null;
+      const now = Date.now();
+      const clearBankChanged = editCycleClearBank !== cycle.clearBankOnClose;
+      if (!startsAt && !endsAt && !clearBankChanged) throw new Error(ui("No cycle changes were made."));
+      if ([startsAt, endsAt].some((date) => date && date.getTime() <= now)) {
+        throw new Error(ui("Changed cycle times must be in the future."));
+      }
+      if ((endsAt ?? new Date(cycle.endsAt)).getTime() <= (startsAt ?? new Date(cycle.startsAt)).getTime()) {
+        throw new Error(ui("Cycle end must be after its start."));
+      }
+      if (editCycleClearBank && (endsAt ?? new Date(cycle.endsAt)).getTime() <= now) throw new Error(ui("Set a future end time before enabling bank clearing."));
+      return fetchApi(`/admin/credits/bank/cycles/${cycle.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...(startsAt ? { startsAt: startsAt.toISOString() } : {}), ...(endsAt ? { endsAt: endsAt.toISOString() } : {}), ...(clearBankChanged ? { clearBankOnClose: editCycleClearBank } : {}) }),
+      });
+    },
+    onSuccess: async (_result, cycle) => {
+      setEditingCycleId(null);
+      setCycleEditNotice({ id: cycle.id, message: ui(editCycleClearBank !== cycle.clearBankOnClose ? "Bank cycle updated." : "Bank cycle times updated.") });
+      await refresh();
+    },
+    onError: () => {
+      setNotice(null);
+      setCycleEditNotice(null);
     },
   });
   const clearCycle = useMutation({
@@ -805,7 +853,7 @@ export function CreditsManagementPage({
       });
     },
     onSuccess: async () => {
-      setNotice(ui("Cycle closed; unused bank value was retained."));
+      setNotice(ui("Bank cycle closed."));
       await refresh();
     },
     onError: (error: Error) => {
@@ -922,7 +970,7 @@ export function CreditsManagementPage({
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Banknote />{ui("Credit bank")}</CardTitle>
-                <CardDescription>{ui("Fund governed issuance pools. Each point type has an independent bank.")}</CardDescription>
+                <CardDescription>{ui("Fund governed issuance pools. Each point type has an independent bank.")} {ui("Open a bank cycle for the selected point type before adding bank balance. Funding is available before the cycle starts.")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -991,7 +1039,7 @@ export function CreditsManagementPage({
                   </Field>
                   <Button
                     className="self-end"
-                    disabled={!bankTypeId || !bankReason || bankAmountIsDecimal || !Number.isInteger(Number(bankAmount)) || Number(bankAmount) <= 0 || issueBank.isPending}
+                    disabled={!cycles.data?.some((cycle) => cycle.pointTypeId === bankTypeId && cycle.status === "OPEN" && new Date(cycle.endsAt).getTime() > Date.now()) || !bankTypeId || !bankReason || bankAmountIsDecimal || !Number.isInteger(Number(bankAmount)) || Number(bankAmount) <= 0 || issueBank.isPending}
                     onClick={() => {
                       issueBank.mutate();
                     }}
@@ -1758,7 +1806,7 @@ export function CreditsManagementPage({
             <Card>
               <CardHeader>
                 <CardTitle>{ui("Bank cycles")}</CardTitle>
-                <CardDescription>{ui("Track allocation windows without deleting unused bank value when a cycle closes.")}</CardDescription>
+                <CardDescription>{ui("Choose whether to clear the remaining bank balance when a cycle ends or is closed.")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {canBankManage && <div className="grid gap-3 sm:grid-cols-2">
@@ -1791,7 +1839,8 @@ export function CreditsManagementPage({
                   >
                     <Input
                       id="cycle-start"
-                      type="date"
+                      type="datetime-local"
+                      step="1"
                       value={cycleStart}
                       onChange={(event) => {
                         setCycleStart(event.target.value);
@@ -1805,7 +1854,8 @@ export function CreditsManagementPage({
                   >
                     <Input
                       id="cycle-end"
-                      type="date"
+                      type="datetime-local"
+                      step="1"
                       value={cycleEnd}
                       onChange={(event) => {
                         setCycleEnd(event.target.value);
@@ -1826,6 +1876,7 @@ export function CreditsManagementPage({
                     />
                   </Field>
                 </div>}
+                {canBankManage && <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={cycleClearBank} onChange={(event) => setCycleClearBank(event.target.checked)} className="mt-1" /><span><span className="font-medium">{ui("Clear bank when cycle closes")}</span><span className="block text-xs text-muted-foreground">{ui("Remove the remaining bank balance when the cycle ends or is closed manually. Member balances are not affected.")}</span></span></label>}
                 {canBankManage && <Button
                   disabled={!cycleTypeId || openCycle.isPending}
                   onClick={() => {
@@ -1839,8 +1890,8 @@ export function CreditsManagementPage({
                         <div className="space-y-3 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <p className="font-medium">{cycle.pointType.name} · {formatAdminDate(cycle.startsAt)}–{formatAdminDate(cycle.endsAt)}</p>
-                              <p className="text-xs text-muted-foreground">{ui(cycle.status)}</p>
+                              <p className="font-medium">{cycle.pointType.name} · {new Date(cycle.startsAt).toLocaleString()}–{new Date(cycle.endsAt).toLocaleString()}</p>
+                              <p className="text-xs text-muted-foreground">{ui(cycle.status)} · {cycle.clearBankOnClose ? ui("Clear bank when cycle closes") : ui("Keep bank balance on close")}</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <Button
@@ -1852,12 +1903,26 @@ export function CreditsManagementPage({
                                 }}
                               >{ui("View details")}</Button>
                               {cycle.status === "OPEN" && canBankManage && (
-                                <Button size="sm" variant="outline" onClick={() => clearCycle.mutate(cycle.id)}>
+                                <Button size="sm" variant="outline" onClick={() => { editCycle.reset(); setCycleEditNotice(null); setEditingCycleId(cycle.id); setEditCycleStart(cycleLocalDateTime(cycle.startsAt)); setEditCycleEnd(cycleLocalDateTime(cycle.endsAt)); setEditCycleClearBank(cycle.clearBankOnClose); }}>{ui("Edit cycle times")}</Button>
+                              )}
+                              {cycle.status === "OPEN" && canBankManage && (
+                                <Button size="sm" variant="outline" onClick={() => { if (!cycle.clearBankOnClose || window.confirm(ui("Closing this cycle will clear the remaining bank balance. Continue?"))) clearCycle.mutate(cycle.id); }}>
                                   {ui("Close cycle")}
                                 </Button>
                               )}
                             </div>
                           </div>
+                          {cycleEditNotice?.id === cycle.id && <p role="status" className="rounded-md border border-green-300 bg-green-50 p-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">{cycleEditNotice.message}</p>}
+                          {editingCycleId === cycle.id && cycle.status === "OPEN" && canBankManage && (
+                            <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+                              <p className="text-xs text-muted-foreground sm:col-span-2">{ui("Only changed times are saved; each changed time must be in the future.")}</p>
+                              <Field id={`edit-cycle-start-${cycle.id}`} label={ui("Starts at")} help={ui("Change this time only if needed.")}><Input id={`edit-cycle-start-${cycle.id}`} type="datetime-local" step="1" value={editCycleStart} onChange={(event) => setEditCycleStart(event.target.value)} /></Field>
+                              <Field id={`edit-cycle-end-${cycle.id}`} label={ui("Ends at")} help={ui("Change this time only if needed.")}><Input id={`edit-cycle-end-${cycle.id}`} type="datetime-local" step="1" value={editCycleEnd} onChange={(event) => setEditCycleEnd(event.target.value)} /></Field>
+                              <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={editCycleClearBank} onChange={(event) => setEditCycleClearBank(event.target.checked)} className="mt-1" /><span><span className="font-medium">{ui("Clear bank when cycle closes")}</span><span className="block text-xs text-muted-foreground">{ui("Remove the remaining bank balance when the cycle ends or is closed manually. Member balances are not affected.")}</span></span></label>
+                              {editCycle.isError && <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200 sm:col-span-2">{editCycle.error.message === "Point bank cycle dates invalid" ? ui("Changed cycle times must be in the future and the end must be after the start.") : editCycle.error.message === "Point bank cycle not open" ? ui("This cycle is closed or has expired and can no longer be edited.") : editCycle.error.message === "Point bank cycle clear end in past" ? ui("Set a future end time before enabling bank clearing.") : editCycle.error.message}</p>}
+                              <div className="flex gap-2 sm:col-span-2"><Button size="sm" disabled={editCycle.isPending} onClick={() => editCycle.mutate(cycle)}>{editCycle.isPending ? ui("Saving…") : ui("Save")}</Button><Button size="sm" variant="outline" disabled={editCycle.isPending} onClick={() => { editCycle.reset(); setEditingCycleId(null); }}>{ui("Cancel")}</Button></div>
+                            </div>
+                          )}
                           <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
                             <p>{ui("Opening balance")}: <span className="font-medium">{cycle.opening.toLocaleString()}</span></p>
                             <p>{ui("Allocated")}: <span className="font-medium">{cycle.allocated.toLocaleString()}</span></p>

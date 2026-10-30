@@ -65,8 +65,8 @@ export const adminGuideEnglish: Record<AdminGuideTopic["id"], EnglishTopic> = {
   },
   "banks-cycles": {
     title: "Banks and bank cycles", group: "Points, wallets, and ledger",
-    purpose: "Manage the central point bank, funding transactions, and allocation windows. Closing a cycle does not delete unused bank value.",
-    steps: ["Select a point type and review its current bank balance.", "To fund the bank, enter an amount and reason to create a funding record.", "Open a cycle with its date range or note, then monitor opening value, transactions, and allocation.", "When closing the cycle, provide a closing reason and confirm the responsible administrator.", "Open the cycle details to review its transactions and closing balance; unused value remains in the bank."],
+    purpose: "Manage the central point bank, funding transactions, and allocation windows. Choose whether to retain or clear the remaining bank balance when a cycle closes.",
+    steps: ["Select a point type and review its current bank balance.", "Open a cycle before funding the bank; enter start and end times including hours, minutes and seconds, a note, and the bank clearing option.", "Fund the bank with an amount and reason, then monitor opening value, transactions, and allocation. Cycle times can be edited to a future time.", "When closing the cycle, provide a closing reason and confirm the responsible administrator.", "Open the cycle details to review its transactions and closing balance; the remaining bank balance is retained or cleared according to the cycle setting."],
     result: "A closed cycle records its actor, timestamps, reason, and transaction history. Allocated is net of qualifying returns or refunds.",
     notes: ["Wallet removals and project returns may return points to the bank/cycle depending on transaction type.", "Use net allocated, not gross issuance, when reconciling a cycle.", "Bank funding is a bank transaction, not a member-wallet transaction."],
   },

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../db.js", () => ({ prisma: {} }));
+vi.mock("../lib/audit.js", () => ({ audit: vi.fn() }));
+
 import { WalletService } from "../lib/wallets.js";
 
 const pointType = {
@@ -17,7 +20,7 @@ describe("WalletService bank cycle returns", () => {
     pointTypeDefinition: { findFirst: vi.fn() },
     member: { findFirst: vi.fn() },
     pointBankTransaction: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
-    pointBank: { upsert: vi.fn(), update: vi.fn() },
+    pointBank: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     pointBankCycle: { findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     customPointTransaction: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     customPointWallet: { upsert: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
@@ -34,6 +37,7 @@ describe("WalletService bank cycle returns", () => {
     tx.pointBankTransaction.create.mockImplementation(({ data }) => data);
     tx.pointBankTransaction.findFirst.mockResolvedValue(null);
     tx.pointBank.upsert.mockResolvedValue({ id: "bank-1" });
+    tx.pointBank.findUnique.mockResolvedValue(null);
     tx.pointBank.update.mockResolvedValue({ balance: 500 });
     tx.pointBankCycle.findFirst.mockResolvedValue({ id: "cycle-1" });
     tx.pointBankCycle.updateMany.mockResolvedValue({ count: 1 });
@@ -87,5 +91,47 @@ describe("WalletService bank cycle returns", () => {
       where: { id: "cycle-1" },
       data: { allocated: 0 },
     });
+  });
+});
+
+describe("WalletService bank funding", () => {
+  const tx = {
+    pointTypeDefinition: { findFirst: vi.fn() },
+    pointBankTransaction: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    pointBank: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    pointBankCycle: { findFirst: vi.fn() },
+    $queryRaw: vi.fn(),
+  };
+  const service = new WalletService({ $transaction: (fn: (value: typeof tx) => unknown) => fn(tx) } as never);
+  const fund = () => service.issueBank("program-1", { pointTypeId: pointType.id }, 100, "Funding", { type: "ADMIN_USER", id: "admin-1" }, "fund-1");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tx.pointTypeDefinition.findFirst.mockResolvedValue(pointType);
+    tx.pointBankTransaction.findUnique.mockResolvedValue(null);
+    tx.pointBankTransaction.findFirst.mockResolvedValue(null);
+    tx.pointBankTransaction.create.mockImplementation(({ data }) => data);
+    tx.pointBank.upsert.mockResolvedValue({ id: "bank-1" });
+    tx.pointBank.findUnique.mockResolvedValue(null);
+    tx.pointBank.update.mockResolvedValue({ balance: 100 });
+    tx.pointBankCycle.findFirst.mockResolvedValue(null);
+    tx.$queryRaw.mockResolvedValue([]);
+  });
+
+  it("rejects funding without an open, unexpired cycle", async () => {
+    await expect(fund()).rejects.toMatchObject({ code: "POINT_BANK_CYCLE_REQUIRED" });
+    expect(tx.pointBankCycle.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "OPEN", endsAt: { gt: expect.any(Date) } }) }));
+    expect(tx.pointBank.update).not.toHaveBeenCalled();
+    expect(tx.pointBankTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it("funds a cycle scheduled to start later and attaches its id", async () => {
+    tx.pointBankCycle.findFirst.mockResolvedValue({ id: "future-cycle" });
+    const transaction = await fund();
+    expect(transaction).toMatchObject({ cycleId: "future-cycle", amount: 100, type: "ISSUANCE" });
+    const where = tx.pointBankCycle.findFirst.mock.calls[0][0].where;
+    expect(where).toMatchObject({ status: "OPEN", endsAt: { gt: expect.any(Date) } });
+    expect(where).not.toHaveProperty("startsAt");
+    expect(tx.pointBankTransaction.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ cycleId: "future-cycle" }) }));
   });
 });

@@ -10,6 +10,7 @@ import type {
 } from "@prisma/client";
 
 import { prisma } from "../db.js";
+import { audit } from "./audit.js";
 import { createApprovalRequestWithClient } from "./approval-workflows.js";
 import { LoyaltyError } from "./errors.js";
 import { formatPointExchangeReason } from "./exchange-reason.js";
@@ -696,6 +697,35 @@ async function ensureBank(tx: Tx, programId: string, pointTypeId: string) {
   });
 }
 
+// Caller holds the bank row lock, so a cycle can only clear the balance once.
+export async function clearCycleBank(tx: Tx, bank: { id: string; balance: number }, cycle: { id: string; programId: string; pointTypeId: string }, actorId: string, reason: string): Promise<number> {
+  if (bank.balance <= 0) return 0;
+  await tx.pointBank.update({ where: { id: bank.id }, data: { balance: 0 } });
+  await appendBankTransaction(tx, {
+    bankId: bank.id, programId: cycle.programId, pointTypeId: cycle.pointTypeId,
+    amount: -bank.balance, balanceAfter: 0, type: "CYCLE_CLEAR", reason, actorId,
+    cycleId: cycle.id, idempotencyKey: `cycle-clear:${cycle.id}`,
+  });
+  return bank.balance;
+}
+
+export async function closeExpiredBankCycle(tx: Tx, programId: string, pointTypeId: string): Promise<void> {
+  const bank = await tx.pointBank.findUnique({ where: { programId_pointTypeId: { programId, pointTypeId } } });
+  if (!bank) return;
+  await tx.$queryRaw`SELECT "id" FROM "PointBank" WHERE "id" = ${bank.id} FOR UPDATE`;
+  const cycle = await tx.pointBankCycle.findFirst({ where: { programId, pointTypeId, status: "OPEN", clearBankOnClose: true, endsAt: { lte: new Date() } } });
+  if (!cycle) return;
+  const currentBank = await tx.pointBank.findUniqueOrThrow({ where: { id: bank.id } });
+  const cleared = await clearCycleBank(tx, currentBank, cycle, "system:bank-cycle", "Automatic bank cycle close");
+  const updated = await tx.pointBankCycle.update({ where: { id: cycle.id }, data: { status: "CLEARED", closing: 0, clearedAt: new Date(), clearedBy: "system:bank-cycle", clearReason: "Automatic bank cycle close" } });
+  await audit(programId, { type: "SYSTEM", id: "system:bank-cycle" }, "CREDIT_BANK", "point_bank_cycle", cycle.id, { status: "CLEARED", pointTypeId, closing: 0, clearedPoints: cleared, endsAt: updated.endsAt }, "Automatic bank cycle close", tx);
+}
+
+export async function closeExpiredBankCycles(): Promise<void> {
+  const cycles = await prisma.pointBankCycle.findMany({ where: { status: "OPEN", clearBankOnClose: true, endsAt: { lte: new Date() } }, select: { programId: true, pointTypeId: true } });
+  for (const cycle of cycles) await prisma.$transaction((tx) => closeExpiredBankCycle(tx, cycle.programId, cycle.pointTypeId));
+}
+
 async function debitBank(
   tx: Tx,
   input: {
@@ -727,6 +757,7 @@ async function debitBank(
     return existing;
   }
   const bank = await ensureBank(tx, input.programId, input.pointTypeId);
+  await closeExpiredBankCycle(tx, input.programId, input.pointTypeId);
   const changed = await tx.pointBank.updateMany({
     where: { id: bank.id, balance: { gte: input.amount } },
     data: { balance: { decrement: input.amount } },
@@ -799,11 +830,20 @@ async function creditBank(
     return existing;
   }
   const bank = await ensureBank(tx, input.programId, input.pointTypeId);
+  await closeExpiredBankCycle(tx, input.programId, input.pointTypeId);
+  // Funding belongs to an open cycle, including one scheduled to start later.
+  const fundingCycle = input.type === "ISSUANCE"
+    ? await tx.pointBankCycle.findFirst({
+        where: { programId: input.programId, pointTypeId: input.pointTypeId, status: "OPEN", endsAt: { gt: new Date() } },
+        select: { id: true },
+      })
+    : null;
+  if (input.type === "ISSUANCE" && !fundingCycle) throw new LoyaltyError("POINT_BANK_CYCLE_REQUIRED", 409);
   const updated = await tx.pointBank.update({
     where: { id: bank.id },
     data: { balance: { increment: input.amount } },
   });
-  const activeCycle = input.cycleId
+  const activeCycle = input.cycleId || fundingCycle
     ? null
     : await tx.pointBankCycle.findFirst({
         where: {
@@ -826,9 +866,9 @@ async function creditBank(
     reason: input.reason,
     actorId: input.actorId,
     idempotencyKey: input.idempotencyKey,
-    cycleId: input.cycleId ?? activeCycle?.id,
+    cycleId: input.cycleId ?? fundingCycle?.id ?? activeCycle?.id,
   });
-  const cycleId = input.cycleId ?? activeCycle?.id;
+  const cycleId = input.cycleId ?? fundingCycle?.id ?? activeCycle?.id;
   if (
     cycleId &&
     BANK_CYCLE_RETURN_TYPES.includes(input.type as (typeof BANK_CYCLE_RETURN_TYPES)[number])
