@@ -10,8 +10,8 @@ import type {
 } from "@prisma/client";
 
 import { prisma } from "../db.js";
-import { audit } from "./audit.js";
 import { createApprovalRequestWithClient } from "./approval-workflows.js";
+import { audit } from "./audit.js";
 import { LoyaltyError } from "./errors.js";
 import { formatPointExchangeReason } from "./exchange-reason.js";
 
@@ -723,7 +723,15 @@ export async function closeExpiredBankCycle(tx: Tx, programId: string, pointType
 
 export async function closeExpiredBankCycles(): Promise<void> {
   const cycles = await prisma.pointBankCycle.findMany({ where: { status: "OPEN", clearBankOnClose: true, endsAt: { lte: new Date() } }, select: { programId: true, pointTypeId: true } });
-  for (const cycle of cycles) await prisma.$transaction((tx) => closeExpiredBankCycle(tx, cycle.programId, cycle.pointTypeId));
+  let firstError: Error | undefined;
+  for (const cycle of cycles) {
+    try {
+      await prisma.$transaction((tx) => closeExpiredBankCycle(tx, cycle.programId, cycle.pointTypeId));
+    } catch (error) {
+      firstError ??= error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  if (firstError) throw firstError;
 }
 
 async function debitBank(

@@ -31,6 +31,7 @@ vi.mock("../lib/approval-workflows.js", () => ({
   ensurePointExchangeApprovalRequest: vi.fn(),
 }));
 vi.mock("../lib/audit.js", () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../lib/bank-cycle-scheduler.js", () => ({ scheduleBankCycleExpiry: vi.fn() }));
 vi.mock("../lib/created-by.js", () => ({
   createdByForEntities: vi.fn().mockResolvedValue(new Map()),
 }));

@@ -5,12 +5,13 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { notifyApprovalAssignees, notifyDirectExchangeApprovers } from "../lib/admin-notifications.js";
 import { audit } from "../lib/audit.js";
+import { scheduleBankCycleExpiry } from "../lib/bank-cycle-scheduler.js";
 import { createdByForEntities } from "../lib/created-by.js";
 import { LoyaltyError } from "../lib/errors.js";
+import { notifyCreditAdjustment, notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 import { notificationsService } from "../lib/notifications-setup.js";
 import { requireCapability } from "../lib/permissions.js";
 import { BANK_CYCLE_RETURN_TYPES, clearCycleBank, closeExpiredBankCycle, walletService } from "../lib/wallets.js";
-import { notifyCreditAdjustment, notifyCreditExchangeDecision } from "../lib/member-notifications.js";
 
 function idempotencyKey(request: {
   headers: Record<string, string | string[] | undefined>;
@@ -1314,6 +1315,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         );
         return created;
       });
+      scheduleBankCycleExpiry();
       return reply.status(201).send({ data: cycle });
     },
   );
@@ -1347,6 +1349,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
           { previousStartsAt: cycle.startsAt, previousEndsAt: cycle.endsAt, previousClearBankOnClose: cycle.clearBankOnClose, startsAt, endsAt, clearBankOnClose: result.clearBankOnClose }, undefined, tx);
         return result;
       });
+      scheduleBankCycleExpiry();
       return reply.send({ data: updated });
     },
   );
@@ -1418,6 +1421,7 @@ export function creditsRoutes(app: FastifyInstance, _opts: unknown, done: () => 
         );
         return updated;
       });
+      scheduleBankCycleExpiry();
       return reply.send({ data: result });
     },
   );
