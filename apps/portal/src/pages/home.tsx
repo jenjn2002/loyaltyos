@@ -316,6 +316,8 @@ export function PointsDashboard({ enabled }: { enabled: boolean }) {
     queryFn: () => fetchApi<WalletSummary[]>(`/members/me/credits/summary?${params.toString()}`),
     enabled: enabled && valid,
   });
+  const summaryWallets = Array.isArray(summary.data) ? summary.data : null;
+  const invalidSummaryResponse = enabled && valid && !summary.isLoading && !summary.isError && summaryWallets === null;
   return (
     <section className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-sm" aria-labelledby="points-overview-heading">
       <div className="border-b border-[var(--color-border)] p-5 sm:p-6">
@@ -332,8 +334,8 @@ export function PointsDashboard({ enabled }: { enabled: boolean }) {
         </div>
       </div>
       <div className="p-5 sm:p-6">
-        {!valid ? <p role="alert" className="text-sm text-red-600">{ui("Start time must be on or before end time.")}</p> : summary.isError ? <p role="alert" className="text-sm text-red-600">{ui("Could not load points overview.")} <button type="button" onClick={() => void summary.refetch()} className="underline">{ui("Try again")}</button></p> : summary.isLoading ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("Loading…")}</p> : summary.data?.length === 0 ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("No point balances available.")}</p> : (
-          <div className="space-y-4">{summary.data?.map((wallet) => (
+        {!valid ? <p role="alert" className="text-sm text-red-600">{ui("Start time must be on or before end time.")}</p> : summary.isError || invalidSummaryResponse ? <p role="alert" className="text-sm text-red-600">{ui("Could not load points overview.")} <button type="button" onClick={() => void summary.refetch()} className="underline">{ui("Try again")}</button></p> : summary.isLoading ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("Loading…")}</p> : summaryWallets?.length === 0 ? <p className="text-sm text-[var(--color-text-secondary)]">{ui("No point balances available.")}</p> : (
+          <div className="space-y-4">{(summaryWallets ?? []).map((wallet) => (
             <div key={wallet.pointTypeId} className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
               <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
                 <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-text)]"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-secondary)] text-[var(--color-primary)]"><PointTypeIcon icon={wallet.icon} className="h-4 w-4" /></span><span className="truncate">{wallet.name}</span></h3>

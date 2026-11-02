@@ -4,8 +4,8 @@ import { I18nextProvider } from "react-i18next";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import Home from "../pages/home";
 import i18n from "../lib/i18n";
+import Home from "../pages/home";
 
 describe("Home", () => {
   beforeEach(async () => {
@@ -36,6 +36,7 @@ describe("Home", () => {
         const responseByPath: Record<string, unknown> = {
           "/api/v1/members/me/balance": { wallets: [] },
           "/api/v1/members/me/tier": { currentTier: null, nextTier: null, pointsProgress: 0, pointsToNext: null },
+          "/api/v1/members/me/credits/summary": [],
           "/api/v1/rewards": { items: [] },
           "/api/v1/members/me/badges": [],
           "/api/v1/members/me/campaign-claims": { items: [], total: 0, totalPages: 1 },
@@ -59,7 +60,7 @@ describe("Home", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText(/Session expired or account data could not be loaded/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Some sections could not be loaded/i)).toBeInTheDocument();
   });
 
   it("refreshes tier progress after a member claims campaign points", async () => {
@@ -73,6 +74,7 @@ describe("Home", () => {
       const responseByPath: Record<string, unknown> = {
         "/api/v1/members/me/balance": { wallets: [] },
         "/api/v1/members/me/credits": [],
+        "/api/v1/members/me/credits/summary": [],
         "/api/v1/members/me/tier": { currentTier: null, nextTier: null, pointsProgress: 0, pointsToNext: null },
         "/api/v1/rewards": { items: [] },
         "/api/v1/members/me/badges": [],
@@ -105,5 +107,39 @@ describe("Home", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Claim points" }));
 
     await waitFor(() => expect(invalidateQueries).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["tier"] })));
+  });
+
+  it("keeps the home page usable when the points summary response has the wrong shape", async () => {
+    sessionStorage.setItem("auth-token", "test-token");
+    sessionStorage.setItem("member-id", "member-test");
+    sessionStorage.setItem("program-id", "program-test");
+
+    const responseByPath: Record<string, unknown> = {
+      "/api/v1/members/me/balance": { wallets: [] },
+      "/api/v1/members/me/credits": [],
+      "/api/v1/members/me/credits/summary": { wallets: [] },
+      "/api/v1/members/me/tier": { currentTier: null, nextTier: null, pointsProgress: 0, pointsToNext: null },
+      "/api/v1/rewards": { items: [] },
+      "/api/v1/members/me/badges": [],
+      "/api/v1/members/me/campaign-claims": { items: [], total: 0, totalPages: 1 },
+      "/api/v1/members/me/check-ins": { events: [] },
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(requestUrl, window.location.origin);
+      return Promise.resolve(Response.json({ data: responseByPath[url.pathname] ?? {} }));
+    }));
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <MemoryRouter><Home /></MemoryRouter>
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Could not load points overview.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
   });
 });
