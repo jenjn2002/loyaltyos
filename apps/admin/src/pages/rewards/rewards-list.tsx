@@ -31,6 +31,7 @@ interface Reward {
   tierRequired: string | null;
   isActive: boolean;
   redemptions: { id: string; memberId: string }[];
+  pendingFulfillmentCount: number;
   pointPrices: {
     pointTypeId: string;
     amount: number;
@@ -265,8 +266,12 @@ function RewardsTable({
                       <Pencil className="h-4 w-4" />
                     </Button>}
                     <Button variant="ghost" size="icon" asChild>
-                      <Link to={`/rewards/${r.id}/redemptions`}>
-                        <List className="h-4 w-4" />
+                      <Link
+                        to={`/rewards/${r.id}/redemptions`}
+                        aria-label={r.pendingFulfillmentCount > 0 ? ui("Open redemption history with pending fulfillment") : ui("Open redemption history")}
+                        title={r.pendingFulfillmentCount > 0 ? ui("Open redemption history with pending fulfillment") : ui("Open redemption history")}
+                      >
+                        <RedemptionHistoryIcon pending={r.pendingFulfillmentCount > 0} className="h-4 w-4" />
                       </Link>
                     </Button>
                     {canManage && <Button
@@ -349,8 +354,12 @@ function RewardsGrid({
               >
                 <Pencil className="mr-1 h-3 w-3" />{ui("Edit")}</Button>}
               <Button variant="outline" size="sm" asChild>
-                <Link to={`/rewards/${r.id}/redemptions`}>
-                  <List className="mr-1 h-3 w-3" />
+                <Link
+                  to={`/rewards/${r.id}/redemptions`}
+                  aria-label={r.pendingFulfillmentCount > 0 ? ui("Open redemption history with pending fulfillment") : ui("Open redemption history")}
+                  title={r.pendingFulfillmentCount > 0 ? ui("Open redemption history with pending fulfillment") : ui("Open redemption history")}
+                >
+                  <RedemptionHistoryIcon pending={r.pendingFulfillmentCount > 0} className="mr-1 h-3 w-3" />
                   Redemptions ({r.redemptions.length})
                 </Link>
               </Button>
@@ -369,6 +378,15 @@ function RewardsGrid({
         </Card>
       ))}
     </div>
+  );
+}
+
+function RedemptionHistoryIcon({ pending, className }: { pending: boolean; className: string }): JSX.Element {
+  return (
+    <span className="relative inline-flex">
+      <List className={className} />
+      {pending && <span aria-hidden="true" className="absolute -right-1 -top-1 h-2 w-2 rounded-full border-2 border-background bg-red-600" />}
+    </span>
   );
 }
 

@@ -62,6 +62,8 @@ export function RewardsRedemptionsPage(): JSX.Element {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["reward-redemptions", id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "rewards", "redemption-stats"] });
+      void queryClient.invalidateQueries({ queryKey: ["rewards"] });
     },
   });
 

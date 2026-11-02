@@ -56,6 +56,7 @@ interface SidebarItem {
   end?: boolean;
   capability: string;
   badgeCount?: number;
+  badgeLabel?: string;
 }
 
 function SidebarLink({ item, nested = false }: { item: SidebarItem; nested?: boolean }): JSX.Element {
@@ -78,7 +79,7 @@ function SidebarLink({ item, nested = false }: { item: SidebarItem; nested?: boo
       {Icon && !nested && <Icon className="h-4 w-4 shrink-0" />}
       <span className="min-w-0 flex-1">{item.label}</span>
       {item.badgeCount !== undefined && item.badgeCount > 0 && (
-        <span className="ml-2 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white" aria-label={`${item.badgeCount} pending approvals`}>
+        <span className="ml-2 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white" aria-label={`${item.badgeCount} ${item.badgeLabel ?? ui("notifications")}`}>
           {item.badgeCount > 99 ? "99+" : item.badgeCount}
         </span>
       )}
@@ -94,6 +95,7 @@ function SidebarDropdown({
   active,
   onToggle,
   notificationCount = 0,
+  notificationLabel = ui("pending approvals"),
 }: {
   label: string;
   icon: LucideIcon;
@@ -102,6 +104,7 @@ function SidebarDropdown({
   active: boolean;
   onToggle: () => void;
   notificationCount?: number;
+  notificationLabel?: string;
 }): JSX.Element | null {
   if (items.length === 0) return null;
   return (
@@ -119,7 +122,7 @@ function SidebarDropdown({
       >
         <Icon className="h-4 w-4 shrink-0" />
         <span className="flex-1 text-left">{label}</span>
-        {notificationCount > 0 && <span className="h-2 w-2 rounded-full bg-red-600" aria-label={`${notificationCount} pending approvals`} />}
+        {notificationCount > 0 && <span className="h-2 w-2 rounded-full bg-red-600" aria-label={`${notificationCount} ${notificationLabel}`} />}
         <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
@@ -178,6 +181,15 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
     staleTime: 0,
     refetchInterval: 30_000,
   });
+  const canViewRewards = admin.data?.capabilities["reward.view"] === true;
+  const rewardFulfillment = useQuery({
+    queryKey: ["admin", "rewards", "redemption-stats", "30d"],
+    queryFn: () => fetchApi<{ pendingFulfillmentCount: number }>("/admin/rewards/redemption-stats?period=30d"),
+    enabled: authenticated && canViewRewards,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const pendingFulfillmentCount = canViewRewards ? rewardFulfillment.data?.pendingFulfillmentCount ?? 0 : 0;
   const canSee = ({ capability }: SidebarItem): boolean => {
     if (!authenticated || !admin.data) return false;
     if (capability === "exports.view") {
@@ -242,7 +254,14 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
       capability: "campaign.view",
     },
     { to: "/coupons", label: t("navigation.coupons"), icon: Ticket, capability: "coupon.view" },
-    { to: "/rewards", label: t("navigation.rewards"), icon: Gift, capability: "reward.view" },
+    {
+      to: "/rewards",
+      label: t("navigation.rewards"),
+      icon: Gift,
+      capability: "reward.view",
+      badgeCount: pendingFulfillmentCount,
+      badgeLabel: ui("pending reward fulfillments"),
+    },
   ]);
   const approvalLinks = filterLinks([
     {
@@ -345,6 +364,8 @@ export function Sidebar({ embedded = false }: { embedded?: boolean }): JSX.Eleme
           items={campaignLinks}
           open={campaignsOpen}
           active={campaignsSectionActive}
+          notificationCount={pendingFulfillmentCount}
+          notificationLabel={ui("pending reward fulfillments")}
           onToggle={() => {
             setCampaignsOpen((open) => !open);
           }}

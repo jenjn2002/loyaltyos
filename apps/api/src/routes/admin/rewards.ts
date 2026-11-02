@@ -160,14 +160,27 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         }),
         prisma.reward.count({ where }),
       ]);
-      const creators = await createdByForEntities(
-        request.programId,
-        "reward",
-        items.map((reward) => reward.id),
+      const rewardIds = items.map((reward) => reward.id);
+      const [creators, pendingFulfillmentRows] = await Promise.all([
+        createdByForEntities(request.programId, "reward", rewardIds),
+        rewardIds.length > 0
+          ? prisma.rewardRedemption.groupBy({
+              by: ["rewardId"],
+              where: { rewardId: { in: rewardIds }, fulfillmentStatus: "PENDING" },
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const pendingFulfillmentCounts = new Map(
+        pendingFulfillmentRows.map((row) => [row.rewardId, row._count._all]),
       );
       return reply.send({
         data: {
-          items: items.map((reward) => ({ ...reward, createdBy: creators.get(reward.id) ?? null })),
+          items: items.map((reward) => ({
+            ...reward,
+            createdBy: creators.get(reward.id) ?? null,
+            pendingFulfillmentCount: pendingFulfillmentCounts.get(reward.id) ?? 0,
+          })),
           total,
           page: query.page,
           pageSize: query.pageSize,
@@ -195,11 +208,17 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         const ownedReward = await prisma.reward.findFirst({ where: { id: query.rewardId, programId: request.programId, deletedAt: null }, select: { id: true } });
         if (!ownedReward) throw new LoyaltyError("REWARD_NOT_FOUND", 404);
       }
-      const [totalRedemptions, pointTotals, uniqueMembers, grouped] = await Promise.all([
+      const [totalRedemptions, pointTotals, uniqueMembers, grouped, pendingFulfillmentCount] = await Promise.all([
         prisma.rewardRedemption.count({ where }),
         prisma.rewardRedemption.aggregate({ where, _sum: { pointsSpent: true } }),
         prisma.rewardRedemption.findMany({ where, distinct: ["memberId"], select: { memberId: true } }),
         prisma.rewardRedemption.groupBy({ by: ["rewardId"], where, _count: { _all: true }, _sum: { pointsSpent: true } }),
+        prisma.rewardRedemption.count({
+          where: {
+            reward: { programId: request.programId, ...(query.rewardId ? { id: query.rewardId } : {}) },
+            fulfillmentStatus: "PENDING",
+          },
+        }),
       ]);
       const rewardIds = grouped.map((item) => item.rewardId);
       const rewardNames = rewardIds.length
@@ -215,6 +234,7 @@ export function adminRewardsRoutes(app: FastifyInstance, _opts: unknown, done: (
         totalPointsBurned: pointTotals._sum.pointsSpent ?? 0,
         uniqueMembers: uniqueMembers.length,
         topRewards,
+        pendingFulfillmentCount,
       } });
     },
   );
