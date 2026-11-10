@@ -696,6 +696,9 @@ export default function Credits(): JSX.Element {
             </label>
             <div className="rounded-lg bg-[var(--color-surface-secondary)] p-3 text-sm">
               <p>{ui("Available source:")} <strong>{sourceAvailable.toLocaleString()} {sourceWallet?.unitLabel}</strong></p>
+              {sourceWallet?.giveSource === "ALLOWANCE" && sourceWallet.bankEnabled && (
+                <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{ui("Your allowance limits how much you can Give. This transaction also needs enough points in the program bank.")}</p>
+              )}
               <p>{ui("Points to spend:")} <strong>{sourceTotal.toLocaleString()} {sourceWallet?.unitLabel}</strong></p>
               <p>{ui("Recipient total:")} <strong>{destinationTotal.toLocaleString()} {destination?.unitLabel}</strong></p>
             </div>
